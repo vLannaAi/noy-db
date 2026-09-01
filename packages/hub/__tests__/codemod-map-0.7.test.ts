@@ -14,7 +14,7 @@
  * exposed.
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as hub from '../src/index.js'
 
@@ -206,10 +206,61 @@ describe('codemods/0.7.0-pre.json — satellite rows', () => {
     }
   })
 
+  /**
+   * Packages whose source left this repo (2026-09-01), with where it went.
+   *
+   * A row about `@noy-db/at-env` is answerable only against at-env's source,
+   * and that source is now one repo over. Rather than skip such rows silently
+   * — which would let this suite report 22 checked rows while examining three
+   * — the extraction is DECLARED here and its premise is checked below: a
+   * package named as extracted must actually be absent, and a row naming a
+   * package that is neither present nor declared FAILS. So the map cannot
+   * quietly stop being verified, in either direction.
+   *
+   * ⚠️ The rows themselves are NOT weakened — they are still true of the
+   * published packages, and verifying them is the receiving repo's job now.
+   */
+  const EXTRACTED = new Map([
+    ['@noy-db/as-csv', 'vLannaAi/noy-db-as'],
+    ['@noy-db/as-json', 'vLannaAi/noy-db-as'],
+    ['@noy-db/as-sql', 'vLannaAi/noy-db-as'],
+    ['@noy-db/as-xml', 'vLannaAi/noy-db-as'],
+    ['@noy-db/at-aws-kms', 'vLannaAi/noy-db-at'],
+    ['@noy-db/at-azure-keyvault', 'vLannaAi/noy-db-at'],
+    ['@noy-db/at-env', 'vLannaAi/noy-db-at'],
+    ['@noy-db/at-gcp-kms', 'vLannaAi/noy-db-at'],
+    ['@noy-db/at-macos-keychain', 'vLannaAi/noy-db-at'],
+  ])
+
+  it('a row naming an absent package is declared extracted, never silently skipped', () => {
+    for (const r of satelliteRows) {
+      const dir = r.package.replace('@noy-db/', '')
+      const present = existsSync(fileURLToPath(new URL(`../../${dir}/src/index.ts`, import.meta.url)))
+      if (EXTRACTED.has(r.package)) {
+        // The declaration's own premise. If the package comes back, this row
+        // becomes checkable again and the EXTRACTED entry must go — otherwise
+        // a present package would ride an exemption written for its absence.
+        expect(present, `${r.package} is declared EXTRACTED but its source is here — remove the entry so the row is checked again`).toBe(false)
+      } else {
+        expect(present, `${r.package} has no source here and is not declared EXTRACTED — say where it went, or this row stops being verified by anything`).toBe(true)
+      }
+    }
+  })
+
   it('every satellite `to` is exported by the package the row names, and the `from` is gone', () => {
     // Checked against that package's SOURCE, not hub's surface — a row about
     // @noy-db/at-env is answerable only there.
     for (const r of satelliteRows) {
+      if (EXTRACTED.has(r.package)) {
+        // The source-side halves are unanswerable here. The TARGET half still
+        // is when it points into hub, so it is kept rather than dropped with
+        // the rest — a partial check that says which part it covers.
+        if (r.toPackage?.startsWith('@noy-db/hub')) {
+          const target = read(`../src/port/${r.toPackage.split('/').pop()!}/index.ts`)
+          expect(target, `${r.toPackage} does not export ${r.to}`).toMatch(new RegExp(`\\b${r.to}\\b`))
+        }
+        continue
+      }
       // A rename can move a symbol across packages — `toPackage` records
       // that, and the target is then checked where it actually lives. Without
       // it the row would have to lie about one end or the other.

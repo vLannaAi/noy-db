@@ -11,9 +11,7 @@
       "@noy-db/to-browser-idb": ["./packages/to-browser-idb/src/index.ts"],
       "@noy-db/in-vue": ["./packages/in-vue/src/index.ts"],
       "@noy-db/in-pinia": ["./packages/in-pinia/src/index.ts"],
-      "@noy-db/in-yjs": ["./packages/in-yjs/src/index.ts"],
-      "@noy-db/on-webauthn": ["./packages/on-webauthn/src/index.ts"],
-      "@noy-db/on-oidc": ["./packages/on-oidc/src/index.ts"]
+      "@noy-db/in-yjs": ["./packages/in-yjs/src/index.ts"]
     }
   },
   "include": [
@@ -24,9 +22,7 @@
     "packages/in-vue/src/**/*.ts",
     "packages/in-pinia/src/**/*.ts",
     "packages/in-nuxt/src/**/*.ts",
-    "packages/in-yjs/src/**/*.ts",
-    "packages/on-webauthn/src/**/*.ts",
-    "packages/on-oidc/src/**/*.ts"
+    "packages/in-yjs/src/**/*.ts"
   ],
   "exclude": [
     "**/__tests__/**",
