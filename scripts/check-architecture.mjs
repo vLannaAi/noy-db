@@ -1641,6 +1641,27 @@ function checkNoOutboundKlumImport() {
  */
 const FAMILY_PORT_SUBPATHS = ['to', 'at', 'by', 'as', 'on']
 
+/**
+ * The exemption the doc above prescribes, now that the case it predicted has
+ * arrived (2026-09-01): the whole `as-*` family was extracted to noy-db-as, so
+ * `/as` has zero IN-REPO binders while being bound by seven packages one repo
+ * over. The doc's instruction was explicit — "the fix is an explicit exemption
+ * with the cross-repo binder named, not deleting the rule" — so the binders are
+ * named here rather than the port being dropped from the list.
+ *
+ * This cannot verify a cross-repo import and does not pretend to. What it CAN
+ * falsify is the exemption's own premise: it applies only while NO package of
+ * that family lives here. Re-introduce one `as-*` package and the exemption
+ * lapses, the port must earn an in-repo binder again, and a family that came
+ * home half-way cannot ride an exemption written for its absence.
+ */
+const CROSS_REPO_BOUND = new Map([
+  ['as', {
+    repo: 'vLannaAi/noy-db-as',
+    binders: ['as-csv', 'as-json', 'as-ndjson', 'as-sql', 'as-xlsx', 'as-xml', 'as-zip'],
+  }],
+])
+
 function checkFamilyPortHasBinder() {
   for (const port of FAMILY_PORT_SUBPATHS) {
     const specifier = `@noy-db/hub/${port}`
@@ -1654,13 +1675,28 @@ function checkFamilyPortHasBinder() {
       })
       if (found) binders.push(name)
     }
-    if (binders.length === 0) {
+    if (binders.length > 0) continue
+
+    const exempt = CROSS_REPO_BOUND.get(port)
+    if (exempt) {
+      // The exemption's premise, checked: the family must be wholly absent.
+      const stillHere = listPackageDirs()
+        .map((d) => basename(d))
+        .filter((d) => d.startsWith(`${port}-`))
+      if (stillHere.length === 0) continue
       fail(
         'family-port-has-binder',
-        `${specifier} is published and NOTHING in this repo imports it. That is the exact "zero importers" condition the 0.4.0 prune removed seven subpaths for. Either migrate the family onto the seam, or do not publish it — a subpath resolves whether or not anyone binds it, so nothing else will tell you.`,
-        'packages/hub/package.json',
+        `${specifier} is exempted as bound only from ${exempt.repo}, but ${stillHere.join(', ')} still live(s) here and bind(s) nothing. The exemption was written for a family that had wholly left; it must not cover one that is partly back. Either bind the seam from that package or finish the extraction.`,
+        'scripts/check-architecture.mjs',
       )
+      continue
     }
+
+    fail(
+      'family-port-has-binder',
+      `${specifier} is published and NOTHING in this repo imports it. That is the exact "zero importers" condition the 0.4.0 prune removed seven subpaths for. Either migrate the family onto the seam, or do not publish it — a subpath resolves whether or not anyone binds it, so nothing else will tell you.`,
+      'packages/hub/package.json',
+    )
   }
 }
 
@@ -1739,21 +1775,21 @@ function checkHubSatelliteDeps() {
 
 /**
  * The `on-*` family is NOT uniform, and pretending otherwise is how it gets
- * a port it does not have. Measured against hub's injected ports — the
- * complete set is `store`, `sealingKey`, `deviceSeal`, `mesh`,
- * `shamirRecovery` — exactly ONE of ten `on-*` packages is a port instance.
- * Two implement the slot-rewrap ceremony hub calls back through. Seven are
- * libraries: they may consume hub, and hub never calls them.
+ * a port it does not have.
  *
- * Written as a check rather than prose because the two useful halves are
- * falsifiable:
+ * ⚠️ SCOPE CHANGED 2026-09-01: nine of the ten `on-*` packages were extracted
+ * to `vLannaAi/noy-db-on`. Only `on-shamir` remains here, because hub holds it
+ * as a devDependency — six managed-mode / recovery test files exercise REAL
+ * k-of-n threshold behaviour against the shipped implementation (see
+ * HUB_SATELLITE_DEPS above). The ceremony/library halves of this check moved
+ * WITH the packages and are noy-db-on's to carry; do not read their absence
+ * here as those properties having stopped mattering.
  *
- *  - a `ceremony` package MUST import the ceremony contract. If someone
- *    rewrites on-password to stop returning `EnrollAuthenticatorOptions`,
- *    hub is no longer calling back into it and the label is stale.
- *  - a `library` MUST NOT be depended on by hub, and MUST NOT import the
- *    ceremony contract. Either would make it something hub calls — a port
- *    in all but name, with none of the obligations recorded.
+ * What still earns its place in this repo is the UNCLASSIFIED guard below: if
+ * an `on-*` package ever appears in `packages/` again, it must be labelled
+ * rather than silently assumed to be an Unlocker. The ceremony and library
+ * branches are retained because the classification they enforce is what makes
+ * that label mean anything — not because either can fire today.
  *
  * The `port` label is deliberately NOT asserted from here: an injected port
  * instance is identified by a field on `NoydbOptions`, which this script
@@ -1765,15 +1801,9 @@ const CEREMONY_CONTRACT = /\b(SlotRewrapCeremony|EnrollAuthenticatorOptions)\b/
 
 const ON_FAMILY = new Map([
   ['on-shamir', 'port'],
-  ['on-password', 'ceremony'],
-  ['on-webauthn', 'ceremony'],
-  ['on-oidc', 'library'],
-  ['on-pin', 'library'],
-  ['on-magic-link', 'library'],
-  ['on-recovery', 'library'],
-  ['on-email-otp', 'library'],
-  ['on-totp', 'library'],
-  ['on-threat', 'library'],
+  // The other nine rows moved to noy-db-on with their packages (2026-09-01).
+  // Re-adding a row here without the package is what the "no longer exists"
+  // failure below catches.
 ])
 
 function checkOnFamilyClassification() {
@@ -2818,56 +2848,27 @@ checkEnclaveClassifyOnly()
 checkEnclaveClassifyIndexOnly()
 checkViaLayering()
 
-// ─── Check 16: as-conformance-fixture (#1209 — every format runs the kit) ──
-
-/**
- * Every `packages/as-*` package must contain a conformance fixture invoking
- * `runFormatConformanceTests`.
- *
- * The rule exists because the alternative already happened. When the 0.7 line
- * inverted four formats, their fixtures stopped type-checking and were DELETED
- * rather than migrated — and nothing noticed, because a deleted test does not
- * fail. Coverage dropped from nine formats to five while the suite stayed
- * green and the ADR kept claiming every `as-*` entry point was
- * conformance-tested (#1209).
- *
- * This is an output-domain assertion: it does not care HOW the fixture is
- * written, only that each format package contains one that calls the kit. A
- * future API reshape can still force fixtures to be rewritten — it can no
- * longer make them quietly disappear.
- */
-function checkAsConformanceFixture() {
-  const pkgsDir = join(ROOT, 'packages')
-  // as-aws-s3 is EXEMPT, with the kit's own README as the authority: it
-  // exports `asAwsS3(options)` and is a DESTINATION, not a format — it has no
-  // encode/decode and no gate call of its own to conform. Named here rather
-  // than skipped by a looser pattern, so adding a real format package can
-  // never ride the exemption.
-  const DESTINATIONS = new Set(['as-aws-s3'])
-  for (const name of readdirSync(pkgsDir)) {
-    if (!name.startsWith('as-') || DESTINATIONS.has(name)) continue
-    const testsDir = join(pkgsDir, name, '__tests__')
-    let found = false
-    if (existsSync(testsDir)) {
-      for (const f of readdirSync(testsDir)) {
-        if (!f.endsWith('.ts')) continue
-        if (readFileSync(join(testsDir, f), 'utf8').includes('runFormatConformanceTests(')) {
-          found = true
-          break
-        }
-      }
-    }
-    if (!found) {
-      fail(
-        'as-conformance-fixture',
-        `packages/${name} has no test invoking runFormatConformanceTests. Every as-* format runs the published gate kit — when the 0.7 inversion broke four fixtures they were deleted instead of migrated, and coverage silently dropped 9 formats to 5 (#1209). Write the fixture; do not delete it.`,
-        `packages/${name}`,
-      )
-    }
-  }
-}
-
-checkAsConformanceFixture()
+// ─── Check 16: REMOVED with the as-* family (2026-09-01) ──────────────────
+//
+// `checkAsConformanceFixture` asserted that every `packages/as-*` package held
+// a fixture invoking `runFormatConformanceTests` (#1209). The rule existed
+// because the alternative had already happened: when the 0.7 line inverted four
+// formats their fixtures stopped type-checking and were DELETED rather than
+// migrated, and nothing noticed, because a deleted test does not fail. Coverage
+// dropped from nine formats to five while the suite stayed green and the ADR
+// went on claiming every `as-*` entry point was conformance-tested.
+//
+// The ten `as-*` packages moved to `vLannaAi/noy-db-as`. The check was deleted
+// rather than kept, because `readdirSync(packages)` now matches NOTHING with an
+// `as-` prefix: it would iterate an empty list, pass unconditionally, and read
+// in this file as live coverage of a family that is not here. This repo has
+// been bitten by exactly that shape before — a live script over an empty
+// collection is indistinguishable from "nothing to report".
+//
+// ⚠️ THE RULE DID NOT STOP MATTERING; THE PACKAGES MOVED. noy-db-as must carry
+// this guard, and until it does, #1209's regression is unguarded THERE rather
+// than fixed. Routed to the family root on removal; not noy-db's to install,
+// since a silo does not write to a sibling.
 
 // ─── Check 17: peer-meta-declared ──────────────────────────────────────────
 //
