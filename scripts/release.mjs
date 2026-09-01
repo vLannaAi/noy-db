@@ -28,6 +28,22 @@
  *   - Logs every package that was corrected so the engineer can verify.
  *   - Does NOT touch workspace:* inter-package dependency entries — those are
  *     rewritten to real versions by `pnpm changeset publish` at publish time.
+ *
+ * `--resume`:
+ *   Finishes a run that aborted BETWEEN step 1 and step 3. That gap is not
+ *   recoverable by re-running: `changeset version` has already consumed and
+ *   DELETED every changeset file, and `.changeset/` is gitignored here, so
+ *   there is nothing for git to restore and a second run would see an empty
+ *   queue and correctly refuse as a no-op. The release itself is not lost —
+ *   each changeset's prose is already written into the tracked CHANGELOGs.
+ *
+ *   Resume therefore skips step 1 and takes its baseline from `git HEAD`,
+ *   which still holds the pre-run versions because the run's edits are
+ *   uncommitted. The baseline is READ, never supplied by hand: a
+ *   mistyped baseline would silently mis-normalize the whole line.
+ *
+ *   Only for an aborted run. On a clean tree it finds baseline == current and
+ *   the advance guard refuses it, which is the correct answer.
  */
 
 import { execSync } from 'node:child_process'
@@ -40,13 +56,31 @@ import { assertCanonicalAdvanced, nextLineVersion, changesetWroteASection } from
 const __dir = fileURLToPath(new URL('.', import.meta.url))
 const ROOT = resolve(__dir, '..')
 
+const RESUME = process.argv.includes('--resume')
+
+/**
+ * A package's version as COMMITTED, i.e. before this run touched anything.
+ * Returns undefined for a package that does not exist at HEAD (newly added).
+ */
+function committedVersion(dirName) {
+  try {
+    const raw = execSync(`git show HEAD:packages/${dirName}/package.json`, { cwd: ROOT, encoding: 'utf8' })
+    const parsed = JSON.parse(raw)
+    return parsed.version
+  } catch {
+    return undefined
+  }
+}
+
 // ─── 0. Capture the canonical version BEFORE anything mutates it (#1230) ──
 //
 // This has to be read here, not later: the guard below compares against it to
 // refuse a run that consumes changesets without advancing the release line.
 
 const corePkgPathPre = join(resolve(fileURLToPath(new URL('.', import.meta.url)), '..'), 'packages', 'hub', 'package.json')
-const canonicalVersionBefore = JSON.parse(readFileSync(corePkgPathPre, 'utf8')).version
+const canonicalVersionBefore = RESUME
+  ? committedVersion('hub')
+  : JSON.parse(readFileSync(corePkgPathPre, 'utf8')).version
 
 // And every package's version, for the same reason at a finer grain: the
 // CHANGELOG heading rewrite below is only sound for packages `changeset
@@ -56,6 +90,7 @@ const versionsBefore = {}
 {
   const dir0 = join(resolve(fileURLToPath(new URL('.', import.meta.url)), '..'), 'packages')
   for (const name of readdirSync(dir0)) {
+    if (RESUME) { versionsBefore[name] = committedVersion(name); continue }
     try { versionsBefore[name] = JSON.parse(readFileSync(join(dir0, name, 'package.json'), 'utf8')).version }
     catch { /* not a package dir */ }
   }
@@ -63,12 +98,19 @@ const versionsBefore = {}
 
 // ─── 1. Run changeset version ──────────────────────────────────────────
 
+if (RESUME) {
+  console.log(
+    `\n[release] --resume: skipping \`changeset version\` (already run and its changesets consumed).` +
+    `\n[release] Baseline read from git HEAD: hub was ${canonicalVersionBefore}.\n`,
+  )
+} else {
 console.log('\n[release] Running pnpm changeset version...\n')
 try {
   execSync('pnpm changeset version', { cwd: ROOT, stdio: 'inherit' })
 } catch (err) {
   console.error('\n[release] pnpm changeset version failed — aborting.')
   process.exit(1)
+}
 }
 
 // ─── 2. Read canonical version from @noy-db/hub ───────────────────────
