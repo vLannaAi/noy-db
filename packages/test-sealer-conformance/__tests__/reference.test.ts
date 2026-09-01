@@ -17,7 +17,7 @@
  * `NoydbSealer.unseal` says "MUST throw on tamper". Every managed-mode test in
  * hub ran against a double that could not fail the way a real provider must.
  */
-import { runSealerConformanceTests } from './index.js'
+import { runSealerConformanceTests } from '../src/index.js'
 import { MemorySealer } from '@noy-db/hub/at'
 
 runSealerConformanceTests('MemorySealer (hub reference double)', () => new MemorySealer({ id: 'memory:a' }), {

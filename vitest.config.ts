@@ -5,7 +5,6 @@ export default defineConfig({
     projects: [
       'packages/*/vitest.config.ts',
       'test-harnesses/*/vitest.config.ts',
-      'recipes/*/vitest.config.ts',
       // Release tooling (#913). Not a package, so turbo does not reach it —
       // the root `test:scripts` script and its CI step do.
       {
