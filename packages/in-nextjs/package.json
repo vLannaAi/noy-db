@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/in-nextjs",
-  "version": "0.7.0-pre.17",
-  "description": "Next.js App Router helpers for noy-db \u2014 server components, route handlers, client hooks, and cookie-based session. Thin bridge that composes @noy-db/in-react with Next's cookies()/headers() APIs.",
+  "version": "0.7.0-pre.18",
+  "description": "Next.js App Router helpers for noy-db — server components, route handlers, client hooks, and cookie-based session. Thin bridge that composes @noy-db/in-react with Next's cookies()/headers() APIs.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/in-nextjs#readme",

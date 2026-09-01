@@ -1,5 +1,78 @@
 # Changelog — hub
 
+## 0.7.0-pre.18
+
+### Patch Changes
+
+- Two dependency-declaration defects, both invisible to every gate because both
+  were satisfied by something that never promised anything.
+
+  **`happy-dom` was used by 22 packages and declared by 4.** The `as-*`, `on-*`
+  and `by-*` families named it in their vitest `environment:` and never declared
+  it; it resolved only because `in-react`, `in-pinia`, `in-nuxt` and
+  `to-browser-idb` happened to declare it — at **three different majors**
+  (`^15.11.7`, `^17.4.4`, `^18.0.0`). So those suites ran against whichever
+  version won hoisting, pinned by nothing, and a devDependency bump in an
+  unrelated package could have silently changed the DOM implementation under
+  them. Every user now declares it, all at one range.
+
+  ⚠️ It is named by no `import` anywhere — only by a vitest config string, or (in
+  hub's case) by an `@vitest-environment` DOCBLOCK PRAGMA, which is invisible to
+  an import scan and a config grep alike. Found by extracting a family and
+  watching it fail to stand alone.
+
+  ⛔ **Declaring it does NOT make the mistake self-detecting, and a sweep alone
+  would have implied otherwise.** pnpm's virtual store still satisfies an
+  undeclared package from a sibling that declares it — deleting a declaration and
+  reinstalling leaves the suite green, including the test that needs the
+  environment. So correct manifests today prevent nothing tomorrow. A static
+  check (`pnpm check:test-env-deps`, wired into CI) is the part that enforces it;
+  the manifests are merely honest. (`require.resolve` reports the opposite —
+  Node's algorithm is not pnpm's store, so the probe has to read manifests rather
+  than resolve.)
+
+  **Sibling `peerDependencies` published as EXACT versions**, completing the fix
+  started in #1228. That issue converted the `hub` peer to `workspace:^` (which
+  publishes as a caret) and left sibling peers at `workspace:*` (which publishes
+  as an exact pin), so two satellites from different cuts were mutually
+  uninstallable by name. Install-proven with a discriminating control:
+
+  ```
+  as-xlsx@pre.17 + as-zip@pre.16   -> exit 1   the defect
+  as-xlsx@pre.17 + as-zip@pre.17   -> exit 0   control: it is the SKEW, not the pair
+  as-csv@pre.17  + in-vue@pre.16   -> exit 0   caret peers DO cross cuts
+  ```
+
+  Nine sibling edges across seven packages move `workspace:*` → `workspace:^`.
+  That changes the FORM without changing the KIND: they stay peers, so a consumer
+  still controls instance identity, and no per-pair judgement about whether
+  deduplication matters was required.
+
+  Already-published versions stay broken — an exact peer is frozen in a published
+  manifest. What this buys is that the next cut is not broken too.
+
+- `check:test-env-deps` now catches OVER-declaration too, and one live instance is
+  removed.
+
+  The guard shipped with the previous fix caught only the missing direction — a
+  package running tests in an environment it does not declare. The mirror case
+  turns out to be the mechanism the whole class rests on: **a package that
+  declares an environment it never runs in is what silently satisfies the packages
+  that use it and do not declare it.** The over-declaration is what makes the
+  under-declaration invisible.
+
+  `to-browser-idb` carried exactly that — `happy-dom ^18.0.0` while running
+  `environment: 'node'` with a fake-indexeddb polyfill. It was plausibly the
+  declarer supplying 18.x to the nine `as-*` suites that named the environment and
+  declared nothing. Removed; every genuine user now declares its own.
+
+  Added after the same mistake was made twice in one day: a substring scan gave
+  `by-peer` a declaration for a mention in a COMMENT, and this predated all of it.
+
+  Mutation-checked in both directions — a package that genuinely uses the
+  environment keeps its declaration without firing (no false positive on
+  legitimate declarers), and restoring the phantom fails the check.
+
 ## 0.7.0-pre.17
 
 ### Patch Changes
