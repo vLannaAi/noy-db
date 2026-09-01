@@ -799,9 +799,6 @@ importers:
       fake-indexeddb:
         specifier: ^6.2.5
         version: 6.2.5
-      happy-dom:
-        specifier: ^18.0.0
-        version: 18.0.1
 
   packages/to-file:
     devDependencies:
