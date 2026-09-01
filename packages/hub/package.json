@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/hub",
-  "version": "0.7.0-pre.17",
-  "description": "Zero-knowledge, offline-first, encrypted document store \u2014 core library with AES-256-GCM, PBKDF2, multi-user keyring, and sync engine",
+  "version": "0.7.0-pre.18",
+  "description": "Zero-knowledge, offline-first, encrypted document store — core library with AES-256-GCM, PBKDF2, multi-user keyring, and sync engine",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/hub#readme",
