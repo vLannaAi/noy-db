@@ -25,7 +25,7 @@
   },
   "peerDependencies": {
     "@noy-db/hub": "workspace:^",
-    "@noy-db/in-devtools": "workspace:*"
+    "@noy-db/in-devtools": "workspace:^"
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",

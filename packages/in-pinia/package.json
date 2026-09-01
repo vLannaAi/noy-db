@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/in-pinia",
   "version": "0.7.0-pre.17",
-  "description": "Pinia integration for noy-db — defineNoydbStore() and the augmentation plugin for existing stores",
+  "description": "Pinia integration for noy-db \u2014 defineNoydbStore() and the augmentation plugin for existing stores",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/in-pinia#readme",
@@ -41,15 +41,15 @@
     "@noy-db/hub": "workspace:^",
     "pinia": "^2.1.0 || ^3.0.0",
     "vue": "^3.4.0",
-    "@noy-db/in-vue": "workspace:*"
+    "@noy-db/in-vue": "workspace:^"
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
+    "@noy-db/in-vue": "workspace:*",
     "@vue/test-utils": "^2.4.6",
-    "happy-dom": "^15.11.7",
+    "happy-dom": "^18.0.0",
     "pinia": "^3.0.1",
-    "vue": "^3.5.32",
-    "@noy-db/in-vue": "workspace:*"
+    "vue": "^3.5.32"
   },
   "keywords": [
     "noy-db",

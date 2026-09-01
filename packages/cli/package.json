@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/cli",
   "version": "0.7.0-pre.17",
-  "description": "Command-line tool for noy-db — inspect .noydb bundles without decrypting, verify integrity, validate config objects, scaffold topology profiles, and monitor a live vault's store metrics.",
+  "description": "Command-line tool for noy-db \u2014 inspect .noydb bundles without decrypting, verify integrity, validate config objects, scaffold topology profiles, and monitor a live vault's store metrics.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/cli#readme",
@@ -42,7 +42,7 @@
   },
   "peerDependencies": {
     "@noy-db/hub": "workspace:^",
-    "@noy-db/to-meter": "workspace:*",
+    "@noy-db/to-meter": "workspace:^",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

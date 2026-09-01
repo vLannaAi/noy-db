@@ -1,7 +1,7 @@
 {
   "name": "@noy-db/on-pin",
   "version": "0.7.0-pre.17",
-  "description": "Session-resume PIN quick-lock for noy-db — after a full secret unlock, a short-lived PIN (or a per-device biometric) re-unlocks the cached DEKs without re-typing the secret. PIN never replaces the secret; only resumes an already-unlocked session.",
+  "description": "Session-resume PIN quick-lock for noy-db \u2014 after a full secret unlock, a short-lived PIN (or a per-device biometric) re-unlocks the cached DEKs without re-typing the secret. PIN never replaces the secret; only resumes an already-unlocked session.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
   "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/on-pin#readme",
@@ -41,7 +41,8 @@
     "@noy-db/hub": "workspace:^"
   },
   "devDependencies": {
-    "@noy-db/hub": "workspace:*"
+    "@noy-db/hub": "workspace:*",
+    "happy-dom": "^18.0.0"
   },
   "keywords": [
     "noy-db",
