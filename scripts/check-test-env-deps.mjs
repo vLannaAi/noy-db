@@ -74,13 +74,31 @@ for (const pkg of readdirSync(PKGS)) {
   for (const [dep, where] of used) {
     if (!declared.has(dep)) violations.push(`${pkg}: runs tests in "${dep}" (${where}) but does not declare it`)
   }
+  // The OTHER direction, added after it caught a real mistake of mine: a
+  // package declaring an environment it never runs in. `by-peer` acquired one
+  // because a substring scan counted a MENTION in a comment, and
+  // `to-browser-idb` carried one that predated all of this while running on
+  // `node` with a fake-indexeddb polyfill.
+  //
+  // Worth catching rather than tolerating, even though a phantom devDependency
+  // is individually cheap: a package that DECLARES an environment it does not
+  // use is what silently satisfies the packages that use it and do not declare
+  // it. That is the mechanism this whole class rests on — the over-declaration
+  // is what makes the under-declaration invisible.
+  for (const dep of Object.values(ENVIRONMENTS)) {
+    if (declared.has(dep) && !used.has(dep)) {
+      violations.push(`${pkg}: declares "${dep}" but runs no tests in it — remove it, or it will keep satisfying packages that fail to declare it`)
+    }
+  }
 }
 
 if (violations.length > 0) {
   console.error(`\n✗ test-env-deps: ${violations.length} package(s) use a test environment they do not declare\n`)
   for (const v of violations) console.error(`  ${v}`)
-  console.error('\n  A sibling declaring it is enough for the install to succeed, so this passes'
-    + '\n  locally and in CI until the sibling moves or changes major. Declare it.\n')
+  console.error('\n  Both directions matter, and they are the same mechanism seen from two ends:'
+    + '\n  a sibling declaring it is enough for the install to succeed, so an UNDECLARED'
+    + '\n  use passes locally and in CI until that sibling moves or changes major — and an'
+    + '\n  OVER-declaration is what supplies that satisfaction in the first place.\n')
   process.exit(1)
 }
 console.log(`✓ test-env-deps: every package declares the test environment it runs in`)
