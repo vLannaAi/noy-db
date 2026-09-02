@@ -47,6 +47,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import { isAfter } from './release/version-advanced.mjs'
 import { readFileSync, readdirSync, appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -132,6 +133,34 @@ export function decideAction(tags, version) {
   }
   if (tags.next === version) return { action: 'skip', why: `\`next\` already at ${version}` }
   return { action: 'align', why: `\`next\`: ${tags.next ?? '(none)'} → ${version}` }
+}
+
+/**
+ * #1305 — the counterpart `OWN_VERSION_LINE` never had.
+ *
+ * An own-line package exits pre mode with everyone else, so its `latest`
+ * advances at a stable cut while its `next` stays where the pre line left it
+ * (`create-noy-db`: latest 0.3.4, next 0.3.4-pre.17 after the 0.7.0 cut). The
+ * lockstep pass is told not to touch it; this pass is what IS told to.
+ *
+ * The invariant is over the OUTPUT — no published package ends a release with
+ * `next` sorting below `latest` — and it is computed from the package's OWN
+ * tags. It never sees `--version`: that is what keeps a coincidental version
+ * match from enrolling an own-line package onto the lockstep number, which is
+ * the risk the by-name exclusion above exists to prevent.
+ *
+ * `next` AHEAD of `latest` is the normal in-flight state and is left alone.
+ */
+export function decideOwnLineAction(tags) {
+  if (tags.latest === undefined) return { action: 'skip', why: 'no `latest` — nothing stable to align onto' }
+  if (isPrerelease(tags.latest)) {
+    return { action: 'skip', why: `\`latest\` is ${tags.latest}, a prerelease — not the inversion this pass repairs` }
+  }
+  if (tags.next === tags.latest) return { action: 'skip', why: `\`next\` already at ${tags.latest}` }
+  if (tags.next !== undefined && isAfter(tags.next, tags.latest)) {
+    return { action: 'skip', why: `\`next\` ${tags.next} is ahead of \`latest\` ${tags.latest} — in flight, left alone` }
+  }
+  return { action: 'align', version: tags.latest, why: `\`next\`: ${tags.next ?? '(none)'} → ${tags.latest}` }
 }
 
 // ── everything below is I/O; the decisions above are pure ──────────────────
@@ -268,6 +297,42 @@ function main() {
     }
   }
 
+  // ── PASS 1b: own-line packages, against their OWN tags (#1305) ────────────
+  //
+  // Excluded from the lockstep pass by name, so nothing above touched them —
+  // and until this pass existed nothing else did either: every stable cut left
+  // create-noy-db with `next` below `latest`. Same write path, same tag, but
+  // the target version is read from the registry per package, never from
+  // `--version`.
+  const ownWritten = [] // [{ pkg, version }]
+  const ownFailed = []  // [{ pkg, version }]
+  for (const { pkg } of derived.filter((d) => OWN_VERSION_LINE.includes(d.pkg))) {
+    let tags
+    try {
+      tags = readDistTags(pkg)
+    } catch (err) {
+      note(`- \`${pkg}\` (own line) — ❌ could not read dist-tags: ${firstLine(err)}`)
+      ownFailed.push({ pkg, version: '<its latest>' })
+      continue
+    }
+    const { action, version: own, why } = decideOwnLineAction(tags)
+    if (action === 'skip') {
+      note(`- \`${pkg}\` (own line) — ${why}`)
+      continue
+    }
+    if (dryRun) {
+      note(`- \`${pkg}\` (own line) — would align ${why}`)
+      continue
+    }
+    try {
+      execFileSync('npm', ['dist-tag', 'add', `${pkg}@${own}`, 'next'], { stdio: 'pipe' })
+      ownWritten.push({ pkg, version: own })
+    } catch (err) {
+      note(`- \`${pkg}\` (own line) — ❌ FAILED: ${firstLine(err)}`)
+      ownFailed.push({ pkg, version: own })
+    }
+  }
+
   // ── PASS 2: confirm, with settling ───────────────────────────────────────
   //
   // A zero exit is not evidence the tag moved — but neither is one stale read
@@ -292,6 +357,7 @@ function main() {
   // ~80s, at 3 packages it is ~4s. So this ordering is not the safety
   // mechanism — the retry below is. Do not port the two-pass split without it.
   const unconfirmed = confirmMoved(written, version, note)
+  for (const { pkg, version: own } of ownWritten) unconfirmed.push(...confirmMoved([pkg], own, note))
 
   if (unconfirmed.length > 0) {
     note('')
@@ -303,12 +369,13 @@ function main() {
     note('```')
   }
 
-  if (failed.length > 0) {
+  if (failed.length > 0 || ownFailed.length > 0) {
     note('')
-    note(`❌ **${failed.length} package(s) did not land. The line is HALF-APPLIED.**`)
+    note(`❌ **${failed.length + ownFailed.length} package(s) did not land. The line is HALF-APPLIED.**`)
     note('Recover from a workstation (these need an interactive OTP):')
     note('```')
     for (const pkg of failed) note(`npm dist-tag add ${pkg}@${version} next --otp=<code>`)
+    for (const { pkg, version: own } of ownFailed) note(`npm dist-tag add ${pkg}@${own} next --otp=<code>`)
     note('```')
     flush('npm dist-tag alignment — FAILED')
     process.exit(1)
@@ -320,6 +387,7 @@ function main() {
   }
 
   note(`✅ \`next\` and \`latest\` both at ${version} across ${targets.length} package(s)`)
+  if (ownWritten.length > 0) note(`✅ own-line: ${ownWritten.map((w) => `\`${w.pkg}\` → ${w.version}`).join(', ')}`)
   flush('npm dist-tag alignment')
 }
 

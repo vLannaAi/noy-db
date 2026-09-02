@@ -193,3 +193,46 @@ describe('confirmMoved — the ordering that gives the tail its settle', () => {
     expect(order.slice(3, 6)).toEqual(['a', 'b', 'c'])
   })
 })
+
+// ── #1305: own-line packages align against THEIR OWN tags ──────────────────
+//
+// `OWN_VERSION_LINE` excludes create-noy-db from the lockstep alignment, and
+// nothing else was told to touch it — so every stable cut left its `next`
+// (0.3.4-pre.17) below its `latest` (0.3.4). The invariant is over the
+// OUTPUT: no published package ends a release with `next` sorting below
+// `latest`. Computed per package from its own registry tags, never from the
+// lockstep `--version`.
+import { decideOwnLineAction } from '../align-next-to-stable.mjs'
+
+describe('decideOwnLineAction — the own-line invariant (#1305)', () => {
+  it('ALIGNS `next` up to `latest` when a stable cut left it on an older prerelease — the 0.7.0 case', () => {
+    const d = decideOwnLineAction({ latest: '0.3.4', next: '0.3.4-pre.17' })
+    expect(d).toMatchObject({ action: 'align', version: '0.3.4' })
+    expect(d.why).toMatch(/0\.3\.4-pre\.17.*0\.3\.4/)
+  })
+
+  it('ALIGNS when `next` is missing entirely — an absent tag is a lying tag too', () => {
+    expect(decideOwnLineAction({ latest: '0.3.4' })).toMatchObject({ action: 'align', version: '0.3.4' })
+  })
+
+  it('SKIPS when `next` already equals `latest`', () => {
+    expect(decideOwnLineAction({ latest: '0.3.4', next: '0.3.4' }).action).toBe('skip')
+  })
+
+  it('SKIPS when `next` is AHEAD of `latest` — the normal in-flight state must not be dragged back', () => {
+    expect(decideOwnLineAction({ latest: '0.3.4', next: '0.3.5-pre.0' }).action).toBe('skip')
+    expect(decideOwnLineAction({ latest: '0.3.4', next: '0.4.0' }).action).toBe('skip')
+  })
+
+  it('SKIPS when there is no `latest` — nothing stable to align onto', () => {
+    expect(decideOwnLineAction({ next: '0.3.4-pre.17' }).action).toBe('skip')
+  })
+
+  it('SKIPS when `latest` is itself a prerelease — that is a different lie, not this one', () => {
+    expect(decideOwnLineAction({ latest: '0.3.4-pre.17', next: '0.3.4-pre.16' }).action).toBe('skip')
+  })
+
+  it('never names the lockstep version: the decision takes only the package\'s tags', () => {
+    expect(decideOwnLineAction.length).toBe(1)
+  })
+})

@@ -278,9 +278,53 @@ describe('verifiable backups.', () => {
     expect(await targetInvoices.get('inv-1')).toEqual({
       id: 'inv-1', client: 'Acme', amount: 100,
     })
-    // The warning was emitted.
+    // The warning was emitted — and because THIS reader has the ledger
+    // enabled, the pod is behind it and "re-export" is actionable (#1303).
     expect(warnings.length).toBeGreaterThan(0)
     expect(warnings[0]).toMatch(/legacy backup/i)
+    expect(warnings[0]).toMatch(/re-export/i)
+  })
+
+  it('a ledger-less backup read by a reader with NO ledger warns without prescribing a re-export (#1303)', async () => {
+    // Same forged backup, but the reader never opted into history. Nothing
+    // is stale and nothing is migrating: the reader priced the ledger and
+    // declined. Telling it to "re-export with a ledger-aware build" is
+    // advice it should not take, and repeating it on every read trains
+    // people to filter the line that would also fire on a genuinely stale
+    // pod. State the consequence, name the discriminator, prescribe nothing.
+    const company = await db.openVault('demo-co')
+    await company.collection<Invoice>('invoices').put('inv-1', { id: 'inv-1', client: 'Acme', amount: 100 })
+    const backup = JSON.parse(await company.dump())
+    delete backup.ledgerHead
+    delete backup._internal
+    const legacyJson = JSON.stringify(backup)
+
+    const noLedgerDb = await createNoydb({
+      store: toMemory(),
+      user: 'alice',
+      secret: 'test-secret-1234',
+    })
+    const target = await noLedgerDb.openVault('demo-co')
+
+    const warnings: string[] = []
+    const originalWarn = console.warn
+    // eslint-disable-next-line no-console
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map((a) => String(a)).join(' '))
+    }
+    try {
+      await target.load(legacyJson)
+    } finally {
+      // eslint-disable-next-line no-console
+      console.warn = originalWarn
+    }
+    expect(await target.collection<Invoice>('invoices').get('inv-1')).toEqual({
+      id: 'inv-1', client: 'Acme', amount: 100,
+    })
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toMatch(/not integrity-checked/i)
+    expect(warnings[0]).toMatch(/no ledger/i)
+    expect(warnings[0]).not.toMatch(/re-export/i)
   })
 
   it('verifyBackupIntegrity() can be called on a live compartment', async () => {
