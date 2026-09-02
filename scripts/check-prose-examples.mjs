@@ -22,21 +22,36 @@
  * of it. This is the family's "symbol presence vs does the signature accept the
  * argument" proxy, answered the way that table prescribes.
  *
- * ## Why only fenced blocks that IMPORT
+ * ## Every block compiles — the preamble convention (#1310)
  *
- * KNOWN COST (2026-08-29): a Nuxt config block (`defineNuxtConfig({...})`)
- * has no import — the function is a Nuxt auto-global — so it is skipped as
- * illustrative. in-nuxt's `noydb: { adapter: 'browser' }` (wrong key AND a
- * value outside the ModuleOptions union) survived a full sweep this way.
- * Typing such a block would need Nuxt's ambient globals plus the module's
- * NuxtConfig augmentation in the probe; until someone builds that, an
- * import-less config block is checked by NOTHING and its README must be
- * verified against the module's ModuleOptions by hand.
+ * Until 2026-09-03 only blocks that OPENED WITH AN IMPORT were compiled; a
+ * bare fragment was "illustrative" and skipped. That inferred the claim from
+ * the absence of an import, and 20 of 58 shipped blocks — real "does the
+ * signature accept this argument" claims among them — were checked by
+ * nothing. The recorded casualty: in-nuxt's `noydb: { adapter: 'browser' }`
+ * (wrong key AND a value outside the ModuleOptions union) survived a full
+ * sweep because `defineNuxtConfig` is a Nuxt auto-global and the block had
+ * no import. Fixed by hand at 0.7.0-pre.12; the class stayed open.
  *
- * Scoped the way check-prose-api was scoped — narrow what a noisy check
- * examines rather than tuning a threshold. A block opening with an import
- * claims to be runnable; a bare fragment is illustrative and is SKIPPED and
- * counted, never silently dropped.
+ * The family chose the preamble convention (lanna-db #3, option a). A file
+ * whose blocks elide their setup carries it ONCE, in an HTML comment that
+ * renders nowhere; it is prepended to every import-less block in that file:
+ *
+ *     <!-- prose-preamble
+ *     import type { Noydb } from '@noy-db/hub'
+ *     declare const db: Noydb
+ *     -->
+ *
+ * It must TYPE the elided bindings, not merely import them — an untyped
+ * `db` is an ignored TS2304 and the call on it compiles vacuously, which is
+ * the same laundering recorded for in-vue below. Shipped prose (README.md,
+ * packages/*\/README.md, hub/src/index.ts) MUST carry one when it has
+ * import-less blocks; a missing preamble is a finding. PROSE_EXTRA (the
+ * private docs layer) honours a preamble when present and otherwise keeps
+ * skip-and-count semantics, so it can adopt the convention file by file.
+ * Blocks that do not parse as TypeScript (signature listings, `with<Name>`
+ * templates) are still excluded in pass 1 — a preamble cannot make those
+ * parse and is not meant to. See scripts/prose-examples/blocks.mjs.
  *
  * ## Which diagnostics count
  *
@@ -51,6 +66,7 @@
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, existsSync, symlinkSync, realpathSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { prepareBlocks } from './prose-examples/blocks.mjs'
 
 const ROOT = process.cwd()
 const OUT = join(ROOT, '.prose-examples')
@@ -82,44 +98,33 @@ addIf('packages/hub/src/index.ts')
 // existsSync probe of ../ paths: a silently-absent directory here would make
 // this gate go green while examining nothing, the exact failure its own
 // two-pass template exclusion was built to avoid.
+const extraFiles = new Set()
 for (const extra of (process.env.PROSE_EXTRA ?? '').split(',').filter(Boolean)) {
   if (!existsSync(extra)) { console.error(`PROSE_EXTRA entry does not exist: ${extra}`); process.exit(1) }
   if (statSync(extra).isDirectory()) {
-    for (const f of readdirSync(extra)) if (f.endsWith('.md')) files.push(join(extra, f))
-  } else files.push(extra)
+    for (const f of readdirSync(extra)) if (f.endsWith('.md')) { files.push(join(extra, f)); extraFiles.add(join(extra, f)) }
+  } else { files.push(extra); extraFiles.add(extra) }
 }
 
-// ── Extract fenced ts blocks, with their 1-based start line ───────────────
+// ── Extract fenced ts blocks and apply the preamble convention ────────────
 const blocks = []
+const missingPreamble = []
+let skippedExtra = 0 // PROSE_EXTRA import-less blocks in files with no preamble
 for (const file of files) {
   const text = readFileSync(file, 'utf8')
   const isSource = file.endsWith('.ts')
-  // In a .ts file the fences live inside a /** */ block; strip leading ` * `.
-  const lines = text.split('\n')
-  let open = null, buf = [], fenceLang = ''
-  lines.forEach((raw, i) => {
-    const line = isSource ? raw.replace(/^\s*\*ic?\s?/, '').replace(/^\s*\*\s?/, '') : raw
-    const fence = line.match(/^```(ts|typescript|vue)\s*$/)
-    if (fence && open === null) { open = i + 2; buf = []; fenceLang = fence[1]; return }
-    if (open !== null && /^```\s*$/.test(line)) {
-      let code = buf.join('\n'), lineOff = 0
-      if (fenceLang === 'vue') {
-        // A ```vue block's checkable half is its <script> content; the
-        // template is Vue syntax tsc cannot parse. Extract it, keeping the
-        // line offset so diagnostics map back to the right prose line.
-        const m = code.match(/<script[^>]*>\n([\s\S]*?)<\/script>/)
-        if (m) { lineOff = code.slice(0, m.index).split('\n').length; code = m[1] }
-        else code = ''
-      }
-      if (code.trim() !== '') blocks.push({ file, line: open + lineOff, code })
-      open = null; return
-    }
-    if (open !== null) buf.push(line)
-  })
+  const requirePreamble = !extraFiles.has(file)
+  let prepared
+  try { prepared = prepareBlocks(text, { isSource, requirePreamble }) }
+  catch (e) { console.error(`${file}: ${e.message}`); process.exit(1) }
+  if (prepared.missingPreamble) missingPreamble.push(file)
+  for (const b of prepared.blocks) {
+    if (!requirePreamble && !b.hasImport && !prepared.preamble) { skippedExtra++; continue }
+    blocks.push({ file, line: b.line, code: b.code, preambleLines: b.preambleLines, preambleLine: prepared.preamble?.line })
+  }
 }
 
-const runnable = blocks.filter((b) => /^\s*import\s/m.test(b.code))
-const skipped = blocks.length - runnable.length
+const runnable = blocks
 
 // ── Probe project ─────────────────────────────────────────────────────────
 rmSync(OUT, { recursive: true, force: true })
@@ -231,7 +236,12 @@ const parse = (raw) => {
     if (!m) continue
     const [, probe, row, , code, msg] = m
     const b = runnable.find((x) => x.probe === `${probe}.ts`)
-    if (b) out.push({ b, line: b.line + Number(row) - 1, code, msg })
+    if (!b) continue
+    const r = Number(row)
+    // A row inside the prepended preamble is a defect in the preamble itself;
+    // report it at the preamble's own line rather than at a phantom offset.
+    const proseLine = r <= b.preambleLines ? b.preambleLine + r - 1 : b.line + (r - 1) - b.preambleLines
+    out.push({ b, line: proseLine, code, msg })
   }
   return out
 }
@@ -251,7 +261,13 @@ const failures = parse(compile([...unparseable].map((b) => b.probe)))
 
 const BASELINE = join(ROOT, 'scripts', 'prose-examples-baseline.json')
 
-console.log(`check-prose-examples: ${runnable.length} runnable of ${blocks.length} fenced blocks (${skipped} without imports, skipped)`)
+console.log(`check-prose-examples: ${runnable.length} fenced block(s) compiled` + (skippedExtra > 0 ? ` (${skippedExtra} PROSE_EXTRA block(s) without imports in files with no preamble — skipped)` : ''))
+if (missingPreamble.length > 0) {
+  console.error(`\n${missingPreamble.length} shipped file(s) have import-less fenced blocks and no <!-- prose-preamble -->; those blocks compile with nothing typed, which is the blind spot #1310 closed:\n`)
+  for (const f of missingPreamble) console.error(`  ${relative(ROOT, f)}`)
+  console.error('\nAdd a preamble that TYPES the elided bindings (see scripts/prose-examples/blocks.mjs), or give the block its imports.')
+  process.exit(1)
+}
 if (unparseable.size > 0) {
   console.log(`  ${unparseable.size} template block(s) not parseable as TypeScript — not checked:`)
   for (const b of unparseable) console.log(`    ${relative(ROOT, b.file)}:${b.line}`)

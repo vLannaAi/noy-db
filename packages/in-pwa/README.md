@@ -1,5 +1,10 @@
 # @noy-db/in-pwa
 
+<!-- prose-preamble
+// Nothing elided: the one import-less block in this file is a self-contained
+// type declaration. The preamble exists so the gate knows that was considered.
+-->
+
 [![npm](https://img.shields.io/npm/v/%40noy-db/in-pwa.svg)](https://www.npmjs.com/package/@noy-db/in-pwa)
 
 > Installable/offline shell helpers for noy-db SPAs
