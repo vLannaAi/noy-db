@@ -42,9 +42,18 @@ function memory(): NoydbStore {
   }
 }
 
+// `encrypt: false` on purpose (#1295). Nothing here is about crypto — the
+// subject is the hook lifecycle — and with a secret, `openVault` spends its
+// whole budget in PBKDF2-SHA256 at 600K iterations: measured 76 ms alone,
+// 330–738 ms while the full turbo suite runs beside it, against
+// testing-library's 1000 ms `waitFor` default. The cost scales continuously
+// with load (not bimodally), so it is contention, not an ordering hazard.
+// Hub has no iteration knob and should not grow one for a test; dropping
+// the KDF is the fixture-side fix the issue asks for. Do NOT widen `waitFor`
+// instead — that hides the next real regression on the same path.
 async function makeDb() {
   const adapter = memory()
-  const db = await createNoydb({ store: adapter, user: 'owner', secret: 'pw' })
+  const db = await createNoydb({ store: adapter, user: 'owner', encrypt: false })
   return db
 }
 
