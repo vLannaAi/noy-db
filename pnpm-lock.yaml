@@ -120,9 +120,9 @@ importers:
         specifier: workspace:*
         version: link:../attestation
     devDependencies:
-      '@noy-db/on-shamir':
+      '@noy-db/shamir':
         specifier: workspace:*
-        version: link:../on-shamir
+        version: link:../shamir
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -385,7 +385,7 @@ importers:
         specifier: ^5.0.0
         version: 5.0.12(@types/react@18.3.28)(react@18.3.1)
 
-  packages/on-shamir: {}
+  packages/shamir: {}
 
   packages/test-adapter-conformance:
     devDependencies:

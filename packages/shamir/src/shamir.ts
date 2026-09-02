@@ -69,22 +69,22 @@ export function splitSecret(
  */
 export function combineSecret(shares: readonly RawShare[]): Uint8Array {
   if (shares.length === 0) {
-    throw new Error('on-shamir: no shares provided')
+    throw new Error('shamir: no shares provided')
   }
   const k = shares[0]!.k
   if (shares.length < k) {
-    throw new Error(`on-shamir: insufficient shares — need ${k}, got ${shares.length}`)
+    throw new Error(`shamir: insufficient shares — need ${k}, got ${shares.length}`)
   }
   const byteLength = shares[0]!.y.length
   for (const s of shares) {
     if (s.y.length !== byteLength) {
-      throw new Error('on-shamir: share lengths disagree — incompatible enrollment')
+      throw new Error('shamir: share lengths disagree — incompatible enrollment')
     }
   }
   const selected = shares.slice(0, k)
   const xs = selected.map(s => s.x)
   if (new Set(xs).size !== xs.length) {
-    throw new Error('on-shamir: duplicate x-coordinates among provided shares')
+    throw new Error('shamir: duplicate x-coordinates among provided shares')
   }
 
   const secret = new Uint8Array(byteLength)
@@ -111,13 +111,13 @@ export interface RawShare {
 
 function assertSplitArgs(k: number, n: number, secretLen: number): void {
   if (!Number.isInteger(k) || k < 2) {
-    throw new Error(`on-shamir: k must be an integer >= 2 (got ${k})`)
+    throw new Error(`shamir: k must be an integer >= 2 (got ${k})`)
   }
   if (!Number.isInteger(n) || n < k || n > 255) {
-    throw new Error(`on-shamir: n must satisfy k <= n <= 255 (got k=${k} n=${n})`)
+    throw new Error(`shamir: n must satisfy k <= n <= 255 (got k=${k} n=${n})`)
   }
   if (!Number.isInteger(secretLen) || secretLen < 1) {
-    throw new Error(`on-shamir: secret must be at least 1 byte`)
+    throw new Error(`shamir: secret must be at least 1 byte`)
   }
 }
 

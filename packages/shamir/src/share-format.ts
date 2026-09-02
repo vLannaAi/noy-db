@@ -42,21 +42,21 @@ export function encodeShareBytes(share: RawShare): Uint8Array {
 /** Parse binary share bytes back into a structured share. */
 export function decodeShareBytes(bytes: Uint8Array): RawShare {
   if (bytes.length < HEADER_LEN) {
-    throw new Error(`on-shamir: share bytes too short (${bytes.length} < ${HEADER_LEN})`)
+    throw new Error(`shamir: share bytes too short (${bytes.length} < ${HEADER_LEN})`)
   }
   const version = bytes[0]!
   if (version !== SHARE_VERSION) {
-    throw new Error(`on-shamir: unsupported share version ${version} (expected ${SHARE_VERSION})`)
+    throw new Error(`shamir: unsupported share version ${version} (expected ${SHARE_VERSION})`)
   }
   const x = bytes[1]!
   const k = bytes[2]!
   const n = bytes[3]!
   const byteLength = (bytes[4]! << 8) | bytes[5]!
   if (bytes.length !== HEADER_LEN + byteLength) {
-    throw new Error(`on-shamir: share length mismatch — header says ${byteLength}, got ${bytes.length - HEADER_LEN}`)
+    throw new Error(`shamir: share length mismatch — header says ${byteLength}, got ${bytes.length - HEADER_LEN}`)
   }
   if (x === 0) {
-    throw new Error('on-shamir: share has x=0 — malformed')
+    throw new Error('shamir: share has x=0 — malformed')
   }
   return { x, k, n, y: bytes.slice(HEADER_LEN) }
 }
@@ -126,7 +126,7 @@ export function encodeShareJSON(share: RawShare): ShareJSON {
 
 export function decodeShareJSON(json: ShareJSON): RawShare {
   if (json.v !== SHARE_VERSION) {
-    throw new Error(`on-shamir: unsupported share version ${String(json.v)}`)
+    throw new Error(`shamir: unsupported share version ${String(json.v)}`)
   }
   return { x: json.x, k: json.k, n: json.n, y: base64Decode(json.y) }
 }
@@ -158,7 +158,7 @@ function base32Decode(input: string): Uint8Array {
   for (const ch of input) {
     const idx = BASE32_ALPHABET.indexOf(ch)
     if (idx < 0) {
-      throw new Error(`on-shamir: invalid Base32 character "${ch}"`)
+      throw new Error(`shamir: invalid Base32 character "${ch}"`)
     }
     value = (value << 5) | idx
     bits += 5

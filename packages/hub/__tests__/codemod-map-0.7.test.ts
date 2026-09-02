@@ -207,7 +207,7 @@ describe('codemods/0.7.0-pre.json — satellite rows', () => {
   })
 
   /**
-   * Packages whose source left this repo (2026-09-01), with where it went.
+   * Packages whose source left this repo (2026-09-01 and -03), with where it went.
    *
    * A row about `@noy-db/at-env` is answerable only against at-env's source,
    * and that source is now one repo over. Rather than skip such rows silently
@@ -230,6 +230,11 @@ describe('codemods/0.7.0-pre.json — satellite rows', () => {
     ['@noy-db/at-env', 'vLannaAi/noy-db-at'],
     ['@noy-db/at-gcp-kms', 'vLannaAi/noy-db-at'],
     ['@noy-db/at-macos-keychain', 'vLannaAi/noy-db-at'],
+    // 2026-09-03 (lanna-db#10): the last on-* to leave. Its math stayed as
+    // @noy-db/shamir (no hub contract, so no row here names it); the row above
+    // about the NoydbShamir mirror is true of the PUBLISHED on-shamir@0.7.0 and
+    // stops being true from noy-db-on's first cut, which imports the real type.
+    ['@noy-db/on-shamir', 'vLannaAi/noy-db-on'],
   ])
 
   it('a row naming an absent package is declared extracted, never silently skipped', () => {

@@ -27,7 +27,7 @@ import {
 import { loadSealedSecret } from '../src/with-party/team/managed-secret.js'
 import { ConflictError, ValidationError } from '../src/kernel/errors.js'
 import { ManagedRecoveryNotEnrolledError } from '../src/kernel/errors.js'
-import { shamirRecoveryProvider } from '@noy-db/on-shamir'
+import { shamirRecoveryProvider } from './support/shamir-provider.js'
 
 function inlineMemory(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

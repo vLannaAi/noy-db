@@ -24,7 +24,7 @@ import {
   SEALED_SECRET_RECORD_ID,
   type NoydbSealer,
 } from '../src/with-party/team/managed-secret.js'
-import { shamirRecoveryProvider } from '@noy-db/on-shamir'
+import { shamirRecoveryProvider } from './support/shamir-provider.js'
 
 function inlineMemory(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
