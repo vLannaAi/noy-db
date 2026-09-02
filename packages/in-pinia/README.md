@@ -1,5 +1,13 @@
 # @noy-db/in-pinia
 
+<!-- prose-preamble
+// Bindings the illustrative blocks below elide. Typed on purpose (#1310).
+import { defineNoydbStore } from '@noy-db/in-pinia'
+import { z } from 'zod'
+const InvoiceSchema = z.object({ id: z.string(), status: z.string(), dueDate: z.date() })
+declare const invoices: ReturnType<ReturnType<typeof defineNoydbStore<z.infer<typeof InvoiceSchema>>>>
+-->
+
 > Pinia integration for [noy-db](https://github.com/vLannaAi/noy-db) — drop-in encrypted Pinia stores for Vue 3 / Nuxt 4.
 
 ```bash

@@ -1,5 +1,17 @@
 # @noy-db/in-nuxt
 
+<!-- prose-preamble
+// Bindings the illustrative blocks below elide. `defineNuxtConfig` is a Nuxt
+// auto-global; declared here against the AUGMENTED NuxtConfig so the `noydb:`
+// key is checked against ModuleOptions — the block that shipped
+// `adapter: 'browser'` was checked by nothing before this (#1310).
+import '@noy-db/in-nuxt'
+import type { NuxtConfig } from '@nuxt/schema'
+import { defineNoydbStore } from '@noy-db/in-pinia'
+declare function defineNuxtConfig(config: NuxtConfig): NuxtConfig
+interface Invoice { id: string; status: string; dueDate: string }
+-->
+
 > Nuxt 4 module for [noy-db](https://github.com/vLannaAi/noy-db) — auto-imports, SSR-safe runtime plugin, and the `@noy-db/in-pinia` bridge.
 
 **Nuxt 4+ exclusive.** For Nuxt 3, use `@noy-db/in-vue` and `@noy-db/in-pinia` directly with a hand-written plugin.
@@ -72,7 +84,7 @@ Once `setActiveNoydb` has been called, every Pinia store can transparently use N
 ```ts
 // stores/invoices.ts
 export const useInvoices = defineNoydbStore<Invoice>('invoices', {
-  compartment: 'C101',
+  vault: 'C101',
 })
 ```
 

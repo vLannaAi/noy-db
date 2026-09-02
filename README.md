@@ -6,6 +6,17 @@
 
 # noy-db
 
+<!-- prose-preamble
+// Bindings the illustrative blocks below elide. Typed on purpose: an untyped
+// `invoices` would make every call on it compile vacuously (#1310).
+import type { Collection } from '@noy-db/hub'
+import { sum } from '@noy-db/hub/reduce'
+interface Invoice { id: string; status: string; clientId: string; issuedAt: string; amount: number }
+interface Client { id: string; name: string }
+declare const invoices: Collection<Invoice>
+declare function render(): void
+-->
+
 ## None Of Your DataBase
 <sub><em>(formerly shortened as: "None Of Your <strong>Damn Business</strong>")</em></sub>
 

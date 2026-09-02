@@ -1,5 +1,14 @@
 # @noy-db/by-peer
 
+<!-- prose-preamble
+// Bindings the illustrative blocks below elide. Typed on purpose (#1310).
+import { servePeerStore, peerStore, type PeerChannel } from '@noy-db/by-peer'
+import type { NoydbStore } from '@noy-db/hub'
+declare const channel: PeerChannel
+declare const local: NoydbStore
+declare const inviteToken: string
+-->
+
 WebRTC peer-to-peer transport for [noy-db](https://github.com/vLannaAi/noy-db) — no server in the middle.
 
 > First member of the `by-*` family of session-share transports. See [`docs/packages/by-transports.md`](https://github.com/vLannaAi/noy-db-docs/blob/main/content/docs/packages/by-transports.md) for the family contract and roster.

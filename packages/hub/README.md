@@ -1,5 +1,22 @@
 # @noy-db/hub
 
+<!-- prose-preamble
+// Bindings the illustrative blocks below elide. Typed on purpose (#1310).
+import type { Noydb, Vault, Collection } from '@noy-db/hub'
+import { money } from '@noy-db/hub'
+import { sum } from '@noy-db/hub/reduce'
+import { promises as fs } from 'node:fs'
+import { z } from 'zod'
+interface Invoice { id: string; month?: string; total?: number | string; underLitigation?: boolean; fiscalYearEnd?: string }
+interface Line { id: string; unitPrice: number; qty: number; netAmount?: number; taxAmount?: number; total?: number }
+declare const db: Noydb
+declare const vault: Vault
+declare const acme: Vault
+declare const otherAcme: Vault
+declare const invoices: Collection<Invoice>
+declare const lines: Collection<Line>
+-->
+
 > Zero-knowledge, offline-first, encrypted document store — core library.
 
 [![npm](https://img.shields.io/npm/v/@noy-db/hub.svg)](https://www.npmjs.com/package/@noy-db/hub)
@@ -217,8 +234,8 @@ vault.collection('lines', {
   }),
   computed: {
     netAmount: (r) => r.unitPrice * r.qty,
-    taxAmount: (r) => r.netAmount * 0.22,   // reads the field computed above
-    total:     (r) => r.netAmount + r.taxAmount,
+    taxAmount: (r) => r.netAmount! * 0.22,   // reads the field computed above
+    total:     (r) => r.netAmount! + r.taxAmount!,
   },
 })
 

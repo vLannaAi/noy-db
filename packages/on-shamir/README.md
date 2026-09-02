@@ -1,5 +1,11 @@
 # @noy-db/on-shamir
 
+<!-- prose-preamble
+// The one import-less block in this file is a SIGNATURE LISTING written as
+// `declare` statements, so it compiles as declarations and elides nothing.
+// The preamble exists so the gate knows that was considered.
+-->
+
 **k-of-n Shamir Secret Sharing** of the vault KEK for multi-party unlock. Any **K** of **N** enrolled shares recombines the KEK; fewer than K leaks zero bits.
 
 The defining feature is **composability** — each share can itself be protected by any other `@noy-db/on-*` method. Share 1 behind a WebAuthn passkey, share 2 behind an OIDC login, share 3 printed on paper in a corporate safe. Fractional trust across different authentication modes.
@@ -99,27 +105,29 @@ await keyring.put('_recovery_share_1', json)
 
 ```ts
 // High-level — wraps a CryptoKey
-async function splitKEK(kek: CryptoKey, options: { k: number; n: number }): Promise<RawShare[]>
-async function combineKEK(shares: readonly RawShare[]): Promise<CryptoKey>
+declare function splitKEK(kek: CryptoKey, options: { k: number; n: number }): Promise<RawShare[]>
+declare function combineKEK(shares: readonly RawShare[]): Promise<CryptoKey>
 
 // Low-level — operates on raw bytes
-function splitSecret(
+declare function splitSecret(
   secret: Uint8Array,
   k: number,
   n: number,
   randomBytes?: (count: number) => Uint8Array,  // Injectable for tests
 ): RawShare[]
-function combineSecret(shares: readonly RawShare[]): Uint8Array
+declare function combineSecret(shares: readonly RawShare[]): Uint8Array
 
 // Serialisation
-function encodeShareBytes(share: RawShare): Uint8Array
-function decodeShareBytes(bytes: Uint8Array): RawShare
+declare function encodeShareBytes(share: RawShare): Uint8Array
+declare function decodeShareBytes(bytes: Uint8Array): RawShare
 
-function encodeShareBase32(share: RawShare): string
-function decodeShareBase32(input: string): RawShare
+declare function encodeShareBase32(share: RawShare): string
+declare function decodeShareBase32(input: string): RawShare
 
-function encodeShareJSON(share: RawShare): ShareJSON
-function decodeShareJSON(json: ShareJSON): RawShare
+declare function encodeShareJSON(share: RawShare): ShareJSON
+declare function decodeShareJSON(json: ShareJSON): RawShare
+
+interface ShareJSON { x: number; y: string; k: number; n: number }
 
 interface RawShare {
   x: number          // 1..255
@@ -129,12 +137,12 @@ interface RawShare {
 }
 
 // GF(2^8) arithmetic — exported for composition / auditing
-function gfAdd(a: number, b: number): number
-function gfMul(a: number, b: number): number
-function gfInv(a: number): number
-function gfDiv(a: number, b: number): number
-function gfPolyEval(coeffs: readonly number[], x: number): number
-function lagrangeInterpolateAtZero(points: readonly [number, number][]): number
+declare function gfAdd(a: number, b: number): number
+declare function gfMul(a: number, b: number): number
+declare function gfInv(a: number): number
+declare function gfDiv(a: number, b: number): number
+declare function gfPolyEval(coeffs: readonly number[], x: number): number
+declare function lagrangeInterpolateAtZero(points: readonly [number, number][]): number
 ```
 
 ## Share format
