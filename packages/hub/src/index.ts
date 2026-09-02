@@ -199,6 +199,7 @@ export {
 } from './with-shape/blobs/blob-intent.js'
 export type { BlobIntent, BlobIntentHold, BlobIntentResume } from './with-shape/blobs/blob-intent.js'
 export { BlobIntentPendingError, BlobOfflineError } from './kernel/errors.js'
+export type { TamperedReason } from './kernel/errors.js'
 export { wrapPodStore, createPodStore } from './with-pod/pod-store.js'
 export type {
   WrappedPodNoydbStore,

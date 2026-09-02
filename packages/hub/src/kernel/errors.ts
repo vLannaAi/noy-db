@@ -164,35 +164,82 @@ export class DecryptionError extends NoydbError {
 }
 
 /**
- * Thrown when GCM tag verification fails, indicating the ciphertext was
- * modified after encryption.
+ * **Means exactly: "AEAD failed under this key."** Nothing more (lanna-db #4,
+ * 2026-09-03). AES-256-GCM authenticates the ciphertext on every decrypt; if
+ * the tag does not verify under the DEK the caller supplied, the enclave
+ * throws this. Only the enclave throws it *for* an AEAD failure — everywhere
+ * else in hub that names this class is either passing one through or
+ * attaching evidence it holds (see {@link reason}).
  *
- * AES-256-GCM is authenticated encryption — the tag over the ciphertext
- * is checked on every decrypt. If any byte was flipped (accidental
- * corruption or deliberate tampering), decryption throws this error.
- * Treat it as a security alert: the stored bytes are not what NOYDB wrote.
+ * What it does NOT mean on its own: "someone modified the bytes". Four
+ * situations all present as an AEAD failure — the bytes were altered; the
+ * caller holds no key for this collection and a fabricated one was tried; the
+ * body is identity-bound to another vault; the body was sealed under a format
+ * this build does not read. The first is the security alert; the other three
+ * are evidence a caller can hold BEFORE decrypting, and when it does it says
+ * so in `reason`. **With `reason` absent, treat this as the alert it has
+ * always been.** Hub's own tier-fallback code (`with-shape/blobs`) branches
+ * on this class as "not ours at this tier — try the next", which is the
+ * correct reading of "did not open under this key".
+ *
+ * A key derived from a user credential (recovery code, password, share set)
+ * that fails to open a blob is a wrong KEY, and surfaces as
+ * {@link InvalidKeyError}, never this class — `wrapped-deks.ts` translates.
  */
+/** See {@link TamperedError.reason}. */
+export type TamperedReason =
+  | 'unbound-legacy-format'
+  | 'key-absent'
+  | 'generation-mismatch'
+  | 'foreign-stamp'
+
 export class TamperedError extends NoydbError {
   /**
-   * Why the tag check failed, when the enclave could tell (#1103).
-   *
-   * `'unbound-legacy-format'` — the body opens under an EMPTY AAD, so it was
-   * sealed before identity binding (#1041) and this is a format transition, not
-   * an attack. Positive evidence, not a guess: producing a body that decrypts
-   * under this DEK requires the DEK, which an untrusted store does not hold.
-   *
-   * Absent — no benign explanation was found. Treat as the security alert this
-   * error has always been.
-   *
-   * The field is additive and the throw is unchanged, so
+   * Evidence the thrower held BEFORE decrypting, when it held any. Additive
+   * (#1103 pattern): the throw and the class are unchanged, so
    * `catch (e) { if (e instanceof TamperedError) … }` keeps working; callers
-   * that want to tell a migration from a breach can now read this.
+   * that want to tell a migration or a missing grant from a breach read this.
+   *
+   * - `'unbound-legacy-format'` — the body opens under an EMPTY AAD, so it was
+   *   sealed before identity binding (#1041): a format transition, not an
+   *   attack. Positive evidence: producing a body that decrypts under this DEK
+   *   requires the DEK, which an untrusted store does not hold. (#1103)
+   * - `'key-absent'` — this keyring holds no DEK for a collection that already
+   *   has records, and the DEK cannot be back-filled (wrapping needs the
+   *   grantee's secret, which the vault never stores). Thrown by the DEK
+   *   resolver instead of minting a key that would decrypt nothing and
+   *   resurface as a bare AEAD failure — the #1288 misdiagnosis. Reserved
+   *   collections (`_periods`, …) take this path; user collections throw
+   *   `NoAccessError` (#1004/#1010).
+   * - `'generation-mismatch'` — reserved for "the artefact was sealed at a
+   *   generation this reader cannot compute". **Not emitted by this build**:
+   *   hub reads no generation stamp off any envelope — `NOYDB_ENVELOPE_GENERATION`
+   *   is an exported constant, and the stamp a bundle carries is manifest data
+   *   a reader never branches on (ADR 0003). The one generation fact hub can
+   *   establish from the bytes — "opens under an empty AAD" — is already
+   *   `'unbound-legacy-format'`. Absence of a stamp never reads as
+   *   generation 1 (`docs/ENVELOPE-GENERATION.md`).
+   * - `'foreign-stamp'` — reserved for "this vault's DEK was asked to open a
+   *   body identity-bound to ANOTHER vault". **Not emitted by this build**:
+   *   nothing in hub can tell that apart from another vault's compartment
+   *   merely being present, which in a multi-vault bundle is normal
+   *   (klum `extractCrossVaultPartition`).
+   *
+   * Both reserved values are declared so consumers can type against them; a
+   * build that starts emitting either will say so in its CHANGELOG.
+   *
+   * Absent — no evidence; the security alert.
+   *
+   * ⚠️ `reason` is hub's IN-PROCESS report and may be branched on. A
+   * generation or origin stamp read out of an untrusted manifest may NOT — it
+   * is store-supplied data, not evidence (klum ADR 0003). If you are holding
+   * a stamp and not this error, you are holding a claim.
    */
-  readonly reason?: 'unbound-legacy-format'
+  readonly reason?: TamperedReason
 
   constructor(
     message = 'Data integrity check failed — record may have been tampered with',
-    reason?: 'unbound-legacy-format',
+    reason?: TamperedReason,
   ) {
     super('TAMPERED', message)
     this.name = 'TamperedError'
