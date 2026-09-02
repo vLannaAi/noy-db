@@ -15,8 +15,13 @@
  * cause with the same outcome fails here too.
  */
 
-/** Compare two dot/dash-separated versions segment-wise; numeric where both are numeric. */
-function isAfter(a, b) {
+/**
+ * Compare two dot/dash-separated versions segment-wise; numeric where both are numeric.
+ * Exported for `align-next-to-stable.mjs` (#1305) — this is the family's ONE version
+ * comparator; do not write another. Its ordering property is tested below via
+ * `assertCanonicalAdvanced`.
+ */
+export function isAfter(a, b) {
   const seg = v => String(v).split(/[.-]/).map(s => (/^\d+$/.test(s) ? Number(s) : s))
   const [x, y] = [seg(a), seg(b)]
   for (let i = 0; i < Math.max(x.length, y.length); i++) {
