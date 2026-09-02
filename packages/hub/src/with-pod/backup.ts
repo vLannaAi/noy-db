@@ -243,15 +243,35 @@ export async function loadVault(ctx: BackupContext, backupJson: string): Promise
   ctx.clearCollectionCache()
   ctx.resetLedgerStore()
 
-  // 5. Run the verification gate. Legacy backups (no ledgerHead)
-  //    skip this with a one-line warning so existing consumers can
-  //    still read them while migrating.
+  // 5. Run the verification gate. A backup with no ledgerHead cannot be
+  //    integrity-checked, and skipping silently would collapse
+  //    *unverifiable* into *clean* — so it always warns. But the REMEDY
+  //    depends on the reader, not the pod (#1303): the pod cannot say
+  //    whether its exporter predates the ledger or never enabled it, and
+  //    the reader knows its own configuration.
+  //
+  //    - Reader HAS the ledger: the pod is behind it. "Re-export" is
+  //      actionable; keep the migration wording.
+  //    - Reader has NO ledger: nothing is stale and nothing is migrating —
+  //      the consumer priced the ledger (#1248 measured ~2.4x) and declined.
+  //      Prescribing a re-export is advice they should not take, and
+  //      repeating it on every read trains people to filter the one line
+  //      that also fires on a genuinely stale pod. State the consequence,
+  //      name the discriminator, prescribe nothing.
   if (!backup.ledgerHead) {
-    console.warn(
-      `[noy-db] Loaded a legacy backup with no ledgerHead — ` +
-      `verifiable-backup integrity check skipped. ` +
-      `Re-export with a ledger-aware build to get tamper detection.`,
-    )
+    if (ctx.getLedgerOrNull()) {
+      console.warn(
+        `[noy-db] Loaded a legacy backup with no ledgerHead — ` +
+        `verifiable-backup integrity check skipped. ` +
+        `Re-export with a ledger-aware build to get tamper detection.`,
+      )
+    } else {
+      console.warn(
+        `[noy-db] Loaded a backup with no ledgerHead — this pod is not integrity-checked. ` +
+        `This reader has no ledger enabled (withHistory() is not configured), so nothing is stale: ` +
+        `enable the ledger on both the exporter and this reader if tamper detection is wanted.`,
+      )
+    }
     return
   }
 
