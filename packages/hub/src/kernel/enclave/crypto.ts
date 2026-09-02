@@ -211,6 +211,44 @@ export async function generateDEK(): Promise<CryptoKey> {
   )
 }
 
+// ─── DEK-Set Codec ─────────────────────────────────────────────────────
+//
+// The portable form of a DEK set — `{ collection: base64(rawKey) }` — is the
+// plaintext body of every persisted WrappedDeksBlob (recovery-paper,
+// recovery-shamir, tier-2 password slots). It is an enclave door because it
+// is the one place a key's REPRESENTATION crosses into bytes: a fork with its
+// own EnclaveKey (hardware-backed, post-quantum, no encryption) decides here
+// what "the bytes of a key" means, and nothing outside kernel/enclave has to
+// know. Byte-for-byte what wrapped-deks.ts did inline before #1317.
+
+/** Serialize a DEK set to `{ collection: base64(rawKey) }`. */
+export async function exportDekSet(deks: Map<string, CryptoKey>): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+  for (const [coll, dek] of deks) {
+    out[coll] = bufferToBase64(await subtle.exportKey('raw', dek))
+  }
+  return out
+}
+
+/**
+ * Reverse of {@link exportDekSet}. Keys come back extractable AES-GCM
+ * (`encrypt`/`decrypt`), matching what `generateDEK` mints.
+ */
+export async function importDekSet(exported: Record<string, string>): Promise<Map<string, CryptoKey>> {
+  const deks = new Map<string, CryptoKey>()
+  for (const [coll, b64] of Object.entries(exported)) {
+    const key = await subtle.importKey(
+      'raw',
+      base64ToBuffer(b64) as BufferSource,
+      { name: 'AES-GCM', length: KEY_BITS },
+      true,
+      ['encrypt', 'decrypt'],
+    )
+    deks.set(coll, key)
+  }
+  return deks
+}
+
 // ─── Key Wrapping ──────────────────────────────────────────────────────
 
 /** Wrap (encrypt) a DEK with a KEK using AES-KW. Returns base64 string. */

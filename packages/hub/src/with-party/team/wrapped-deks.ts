@@ -40,6 +40,8 @@ import {
   generateIV,
   bufferToBase64,
   base64ToBuffer,
+  exportDekSet,
+  importDekSet,
   type EnclaveKey,
 } from '../../kernel/enclave/index.js'
 
@@ -84,10 +86,10 @@ export interface WrappedDeksBlob {
  * PIN). Caller normalization rules apply (e.g. paper
  * recovery uppercase-strips the code before reaching this function).
  *
- * @param deks - DEK set to wrap. Each DEK must be exportable via
- *               `subtle.exportKey('raw', dek)` (the hub mints DEKs
- *               this way; consumers feeding non-extractable keys
- *               will get `InvalidAccessError` from WebCrypto).
+ * @param deks - DEK set to wrap. Serialized through the enclave's
+ *               `exportDekSet` door (the hub mints DEKs extractable;
+ *               consumers feeding non-extractable keys will get
+ *               `InvalidAccessError` from WebCrypto).
  * @param credential - String input the consumer minted (paper code,
  *               password, PIN). Treated as opaque bytes by PBKDF2.
  */
@@ -100,12 +102,7 @@ export async function mintWrappedDeksBlob(
   const wrappingKey = await deriveWrappingKey(credential, salt)
 
   // Serialize the DEK set as JSON `{ deks: { collection: base64 } }`.
-  const exported: Record<string, string> = {}
-  for (const [coll, dek] of deks) {
-    const raw = await subtle.exportKey('raw', dek)
-    exported[coll] = bufferToBase64(new Uint8Array(raw))
-  }
-  const plaintext = new TextEncoder().encode(JSON.stringify({ deks: exported }))
+  const plaintext = new TextEncoder().encode(JSON.stringify({ deks: await exportDekSet(deks) }))
   const ciphertext = await subtle.encrypt(
     { name: 'AES-GCM', iv: iv as BufferSource },
     wrappingKey,
@@ -141,19 +138,7 @@ export async function unwrapDeksFromBlob(
     base64ToBuffer(blob.wrappedDeks) as BufferSource,
   )
   const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as { deks: Record<string, string> }
-  const deks = new Map<string, EnclaveKey>()
-  for (const [coll, b64] of Object.entries(parsed.deks)) {
-    const raw = base64ToBuffer(b64)
-    const key = await subtle.importKey(
-      'raw',
-      raw as BufferSource,
-      { name: 'AES-GCM', length: 256 },
-      true,
-      ['encrypt', 'decrypt'],
-    )
-    deks.set(coll, key)
-  }
-  return deks
+  return importDekSet(parsed.deks)
 }
 
 // ─── Internals ─────────────────────────────────────────────────────────

@@ -79,6 +79,8 @@ export {
   deriveKey,
   deriveSecretKey,
   generateDEK,
+  exportDekSet,
+  importDekSet,
   generateSalt,
   generateRecoverySecret,
   generateIV,
