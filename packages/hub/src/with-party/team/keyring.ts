@@ -121,14 +121,21 @@ export interface UnlockedKeyring {
    */
   readonly pendingDeks?: Map<string, EnclaveKey> | undefined
   /**
-   * The KEK, when this keyring was unlocked via tier 1 (secret) or
-   * a wrap-KEK tier-2 method (WebAuthn / OIDC). `null` when the
-   * keyring was opened via:
+   * The KEK, when this keyring was unlocked via tier 1 (secret).
+   * `null` for every other path:
    *
    *   - Unencrypted mode (no KEK exists)
+   *   - **Every shipped tier-2 unlock** — `@noy-db/on-webauthn`,
+   *     `@noy-db/on-oidc` and `@noy-db/on-password` all rebuild the
+   *     DEK set from their own slot and return `kek: null`. A slot
+   *     being wrap-KEK on disk (`wrapped_kek`, see
+   *     `KeyringAuthenticatorWrappingKEK`) is what lets `rotateSecret`
+   *     re-wrap it via the slot ceremony; it does not mean the unlock
+   *     surfaces the KEK. (Measured against on-webauthn / on-oidc
+   *     source and the published 0.7.0 dist, 2026-09-02 — an earlier
+   *     version of this comment claimed both yield the KEK; neither
+   *     ever did.)
    *   - Tier-3 PIN quick-resume (`@noy-db/on-pin`)
-   *   - Wrap-DEKs tier-2 unlock (`@noy-db/on-password`'s
-   *     `verifyPasswordSlot`)
    *   - Session-state restore (`session/session.ts`)
    *   - Dev-unlock fixture (`session/dev-unlock.ts`)
    *

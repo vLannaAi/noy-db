@@ -23,7 +23,7 @@
  * @module
  */
 import type { NoydbStore } from '../../kernel/types.js'
-import { buildRecordEnvelope } from '../../kernel/enclave/index.js'
+import { buildRecordEnvelope, bufferToBase64, generateRecoverySecret } from '../../kernel/enclave/index.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
 import {
   mintWrappedDeksBlob,
@@ -256,9 +256,9 @@ export async function mintShamirRecoveryEntry(
   n: number,
   label?: string,
 ): Promise<{ entry: ShamirRecoveryEntry; shareStrings: string[] }> {
-  const recoverySecret = crypto.getRandomValues(new Uint8Array(32))
+  const recoverySecret = generateRecoverySecret()
   try {
-    const credential = bytesToBase64(recoverySecret)
+    const credential = bufferToBase64(recoverySecret)
     const blob = await mintWrappedDeksBlob(deks, credential)
     const shareStrings = provider.splitToShares(recoverySecret, k, n)
     const entry: ShamirRecoveryEntry = {
@@ -296,17 +296,12 @@ export async function unwrapDeksFromShamirEntry(
   }
   const secret = provider.combineShares(shareStrings)
   try {
-    return await unwrapDeksFromBlob(entry, bytesToBase64(secret))
+    return await unwrapDeksFromBlob(entry, bufferToBase64(secret))
   } finally {
     secret.fill(0)
   }
 }
 
-function bytesToBase64(b: Uint8Array): string {
-  let s = ''
-  for (const x of b) s += String.fromCharCode(x)
-  return btoa(s)
-}
 
 /**
  * Generate one paper-recovery entry from an unlocked DEK set.
@@ -353,7 +348,7 @@ export async function unwrapDeksFromPaperEntry(
   return unwrapDeksFromBlob(entry, code)
 }
 
-// The crypto helpers (deriveRecoveryWrappingKey, bytesToBase64,
-// base64ToBytes) live in the canonical wrap-DEKs primitive at
-// `./wrapped-deks.ts` and are reached via
-// `mintWrappedDeksBlob` / `unwrapDeksFromBlob`.
+// The wrap crypto lives in the canonical wrap-DEKs primitive at
+// `./wrapped-deks.ts` and is reached via
+// `mintWrappedDeksBlob` / `unwrapDeksFromBlob`; base64 comes from the
+// enclave barrel.
