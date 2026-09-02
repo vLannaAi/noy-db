@@ -9,7 +9,6 @@
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
-    "@noy-db/to-memory": "workspace:*",
     "vitest": "^3.0.0"
   }
 }

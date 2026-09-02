@@ -13,7 +13,6 @@
     "@noy-db/to-browser-idb": "^{{NOYDB_VERSION}}",
     "@noy-db/hub": "^{{NOYDB_VERSION}}",
     "@noy-db/to-file": "^{{NOYDB_VERSION}}",
-    "@noy-db/to-memory": "^{{NOYDB_VERSION}}",
     "@noy-db/in-nuxt": "^{{NOYDB_VERSION}}",
     "@noy-db/in-pinia": "^{{NOYDB_VERSION}}",
     "@noy-db/in-vue": "^{{NOYDB_VERSION}}",

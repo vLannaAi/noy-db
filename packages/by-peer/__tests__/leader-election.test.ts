@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { toMemory } from '@noy-db/to-memory'
+import { memoryStore } from '@noy-db/hub'
 import type { EncryptedEnvelope } from '@noy-db/hub'
 import { pairInMemory, peerStore, servePeerStore } from '../src/index.js'
 import type { MinimalLockManager } from '../src/serve.js'
@@ -128,7 +128,7 @@ function trackConcurrency(inner: MinimalLockManager): MinimalLockManager & {
 describe('servePeerStore({ leaderElection }) — issue #3', () => {
   it('serializes leader-callback execution across multiple servePeerStore calls', async () => {
     const tracker = trackConcurrency(createMockLocks())
-    const remote = toMemory()
+    const remote = memoryStore()
 
     // 3 servers all want to lead the same lock. Only one acquires at a time.
     const [a, b] = pairInMemory()
@@ -159,7 +159,7 @@ describe('servePeerStore({ leaderElection }) — issue #3', () => {
 
   it('hands leadership to the next waiter when the leader is disposed', async () => {
     const tracker = trackConcurrency(createMockLocks())
-    const remote = toMemory()
+    const remote = memoryStore()
 
     const [, b] = pairInMemory()
     const [, c] = pairInMemory()
@@ -188,7 +188,7 @@ describe('servePeerStore({ leaderElection }) — issue #3', () => {
 
   it('non-leader servers do not respond to RPC', async () => {
     const locks = createMockLocks()
-    const remote = toMemory()
+    const remote = memoryStore()
     await remote.put('v', 'c', 'r1', envelope(1))
 
     // Server 1 acquires the lock first (it's queued first); servers 2 and 3 wait.
@@ -224,7 +224,7 @@ describe('servePeerStore({ leaderElection }) — issue #3', () => {
 
   it('dispose before lock is acquired aborts the wait without error', async () => {
     const tracker = trackConcurrency(createMockLocks())
-    const remote = toMemory()
+    const remote = memoryStore()
 
     const [, b] = pairInMemory()
     const [, c] = pairInMemory()
@@ -250,7 +250,7 @@ describe('servePeerStore({ leaderElection }) — issue #3', () => {
   })
 
   it('default behaviour (no leaderElection) is unchanged — single tab serves immediately', async () => {
-    const remote = toMemory()
+    const remote = memoryStore()
     await remote.put('v', 'c', 'r1', envelope(1))
 
     const [a, b] = pairInMemory()
@@ -273,7 +273,7 @@ describe('servePeerStore({ leaderElection }) — issue #3', () => {
       // Environment polyfills navigator.locks; skip.
       return
     }
-    const remote = toMemory()
+    const remote = memoryStore()
     const [, b] = pairInMemory()
     expect(() =>
       servePeerStore({ channel: b, store: remote, token: 'test-invite-token', leaderElection: { lockName: 'L' } }),

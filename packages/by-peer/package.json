@@ -42,8 +42,7 @@
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*",
-    "@noy-db/test-mesh-conformance": "workspace:*",
-    "@noy-db/to-memory": "workspace:*"
+    "@noy-db/test-mesh-conformance": "workspace:*"
   },
   "keywords": [
     "noy-db",

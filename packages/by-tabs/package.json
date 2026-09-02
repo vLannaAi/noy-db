@@ -44,7 +44,6 @@
   "devDependencies": {
     "@noy-db/by-peer": "workspace:*",
     "@noy-db/hub": "workspace:*",
-    "@noy-db/to-memory": "workspace:*",
     "happy-dom": "^18.0.0"
   },
   "keywords": [

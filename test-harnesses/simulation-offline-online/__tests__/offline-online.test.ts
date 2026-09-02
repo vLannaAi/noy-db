@@ -25,7 +25,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../../../packages/hub/src/index.js'
 import { withSync } from '../../../packages/hub/src/with-sync/index.js'
-import { toMemory } from '../../../packages/to-memory/src/index.js'
+import { memoryStore } from '@noy-db/hub'
 import type { Noydb } from '../../../packages/hub/src/index.js'
 import type { NoydbStore } from '../../../packages/hub/src/kernel/types.js'
 
@@ -54,9 +54,9 @@ describe('simulation: offline-first writes, explicit push, second-device pull', 
   let deviceA: Noydb
 
   beforeEach(async () => {
-    localA = toMemory()
-    localB = toMemory()
-    remote = toMemory()
+    localA = memoryStore({ full: true })
+    localB = memoryStore({ full: true })
+    remote = memoryStore({ full: true })
     deviceA = await openDevice(localA, remote)
   })
 

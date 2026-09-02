@@ -21,8 +21,7 @@
  *     in. For now `noy-db verify` is the dependency-graph smoke test.
  */
 
-import { createNoydb } from '@noy-db/hub'
-import { toMemory } from '@noy-db/to-memory'
+import { createNoydb, memoryStore } from '@noy-db/hub'
 
 export interface VerifyResult {
   /** `true` if the round-trip succeeded; `false` if anything diverged. */
@@ -42,7 +41,7 @@ export async function verifyIntegrity(): Promise<VerifyResult> {
   const start = performance.now()
   try {
     const db = await createNoydb({
-      store: toMemory(),
+      store: memoryStore(),
       user: 'noy-db-verify',
       // The secret here is throwaway — the in-memory adapter never
       // persists anything, and the KEK is destroyed when we call close()

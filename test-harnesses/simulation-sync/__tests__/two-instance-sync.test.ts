@@ -2,7 +2,7 @@
  * Two-instance sync simulation (#927).
  *
  * Two REAL `Noydb` instances ("devices"), each with its OWN local
- * `toMemory()` store, replicating through one shared remote sync store
+ * `memoryStore({ full: true })` store, replicating through one shared remote sync store
  * (`sync: remote, syncStrategy: withSync()`). No hub internals mocked;
  * everything observed at the store boundary or the public API:
  *
@@ -29,7 +29,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../../../packages/hub/src/index.js'
 import { withSync } from '../../../packages/hub/src/with-sync/index.js'
-import { toMemory } from '../../../packages/to-memory/src/index.js'
+import { memoryStore } from '@noy-db/hub'
 import type { Noydb } from '../../../packages/hub/src/index.js'
 import type { NoydbStore } from '../../../packages/hub/src/kernel/types.js'
 
@@ -46,9 +46,9 @@ describe('simulation: two devices, own local stores, one shared remote', () => {
   let deviceA: Noydb
 
   beforeEach(async () => {
-    localA = toMemory()
-    localB = toMemory()
-    remote = toMemory()
+    localA = memoryStore({ full: true })
+    localB = memoryStore({ full: true })
+    remote = memoryStore({ full: true })
     deviceA = await createNoydb({ store: localA, sync: remote, user: USER, secret: SECRET, syncStrategy: withSync() })
     await deviceA.openVault(VAULT)
   })

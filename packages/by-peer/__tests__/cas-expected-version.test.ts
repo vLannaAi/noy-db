@@ -14,14 +14,13 @@
  * "remote stores are read-only" rather than as a serialisation bug.
  */
 import { describe, it, expect } from 'vitest'
-import { createNoydb, ConflictError } from '@noy-db/hub'
-import { toMemory } from '@noy-db/to-memory'
+import { memoryStore, createNoydb, ConflictError } from '@noy-db/hub'
 import { servePeerStore, peerStore, pairInMemory } from '../src/index.js'
 
 const SECRET = 'cas-expected-version-2026'
 
 async function hostAndGuest() {
-  const hostStore = toMemory()
+  const hostStore = memoryStore()
   const hostDb = await createNoydb({ store: hostStore, user: 'ann', secret: SECRET, validateSecret: false })
   const hostVault = await hostDb.openVault('niwat')
 

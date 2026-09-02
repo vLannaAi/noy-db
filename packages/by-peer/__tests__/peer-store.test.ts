@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toMemory } from '@noy-db/to-memory'
-import { ConflictError } from '@noy-db/hub'
+import { memoryStore, ConflictError } from '@noy-db/hub'
 import type { EncryptedEnvelope } from '@noy-db/hub'
 import { pairInMemory, peerStore, servePeerStore } from '../src/index.js'
 
@@ -17,7 +16,7 @@ function envelope(v: number, iv = 'aaaa'): EncryptedEnvelope {
 describe('peerStore + servePeerStore', () => {
   it('round-trips all six core methods through an in-memory channel pair', async () => {
     const [a, b] = pairInMemory()
-    const remote = toMemory()
+    const remote = memoryStore()
     const dispose = servePeerStore({ channel: b, store: remote, token: 'test-invite-token' })
     const local = peerStore({ channel: a, token: 'test-invite-token', token: 'test-invite-token' })
 
@@ -44,7 +43,7 @@ describe('peerStore + servePeerStore', () => {
 
   it('re-hydrates ConflictError with .version across the wire', async () => {
     const [a, b] = pairInMemory()
-    const remote = toMemory()
+    const remote = memoryStore()
     const dispose = servePeerStore({ channel: b, store: remote, token: 'test-invite-token' })
     const local = peerStore({ channel: a, token: 'test-invite-token', token: 'test-invite-token' })
 
@@ -64,7 +63,7 @@ describe('peerStore + servePeerStore', () => {
 
   it('surfaces unknown remote methods as an Error', async () => {
     const [a, b] = pairInMemory()
-    const remote = toMemory()
+    const remote = memoryStore()
     const dispose = servePeerStore({ channel: b, store: remote, token: 'test-invite-token' })
 
     const { createRpcClient } = await import('../src/index.js')
@@ -77,7 +76,7 @@ describe('peerStore + servePeerStore', () => {
 
   it('enforces the read-only allow whitelist', async () => {
     const [a, b] = pairInMemory()
-    const remote = toMemory()
+    const remote = memoryStore()
     await remote.put('v1', 'c1', 'r1', envelope(1))
 
     const dispose = servePeerStore({
@@ -97,7 +96,7 @@ describe('peerStore + servePeerStore', () => {
 
   it('rejects pending calls when the channel closes', async () => {
     const [a, b] = pairInMemory()
-    const remote = toMemory()
+    const remote = memoryStore()
     // Don't wire serve on b — we want the call to hang.
     const local = peerStore({ channel: a, token: 'test-invite-token', timeoutMs: 60_000 })
 

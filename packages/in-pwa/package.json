@@ -41,8 +41,7 @@
     "@noy-db/hub": "workspace:^"
   },
   "devDependencies": {
-    "@noy-db/hub": "workspace:*",
-    "@noy-db/to-memory": "workspace:*"
+    "@noy-db/hub": "workspace:*"
   },
   "keywords": [
     "noy-db",
