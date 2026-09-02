@@ -564,6 +564,7 @@
     "DescribeOptions",
     "DescribedField",
     "DevUnlockOptions",
+    "MemoryStoreOptions",
     "NoydbDeviceSeal",
     "DictEntry",
     "DictKeyDescriptor",
