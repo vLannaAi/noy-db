@@ -34,11 +34,16 @@
  * @module
  */
 
-import { deriveSecretKey, type EnclaveKey } from '../../kernel/enclave/index.js'
+import {
+  deriveSecretKey,
+  generateSalt,
+  generateIV,
+  bufferToBase64,
+  base64ToBuffer,
+  type EnclaveKey,
+} from '../../kernel/enclave/index.js'
 
 const PBKDF2_ITERATIONS = 600_000
-const SALT_BYTES = 32
-const IV_BYTES = 12
 
 const subtle = globalThis.crypto.subtle
 
@@ -90,15 +95,15 @@ export async function mintWrappedDeksBlob(
   deks: Map<string, EnclaveKey>,
   credential: string,
 ): Promise<WrappedDeksBlob> {
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES))
-  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
+  const salt = generateSalt()
+  const iv = generateIV()
   const wrappingKey = await deriveWrappingKey(credential, salt)
 
   // Serialize the DEK set as JSON `{ deks: { collection: base64 } }`.
   const exported: Record<string, string> = {}
   for (const [coll, dek] of deks) {
     const raw = await subtle.exportKey('raw', dek)
-    exported[coll] = bytesToBase64(new Uint8Array(raw))
+    exported[coll] = bufferToBase64(new Uint8Array(raw))
   }
   const plaintext = new TextEncoder().encode(JSON.stringify({ deks: exported }))
   const ciphertext = await subtle.encrypt(
@@ -108,9 +113,9 @@ export async function mintWrappedDeksBlob(
   )
 
   return {
-    salt: bytesToBase64(salt),
-    iv: bytesToBase64(iv),
-    wrappedDeks: bytesToBase64(new Uint8Array(ciphertext)),
+    salt: bufferToBase64(salt),
+    iv: bufferToBase64(iv),
+    wrappedDeks: bufferToBase64(new Uint8Array(ciphertext)),
   }
 }
 
@@ -129,16 +134,16 @@ export async function unwrapDeksFromBlob(
   blob: WrappedDeksBlob,
   credential: string,
 ): Promise<Map<string, EnclaveKey>> {
-  const wrappingKey = await deriveWrappingKey(credential, base64ToBytes(blob.salt))
+  const wrappingKey = await deriveWrappingKey(credential, base64ToBuffer(blob.salt))
   const plaintext = await subtle.decrypt(
-    { name: 'AES-GCM', iv: base64ToBytes(blob.iv) as BufferSource },
+    { name: 'AES-GCM', iv: base64ToBuffer(blob.iv) as BufferSource },
     wrappingKey,
-    base64ToBytes(blob.wrappedDeks) as BufferSource,
+    base64ToBuffer(blob.wrappedDeks) as BufferSource,
   )
   const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as { deks: Record<string, string> }
   const deks = new Map<string, EnclaveKey>()
   for (const [coll, b64] of Object.entries(parsed.deks)) {
-    const raw = base64ToBytes(b64)
+    const raw = base64ToBuffer(b64)
     const key = await subtle.importKey(
       'raw',
       raw as BufferSource,
@@ -155,17 +160,4 @@ export async function unwrapDeksFromBlob(
 
 async function deriveWrappingKey(credential: string, salt: Uint8Array): Promise<CryptoKey> {
   return deriveSecretKey(credential, salt, { iterations: PBKDF2_ITERATIONS, keyUsage: 'aes-gcm' })
-}
-
-function bytesToBase64(b: Uint8Array): string {
-  let s = ''
-  for (const x of b) s += String.fromCharCode(x)
-  return btoa(s)
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  const s = atob(b64)
-  const out = new Uint8Array(s.length)
-  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i)
-  return out
 }
