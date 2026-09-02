@@ -34,11 +34,18 @@
  * @module
  */
 
-import { deriveSecretKey, type EnclaveKey } from '../../kernel/enclave/index.js'
+import {
+  deriveSecretKey,
+  generateSalt,
+  generateIV,
+  bufferToBase64,
+  base64ToBuffer,
+  exportDekSet,
+  importDekSet,
+  type EnclaveKey,
+} from '../../kernel/enclave/index.js'
 
 const PBKDF2_ITERATIONS = 600_000
-const SALT_BYTES = 32
-const IV_BYTES = 12
 
 const subtle = globalThis.crypto.subtle
 
@@ -79,10 +86,10 @@ export interface WrappedDeksBlob {
  * PIN). Caller normalization rules apply (e.g. paper
  * recovery uppercase-strips the code before reaching this function).
  *
- * @param deks - DEK set to wrap. Each DEK must be exportable via
- *               `subtle.exportKey('raw', dek)` (the hub mints DEKs
- *               this way; consumers feeding non-extractable keys
- *               will get `InvalidAccessError` from WebCrypto).
+ * @param deks - DEK set to wrap. Serialized through the enclave's
+ *               `exportDekSet` door (the hub mints DEKs extractable;
+ *               consumers feeding non-extractable keys will get
+ *               `InvalidAccessError` from WebCrypto).
  * @param credential - String input the consumer minted (paper code,
  *               password, PIN). Treated as opaque bytes by PBKDF2.
  */
@@ -90,17 +97,12 @@ export async function mintWrappedDeksBlob(
   deks: Map<string, EnclaveKey>,
   credential: string,
 ): Promise<WrappedDeksBlob> {
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES))
-  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
+  const salt = generateSalt()
+  const iv = generateIV()
   const wrappingKey = await deriveWrappingKey(credential, salt)
 
   // Serialize the DEK set as JSON `{ deks: { collection: base64 } }`.
-  const exported: Record<string, string> = {}
-  for (const [coll, dek] of deks) {
-    const raw = await subtle.exportKey('raw', dek)
-    exported[coll] = bytesToBase64(new Uint8Array(raw))
-  }
-  const plaintext = new TextEncoder().encode(JSON.stringify({ deks: exported }))
+  const plaintext = new TextEncoder().encode(JSON.stringify({ deks: await exportDekSet(deks) }))
   const ciphertext = await subtle.encrypt(
     { name: 'AES-GCM', iv: iv as BufferSource },
     wrappingKey,
@@ -108,9 +110,9 @@ export async function mintWrappedDeksBlob(
   )
 
   return {
-    salt: bytesToBase64(salt),
-    iv: bytesToBase64(iv),
-    wrappedDeks: bytesToBase64(new Uint8Array(ciphertext)),
+    salt: bufferToBase64(salt),
+    iv: bufferToBase64(iv),
+    wrappedDeks: bufferToBase64(new Uint8Array(ciphertext)),
   }
 }
 
@@ -129,43 +131,18 @@ export async function unwrapDeksFromBlob(
   blob: WrappedDeksBlob,
   credential: string,
 ): Promise<Map<string, EnclaveKey>> {
-  const wrappingKey = await deriveWrappingKey(credential, base64ToBytes(blob.salt))
+  const wrappingKey = await deriveWrappingKey(credential, base64ToBuffer(blob.salt))
   const plaintext = await subtle.decrypt(
-    { name: 'AES-GCM', iv: base64ToBytes(blob.iv) as BufferSource },
+    { name: 'AES-GCM', iv: base64ToBuffer(blob.iv) as BufferSource },
     wrappingKey,
-    base64ToBytes(blob.wrappedDeks) as BufferSource,
+    base64ToBuffer(blob.wrappedDeks) as BufferSource,
   )
   const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as { deks: Record<string, string> }
-  const deks = new Map<string, EnclaveKey>()
-  for (const [coll, b64] of Object.entries(parsed.deks)) {
-    const raw = base64ToBytes(b64)
-    const key = await subtle.importKey(
-      'raw',
-      raw as BufferSource,
-      { name: 'AES-GCM', length: 256 },
-      true,
-      ['encrypt', 'decrypt'],
-    )
-    deks.set(coll, key)
-  }
-  return deks
+  return importDekSet(parsed.deks)
 }
 
 // ─── Internals ─────────────────────────────────────────────────────────
 
 async function deriveWrappingKey(credential: string, salt: Uint8Array): Promise<CryptoKey> {
   return deriveSecretKey(credential, salt, { iterations: PBKDF2_ITERATIONS, keyUsage: 'aes-gcm' })
-}
-
-function bytesToBase64(b: Uint8Array): string {
-  let s = ''
-  for (const x of b) s += String.fromCharCode(x)
-  return btoa(s)
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  const s = atob(b64)
-  const out = new Uint8Array(s.length)
-  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i)
-  return out
 }

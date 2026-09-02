@@ -53,6 +53,7 @@ export type EnclaveKey = CryptoKey
 const PBKDF2_ITERATIONS = 600_000
 const SALT_BYTES = 32
 const IV_BYTES = 12
+const RECOVERY_SECRET_BYTES = 32
 const KEY_BITS = 256
 
 const subtle = globalThis.crypto.subtle
@@ -208,6 +209,44 @@ export async function generateDEK(): Promise<CryptoKey> {
     true, // extractable — needed for AES-KW wrapping
     ['encrypt', 'decrypt'],
   )
+}
+
+// ─── DEK-Set Codec ─────────────────────────────────────────────────────
+//
+// The portable form of a DEK set — `{ collection: base64(rawKey) }` — is the
+// plaintext body of every persisted WrappedDeksBlob (recovery-paper,
+// recovery-shamir, tier-2 password slots). It is an enclave door because it
+// is the one place a key's REPRESENTATION crosses into bytes: a fork with its
+// own EnclaveKey (hardware-backed, post-quantum, no encryption) decides here
+// what "the bytes of a key" means, and nothing outside kernel/enclave has to
+// know. Byte-for-byte what wrapped-deks.ts did inline before #1317.
+
+/** Serialize a DEK set to `{ collection: base64(rawKey) }`. */
+export async function exportDekSet(deks: Map<string, CryptoKey>): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+  for (const [coll, dek] of deks) {
+    out[coll] = bufferToBase64(await subtle.exportKey('raw', dek))
+  }
+  return out
+}
+
+/**
+ * Reverse of {@link exportDekSet}. Keys come back extractable AES-GCM
+ * (`encrypt`/`decrypt`), matching what `generateDEK` mints.
+ */
+export async function importDekSet(exported: Record<string, string>): Promise<Map<string, CryptoKey>> {
+  const deks = new Map<string, CryptoKey>()
+  for (const [coll, b64] of Object.entries(exported)) {
+    const key = await subtle.importKey(
+      'raw',
+      base64ToBuffer(b64) as BufferSource,
+      { name: 'AES-GCM', length: KEY_BITS },
+      true,
+      ['encrypt', 'decrypt'],
+    )
+    deks.set(coll, key)
+  }
+  return deks
 }
 
 // ─── Key Wrapping ──────────────────────────────────────────────────────
@@ -938,6 +977,18 @@ export function generateIV(): Uint8Array {
 /** Generate a random 32-byte salt for PBKDF2. */
 export function generateSalt(): Uint8Array {
   return globalThis.crypto.getRandomValues(new Uint8Array(SALT_BYTES))
+}
+
+/**
+ * Mint a fresh recovery secret — the high-entropy value a recovery profile
+ * wraps the DEK set under and then hands out (Shamir splits it into shares;
+ * paper prints it). Not a salt: a salt is public, this is not, and a fork
+ * may size them differently. The reference enclave returns 32 bytes.
+ *
+ * Callers must zero the buffer once it has been wrapped and split.
+ */
+export function generateRecoverySecret(): Uint8Array {
+  return globalThis.crypto.getRandomValues(new Uint8Array(RECOVERY_SECRET_BYTES))
 }
 
 // ─── Base64 Helpers ────────────────────────────────────────────────────
