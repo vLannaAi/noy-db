@@ -39,7 +39,6 @@ export default defineConfig({
     'magicast',
     'diff',
     '@noy-db/hub',
-    '@noy-db/to-memory',
     '@noy-db/to-file',
     'node:fs',
     'node:fs/promises',

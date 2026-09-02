@@ -52,9 +52,6 @@ importers:
       '@noy-db/test-mesh-conformance':
         specifier: workspace:*
         version: link:../test-mesh-conformance
-      '@noy-db/to-memory':
-        specifier: workspace:*
-        version: link:../to-memory
 
   packages/by-tabs:
     devDependencies:
@@ -64,9 +61,6 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
-      '@noy-db/to-memory':
-        specifier: workspace:*
-        version: link:../to-memory
       happy-dom:
         specifier: ^18.0.0
         version: 18.0.1
@@ -103,9 +97,6 @@ importers:
       '@noy-db/to-file':
         specifier: workspace:*
         version: link:../to-file
-      '@noy-db/to-memory':
-        specifier: workspace:*
-        version: link:../to-memory
       diff:
         specifier: ^7.0.0
         version: 7.0.0
@@ -282,9 +273,6 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
-      '@noy-db/to-memory':
-        specifier: workspace:*
-        version: link:../to-memory
 
   packages/in-react:
     devDependencies:
@@ -482,9 +470,6 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../hub
-      '@noy-db/to-memory':
-        specifier: workspace:*
-        version: link:../to-memory
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -512,9 +497,6 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../../packages/hub
-      '@noy-db/to-memory':
-        specifier: workspace:*
-        version: link:../../packages/to-memory
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.17)(happy-dom@18.0.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0)
@@ -536,9 +518,6 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../../packages/hub
-      '@noy-db/to-memory':
-        specifier: workspace:*
-        version: link:../../packages/to-memory
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.17)(happy-dom@18.0.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0)
@@ -548,9 +527,6 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../../packages/hub
-      '@noy-db/to-memory':
-        specifier: workspace:*
-        version: link:../../packages/to-memory
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.17)(happy-dom@18.0.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0)
@@ -560,9 +536,6 @@ importers:
       '@noy-db/hub':
         specifier: workspace:*
         version: link:../../packages/hub
-      '@noy-db/to-memory':
-        specifier: workspace:*
-        version: link:../../packages/to-memory
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.17)(happy-dom@18.0.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0)

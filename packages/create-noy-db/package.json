@@ -47,7 +47,6 @@
     "magicast": "^0.3.5",
     "diff": "^7.0.0",
     "@noy-db/hub": "workspace:*",
-    "@noy-db/to-memory": "workspace:*",
     "@noy-db/to-file": "workspace:*"
   },
   "devDependencies": {

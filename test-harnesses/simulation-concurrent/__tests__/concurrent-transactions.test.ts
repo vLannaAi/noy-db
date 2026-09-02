@@ -2,7 +2,7 @@
  * Concurrent-transaction simulation (#920 scope addition).
  *
  * Two REAL `Noydb` instances — separate caches, separate write queues —
- * share one `toMemory()` store and race atomic batches through the #906
+ * share one `memoryStore({ full: true })` store and race atomic batches through the #906
  * forward-commit path (`db.transaction(fn)` → one `store.tx()` on a
  * `txAtomic` store). The store-side CAS (`TxOp.expectedVersion`) is the
  * only thing closing the pre-flight→commit window, so these scenarios
@@ -19,7 +19,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb } from '../../../packages/hub/src/index.js'
 import { withTransactions } from '../../../packages/hub/src/with-commit/tx/index.js'
-import { toMemory } from '../../../packages/to-memory/src/index.js'
+import { memoryStore } from '@noy-db/hub'
 import type { Noydb } from '../../../packages/hub/src/index.js'
 import type { NoydbStore } from '../../../packages/hub/src/kernel/types.js'
 
@@ -66,7 +66,7 @@ async function openWriter(store: NoydbStore): Promise<Noydb> {
 
 describe('simulation: two writers racing an atomic batch on a txAtomic store', () => {
   it('a plain writer landing inside the pre-flight→commit window fails the whole batch', async () => {
-    const shared = toMemory()
+    const shared = memoryStore({ full: true })
     const submitted = deferred()
     const gate = deferred()
     const writerA = await openWriter(gatedView(shared, gate.promise, submitted.resolve))
@@ -105,7 +105,7 @@ describe('simulation: two writers racing an atomic batch on a txAtomic store', (
   })
 
   it('two symmetric batches over the same pair: exactly one lands, the loser applies nothing', async () => {
-    const shared = toMemory()
+    const shared = memoryStore({ full: true })
     const submittedA = deferred()
     const submittedB = deferred()
     const gateA = deferred()
@@ -152,7 +152,7 @@ describe('simulation: two writers racing an atomic batch on a txAtomic store', (
   })
 
   it('disjoint batches from both writers land concurrently, one tx() each', async () => {
-    const shared = toMemory()
+    const shared = memoryStore({ full: true })
     const txCalls: string[] = []
     const counting: NoydbStore = {
       ...shared,

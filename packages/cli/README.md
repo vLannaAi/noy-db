@@ -15,7 +15,7 @@ npx noydb --help
 
 ## What it is
 
-Command-line tool for noy-db — inspect .noydb bundles without decrypting, verify integrity, validate config objects, scaffold topology profiles, and monitor a live vault's store metrics.
+Command-line tool for noy-db — inspect .noydb pods without decrypting, verify integrity, validate config objects, scaffold topology profiles, and monitor a live vault's store metrics.
 
 ## Status
 

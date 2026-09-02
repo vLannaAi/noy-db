@@ -186,7 +186,7 @@ For `operator` and `client`, the `--collections` flag is required. Format: `name
 
 ### `noy-db verify`
 
-Runs an end-to-end crypto round-trip against an in-memory adapter. No real data is touched; the command creates a throwaway compartment, writes a record, reads it back, and verifies it decrypts correctly. Useful as a sanity check that `@noy-db/hub`, `@noy-db/to-memory`, and your local Node version all agree on Web Crypto.
+Runs an end-to-end crypto round-trip against an in-memory adapter. No real data is touched; the command creates a throwaway compartment, writes a record, reads it back, and verifies it decrypts correctly. Useful as a sanity check that `@noy-db/hub` and your local Node version agree on Web Crypto.
 
 ```bash
 pnpm exec noy-db verify

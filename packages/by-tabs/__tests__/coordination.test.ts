@@ -2,8 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import type { PeerChannel } from '@noy-db/by-peer'
 import { isQuorum, runDrainBarrier } from '@noy-db/hub/cargo'
 import type { WriterPresence } from '@noy-db/hub/cargo'
-import { createNoydb } from '@noy-db/hub'
-import { toMemory } from '@noy-db/to-memory'
+import { memoryStore, createNoydb } from '@noy-db/hub'
 import { byTabs } from '../src/coordination.js'
 
 /**
@@ -266,7 +265,7 @@ describe('byTabs — drain barrier (real quorum)', () => {
 
 describe('byTabs — e2e through createNoydb', () => {
   it('is accepted as createNoydb({ mesh }) and is the live instance', async () => {
-    const store = toMemory()
+    const store = memoryStore()
     const [chA, chB] = pair()
     const coA = byTabs(chA)
 

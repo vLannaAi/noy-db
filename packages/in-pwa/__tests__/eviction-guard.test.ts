@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { EncryptedEnvelope, NoydbStore, VaultSnapshot } from '@noy-db/hub'
-import { createNoydb } from '@noy-db/hub'
-import { toMemory } from '@noy-db/to-memory'
+import { memoryStore, createNoydb } from '@noy-db/hub'
 import { guardLocalVault, probeLocalVault } from '../src/index.js'
 
 /** Minimal hand-rolled store for shaping specific probe answers. */
@@ -28,12 +27,12 @@ const fakeEnvelope = { _v: 1 } as unknown as EncryptedEnvelope
 
 describe('probeLocalVault', () => {
   it('reports absent (empty) on a fresh store', async () => {
-    const presence = await probeLocalVault(toMemory(), 'firm')
+    const presence = await probeLocalVault(memoryStore(), 'firm')
     expect(presence).toEqual({ present: false, reason: 'empty' })
   })
 
-  it('is store-agnostic: finds a real vault via its _keyring marker on to-memory', async () => {
-    const store = toMemory()
+  it('is store-agnostic: finds a real vault via its _keyring marker on the built-in memory store', async () => {
+    const store = memoryStore()
     const db = await createNoydb({ store, user: 'owner', secret: 'pw' })
     const vault = await db.openVault('firm')
     await vault.collection<{ id: string }>('invoices').put('i1', { id: 'i1' })
@@ -81,7 +80,7 @@ describe('probeLocalVault', () => {
 describe('guardLocalVault', () => {
   it('fails closed on an empty store: onEvicted invoked, never reported healthy', async () => {
     const onEvicted = vi.fn()
-    const result = await guardLocalVault(toMemory(), 'firm', onEvicted)
+    const result = await guardLocalVault(memoryStore(), 'firm', onEvicted)
 
     expect(result.healthy).toBe(false)
     expect(result.presence).toEqual({ present: false, reason: 'empty' })
@@ -91,7 +90,7 @@ describe('guardLocalVault', () => {
 
   it('awaits an async onEvicted handler before returning', async () => {
     let settled = false
-    const result = await guardLocalVault(toMemory(), 'firm', async () => {
+    const result = await guardLocalVault(memoryStore(), 'firm', async () => {
       await new Promise((r) => setTimeout(r, 10))
       settled = true
     })
@@ -117,7 +116,7 @@ describe('guardLocalVault', () => {
   })
 
   it('reports healthy on a populated vault and never calls onEvicted', async () => {
-    const store = toMemory()
+    const store = memoryStore()
     const db = await createNoydb({ store, user: 'owner', secret: 'pw' })
     const vault = await db.openVault('firm')
     await vault.collection<{ id: string }>('invoices').put('i1', { id: 'i1' })

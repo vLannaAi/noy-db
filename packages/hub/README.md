@@ -44,7 +44,7 @@ pnpm add @noy-db/hub @noy-db/to-memory
 
 - **Framework integrations** — [`@noy-db/in-*`](https://www.npmjs.com/search?q=%40noy-db%2Fin-): vue, pinia, nuxt, react, nextjs, svelte, solid, zustand, tanstack-query, tanstack-table, yjs, ai, rest.
 - **Authentication paths** — [`@noy-db/on-*`](https://www.npmjs.com/search?q=%40noy-db%2Fon-): webauthn, oidc, totp, email-otp, magic-link, recovery, shamir, pin, threat.
-- **Export formats** — [`@noy-db/as-*`](https://www.npmjs.com/search?q=%40noy-db%2Fas-): csv, json, ndjson, xml, sql, xlsx, blob, zip, noydb (encrypted bundle).
+- **Export formats** — [`@noy-db/as-*`](https://www.npmjs.com/search?q=%40noy-db%2Fas-): csv, json, ndjson, xml, sql, xlsx, blob, zip, noydb (encrypted pod).
 - **Session-share transports** — [`@noy-db/by-*`](https://www.npmjs.com/search?q=%40noy-db%2Fby-): tabs (BroadcastChannel multi-tab), peer (WebRTC).
 - **CLI tooling** — [`@noy-db/cli`](https://www.npmjs.com/package/@noy-db/cli) (`noydb` binary; inspect/verify `.noydb` files), [`create-noy-db`](https://www.npmjs.com/package/create-noy-db) (`npm create noy-db` scaffolder).
 
@@ -101,7 +101,7 @@ const admin = await db.listAccessibleVaults({ minRole: 'admin' })
 
 **Existence-leak guarantee.** The return value never reveals the existence of a vault the caller cannot unwrap. The store sees the enumeration call (it owns the storage), but downstream consumers of `listAccessibleVaults()` only see the filtered list.
 
-**Store capability.** Requires the optional `NoydbStore.listVaults()` method. The `@noy-db/to-memory` and `@noy-db/to-file` stores implement it; cloud stores (`@noy-db/to-aws-dynamo`, `@noy-db/to-aws-s3`) and `@noy-db/to-browser-idb` do not (cloud enumeration needs a GSI or list-bucket permission that has to be configured by the consumer). Calling `listAccessibleVaults()` against a store that doesn't implement `listVaults` throws `StoreCapabilityError`. Workaround: maintain the candidate list out of band and pass it directly to `queryAcross()`.
+**Store capability.** Requires the optional `NoydbStore.listVaults()` method. The built-in `memoryStore({ full: true })` and the `@noy-db/to-file` store implement it; cloud stores (`@noy-db/to-aws-dynamo`, `@noy-db/to-aws-s3`) and `@noy-db/to-browser-idb` do not (cloud enumeration needs a GSI or list-bucket permission that has to be configured by the consumer). Calling `listAccessibleVaults()` against a store that doesn't implement `listVaults` throws `StoreCapabilityError`. Workaround: maintain the candidate list out of band and pass it directly to `queryAcross()`.
 
 ### `db.queryAcross(ids, fn, options?)` — fan out
 
@@ -179,7 +179,7 @@ Core has zero `node:` imports — it runs unchanged in browsers, Node, Bun, Deno
 
 #### Other plaintext formats
 
-CSV, XML, xlsx, and the rest of the plaintext tier — plus encrypted `.noydb` bundles under the `as-noydb` encrypted tier — all live in the [`@noy-db/as-*`](https://www.npmjs.com/search?q=%40noy-db%2Fas-) family. Every invocation is gated by the two-tier authorization model (`assertCanExport('plaintext')` default off, `canExportBundle` default on for owner/admin) and lands in the audit ledger.
+CSV, XML, xlsx, and the rest of the plaintext tier — plus encrypted `.noydb` pods under the `as-noydb` encrypted tier — all live in the [`@noy-db/as-*`](https://www.npmjs.com/search?q=%40noy-db%2Fas-) family. Every invocation is gated by the two-tier authorization model (`assertCanExport('plaintext')` default off, `canExportBundle` default on for owner/admin) and lands in the audit ledger.
 
 ## Money fields
 

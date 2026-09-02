@@ -3,7 +3,7 @@
  *
  * Two (and more) distinct `user` identities on ONE shared store, using
  * the real `withTeam()` grant flow end to end — real hub instances,
- * real `toMemory()` store, nothing mocked. Each member unlocks with
+ * real `memoryStore({ full: true })` store, nothing mocked. Each member unlocks with
  * their OWN secret; what a grant hands over is a wrapped copy of the
  * collection DEKs, not the owner's secret. The scenarios pin:
  *
@@ -30,7 +30,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb } from '../../../packages/hub/src/index.js'
 import { withTeam } from '../../../packages/hub/src/with-party/team/index.js'
-import { toMemory } from '../../../packages/to-memory/src/index.js'
+import { memoryStore } from '@noy-db/hub'
 import type { Noydb } from '../../../packages/hub/src/index.js'
 import type { NoydbStore } from '../../../packages/hub/src/kernel/types.js'
 
@@ -51,7 +51,7 @@ describe('simulation: two user identities on one shared store', () => {
   let ownerDb: Noydb
 
   beforeEach(async () => {
-    shared = toMemory()
+    shared = memoryStore({ full: true })
     ownerDb = await open(shared, 'owner-01', 'owner-pass')
     // Seed BEFORE any grant/member-open so the collection DEK exists to be
     // wrapped for the member (keyring snapshot rule — see header).

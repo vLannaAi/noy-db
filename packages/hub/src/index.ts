@@ -252,6 +252,7 @@ export type { SyncTarget, SyncTargetInfo, SyncTargetRole } from './kernel/types.
 
 // Store routing
 export { memoryStore } from './kernel/memory-store.js'
+export type { MemoryStoreOptions } from './kernel/memory-store.js'
 export { routeStore } from './with-store/route-store.js'
 export type {
   RouteStoreOptions, RoutedNoydbStore, BlobStoreRoute, AgeRoute,

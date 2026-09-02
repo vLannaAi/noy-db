@@ -11,12 +11,11 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createNoydb, memoryStore, routeStore } from '@noy-db/hub'
-import { toMemory } from '@noy-db/to-memory'
 import { toMeter } from '../src/index.js'
 
 describe('#845 — toMeter composes as a store', () => {
   it('drops straight into createNoydb({ store })', async () => {
-    const metered = toMeter(toMemory())
+    const metered = toMeter(memoryStore({ full: true }))
     const db = await createNoydb({ store: metered, user: 'u', secret: 'x'.repeat(32) })
     const vault = await db.openVault('acme')
     await vault.collection<{ n: number }>('items').put('a', { n: 1 })
@@ -25,8 +24,8 @@ describe('#845 — toMeter composes as a store', () => {
   })
 
   it('meters each backend independently inside routeStore', async () => {
-    const main = toMeter(toMemory())
-    const blobs = toMeter(toMemory())
+    const main = toMeter(memoryStore({ full: true }))
+    const blobs = toMeter(memoryStore({ full: true }))
 
     const routed = routeStore({ default: main, blobs })
     const db = await createNoydb({ store: routed, user: 'u', secret: 'y'.repeat(32) })
@@ -39,7 +38,7 @@ describe('#845 — toMeter composes as a store', () => {
   })
 
   it('nests — a meter can wrap an already-metered store', async () => {
-    const inner = toMeter(toMemory())
+    const inner = toMeter(memoryStore({ full: true }))
     const outer = toMeter(inner)
 
     await outer.put('v', 'c', 'id', { _v: 1, _data: '{}' } as never)
@@ -64,14 +63,14 @@ describe('#845 — toMeter composes as a store', () => {
     expect(typeof overBuiltIn.tx).toBe('undefined')
     expect(typeof overBuiltIn.listVaults).toBe('undefined')
 
-    // @noy-db/to-memory implements the fuller surface, so the meter exposes it.
-    const overFull = toMeter(toMemory())
+    // `full: true` adds the optional half, so the meter exposes it.
+    const overFull = toMeter(memoryStore({ full: true }))
     expect(typeof overFull.tx).toBe('function')
     expect(typeof overFull.listVaults).toBe('function')
   })
 
   it('meters the optional surface, not just the 6-method core', async () => {
-    const metered = toMeter(toMemory())
+    const metered = toMeter(memoryStore({ full: true }))
     await metered.put('v', 'c', 'id', { _v: 1, _data: '{}' } as never)
     await metered.listPage!('v', 'c')
     await metered.getStoreTime!()
@@ -82,7 +81,7 @@ describe('#845 — toMeter composes as a store', () => {
   })
 
   it('meters listVaults and ping when the inner store has them (#889)', async () => {
-    const metered = toMeter(toMemory())
+    const metered = toMeter(memoryStore({ full: true }))
     await metered.listVaults!()
     await metered.ping!()
 
@@ -92,6 +91,6 @@ describe('#845 — toMeter composes as a store', () => {
   })
 
   it('preserves the inner store name for routing and logging', () => {
-    expect(toMeter(toMemory()).name).toBe('meter(memory)')
+    expect(toMeter(memoryStore({ full: true })).name).toBe('meter(memory)')
   })
 })

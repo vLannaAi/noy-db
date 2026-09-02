@@ -27,7 +27,7 @@
  * *unwrapped JSON string*, not a Vault object. The caller
  * is responsible for piping that JSON into
  * `vault.load(json, secret)`. Splitting the layers
- * keeps the bundle module free of any crypto/secret
+ * keeps `format.ts` free of any crypto/secret
  * concerns — it's purely a format layer. The same `readPod`
  * call can also feed verification tools, format inspectors, or
  * archive utilities that don't care about decryption.
@@ -78,7 +78,7 @@ export type AutoCredentialKind = 'secret' | 'password' | 'pin'
  * correct login/prefill path rather than treating all credentials
  * as secrets.
  *
- * `bundle.ts` is a pure format layer — it carries the credential
+ * `format.ts` is a pure format layer — it carries the credential
  * without interpreting it. The consumer is responsible for
  * dispatching on `kind`.
  */
@@ -303,7 +303,7 @@ export interface WritePodOptions {
  * bundle that is missing something, and the defect surfaces later — in
  * whoever imports it — with nothing left to trace it back to.
  *
- * `bundle-option-keys.test.ts` parses `WritePodOptions` out of this file and
+ * `pod-option-keys.test.ts` parses `WritePodOptions` out of this file and
  * fails if the two ever drift, so adding an option is enough; you do not have
  * to remember to update this list, only to keep the interface shape parseable.
  *
@@ -370,7 +370,7 @@ function assertKnownWritePodOptions(opts: WritePodOptions): void {
  * Result returned by `readPod`. The caller is expected to
  * pass `dumpJson` into `vault.load(json, secret)` to
  * actually restore a vault. Splitting the layers keeps the
- * bundle module free of crypto concerns — see file-level docs.
+ * `format.ts` free of crypto concerns — see file-level docs.
  */
 export interface PodReadResult {
   readonly header: NoydbPodHeader

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toMemory } from '@noy-db/to-memory'
+import { memoryStore } from '@noy-db/hub'
 import type { EncryptedEnvelope } from '@noy-db/hub'
 import { pairInMemory, peerStore, servePeerStore } from '../src/index.js'
 
@@ -27,7 +27,7 @@ describe('servePeerStore is fail-closed (milestone 52)', () => {
     // The honest control. Every refusal below is only evidence because this
     // same path succeeds.
     const [a, b] = pairInMemory()
-    const remote = toMemory()
+    const remote = memoryStore()
     await remote.put('v', 'c', 'id1', envelope(1))
     const dispose = servePeerStore({ channel: b, store: remote, token: 'from-the-invite' })
     const local = peerStore({ channel: a, token: 'from-the-invite' })
@@ -38,7 +38,7 @@ describe('servePeerStore is fail-closed (milestone 52)', () => {
 
   it('REFUSES a client presenting no token', async () => {
     const [a, b] = pairInMemory()
-    const remote = toMemory()
+    const remote = memoryStore()
     await remote.put('v', 'c', 'id1', envelope(1))
     const dispose = servePeerStore({ channel: b, store: remote, token: 'from-the-invite' })
     const local = peerStore({ channel: a })   // no token
@@ -49,7 +49,7 @@ describe('servePeerStore is fail-closed (milestone 52)', () => {
 
   it('REFUSES a client presenting the wrong token', async () => {
     const [a, b] = pairInMemory()
-    const remote = toMemory()
+    const remote = memoryStore()
     const dispose = servePeerStore({ channel: b, store: remote, token: 'from-the-invite' })
     const local = peerStore({ channel: a, token: 'guessed' })
 
@@ -61,7 +61,7 @@ describe('servePeerStore is fail-closed (milestone 52)', () => {
     // The load-bearing case. Previously this configuration served everything.
     // Matching in-rest: no credential configured means refuse, not allow.
     const [a, b] = pairInMemory()
-    const remote = toMemory()
+    const remote = memoryStore()
     await remote.put('v', 'c', 'id1', envelope(1))
     const dispose = servePeerStore({ channel: b, store: remote })   // no token
     const local = peerStore({ channel: a, token: 'anything' })
@@ -74,7 +74,7 @@ describe('servePeerStore is fail-closed (milestone 52)', () => {
     // Refusing after the effect would be worse than not refusing: the caller
     // sees an error and the write happened anyway.
     const [a, b] = pairInMemory()
-    const remote = toMemory()
+    const remote = memoryStore()
     const dispose = servePeerStore({ channel: b, store: remote, token: 'right' })
     const local = peerStore({ channel: a, token: 'wrong' })
 
@@ -86,7 +86,7 @@ describe('servePeerStore is fail-closed (milestone 52)', () => {
   it('the method allowlist still applies on top of a valid token', async () => {
     // `allow` was never authentication and still is not — it composes with it.
     const [a, b] = pairInMemory()
-    const remote = toMemory()
+    const remote = memoryStore()
     const dispose = servePeerStore({
       channel: b, store: remote, token: 't', allow: new Set(['get']),
     })
@@ -105,14 +105,14 @@ describe('auth is checked BEFORE method validity (milestone 52)', () => {
     // methods this peer serves — an existence oracle, the same class as
     // enumeration via `listVaults`. Both answers must be identical.
     const [a, b] = pairInMemory()
-    const dispose = servePeerStore({ channel: b, store: toMemory(), token: 'right' })
+    const dispose = servePeerStore({ channel: b, store: memoryStore(), token: 'right' })
     const local = peerStore({ channel: a, token: 'wrong' })
 
     const real = await local.get('v', 'c', 'id').catch((e: Error) => e.message)
     local.dispose()
 
     const [c, d] = pairInMemory()
-    const dispose2 = servePeerStore({ channel: d, store: toMemory(), token: 'right' })
+    const dispose2 = servePeerStore({ channel: d, store: memoryStore(), token: 'right' })
     const { createRpcClient } = await import('../src/index.js')
     const rpc = createRpcClient(c, { token: 'wrong' })
     const bogus = await rpc.call('noSuchMethod', []).catch((e: Error) => e.message)
