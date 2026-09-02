@@ -23,7 +23,7 @@
  * @module
  */
 import type { NoydbStore } from '../../kernel/types.js'
-import { buildRecordEnvelope, bufferToBase64 } from '../../kernel/enclave/index.js'
+import { buildRecordEnvelope, bufferToBase64, generateRecoverySecret } from '../../kernel/enclave/index.js'
 import type { EnclaveKey } from '../../kernel/enclave/index.js'
 import {
   mintWrappedDeksBlob,
@@ -256,7 +256,7 @@ export async function mintShamirRecoveryEntry(
   n: number,
   label?: string,
 ): Promise<{ entry: ShamirRecoveryEntry; shareStrings: string[] }> {
-  const recoverySecret = crypto.getRandomValues(new Uint8Array(32))
+  const recoverySecret = generateRecoverySecret()
   try {
     const credential = bufferToBase64(recoverySecret)
     const blob = await mintWrappedDeksBlob(deks, credential)

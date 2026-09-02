@@ -80,6 +80,7 @@ export {
   deriveSecretKey,
   generateDEK,
   generateSalt,
+  generateRecoverySecret,
   generateIV,
   wrapKey,
   unwrapKey,
