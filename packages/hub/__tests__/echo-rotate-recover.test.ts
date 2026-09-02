@@ -51,7 +51,7 @@ import {
   mintPaperRecoveryEntry,
 } from '../src/with-party/team/recovery.js'
 import { generateDEK } from '../src/kernel/enclave/index.js'
-import { shamirRecoveryProvider } from '@noy-db/on-shamir'
+import { shamirRecoveryProvider } from './support/shamir-provider.js'
 
 // Same inline in-memory store pattern as __tests__/keyring.test.ts:17-42.
 function inlineMemory(): NoydbStore {

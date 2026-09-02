@@ -247,7 +247,7 @@
     "@noy-db/attestation": "workspace:*"
   },
   "devDependencies": {
-    "@noy-db/on-shamir": "workspace:*",
+    "@noy-db/shamir": "workspace:*",
     "@types/node": "^22.0.0",
     "esbuild": "^0.25.0",
     "happy-dom": "^18.0.0",

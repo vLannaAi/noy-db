@@ -61,6 +61,14 @@ describe('encode/decode share Base32', () => {
     expect(str).toMatch(/^SHAMIR_S2_K2N3__/)
   })
 
+  it('every share is the canonical wire format SHAMIR_S<x>_K<k>N<n>__<base32 groups> — the pin hub used to carry', () => {
+    // Moved from hub's shamir-recovery.test.ts when on-shamir left core: hub
+    // treats the strings as opaque, so the format is THIS package's property.
+    for (const share of splitSecret(crypto.getRandomValues(new Uint8Array(32)), 2, 3)) {
+      expect(encodeShareBase32(share)).toMatch(/^SHAMIR_S\d+_K2N3__[A-Z2-7-]+$/)
+    }
+  })
+
   it('tolerates whitespace, lowercase, and stripped hyphens', () => {
     const share = splitSecret(new Uint8Array([0xff, 0x80]), 2, 3)[0]!
     const str = encodeShareBase32(share)

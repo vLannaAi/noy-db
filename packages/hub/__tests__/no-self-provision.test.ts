@@ -18,7 +18,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import {
   MemorySealer,
 } from '../src/with-party/team/managed-secret.js'
-import { shamirRecoveryProvider } from '@noy-db/on-shamir'
+import { shamirRecoveryProvider } from './support/shamir-provider.js'
 import { withTeam } from '../src/with-party/team/index.js'
 
 // Inline memory adapter (same shape as cross-vault.test.ts)

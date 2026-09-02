@@ -1729,11 +1729,14 @@ const HUB_SATELLITE_DEPS = new Map([
     // implements no hub contract, so no mirror is forced and none exists.
     mirrorCheck: null,
   }],
-  ['@noy-db/on-shamir', {
-    why: 'devDependency — six managed-mode / recovery test files exercise REAL k-of-n threshold behaviour against the shipped implementation. A stub would leave them green while proving nothing about the property under test.',
-    // on-shamir cannot import `NoydbShamir`; it mirrors it. Hub compiles the
-    // two against each other, in the one direction the graph allows.
-    mirrorCheck: 'packages/hub/__tests__/noydb-shamir-satellite.test-d.ts',
+  ['@noy-db/shamir', {
+    why: 'devDependency — six managed-mode / recovery test files exercise REAL k-of-n threshold behaviour through a four-line adapter over the shipped math (__tests__/support/shamir-provider.ts). A stub would leave them green while proving nothing about the property under test.',
+    // Like attestation: implements no hub contract, imports hub nowhere, so no
+    // mirror is forced and none exists. The hub-facing provider that DOES
+    // implement `NoydbShamir` is @noy-db/on-shamir in noy-db-on, which hub
+    // must import NOWHERE — a devDep on it was the build cycle that kept
+    // on-shamir in core and forced the mirror (lanna-db#10, 2026-09-03).
+    mirrorCheck: null,
   }],
 ])
 
@@ -1777,13 +1780,15 @@ function checkHubSatelliteDeps() {
  * The `on-*` family is NOT uniform, and pretending otherwise is how it gets
  * a port it does not have.
  *
- * ⚠️ SCOPE CHANGED 2026-09-01: nine of the ten `on-*` packages were extracted
- * to `vLannaAi/noy-db-on`. Only `on-shamir` remains here, because hub holds it
- * as a devDependency — six managed-mode / recovery test files exercise REAL
- * k-of-n threshold behaviour against the shipped implementation (see
- * HUB_SATELLITE_DEPS above). The ceremony/library halves of this check moved
- * WITH the packages and are noy-db-on's to carry; do not read their absence
- * here as those properties having stopped mattering.
+ * ⚠️ SCOPE CHANGED 2026-09-01 / 2026-09-03: all ten `on-*` packages now live
+ * in `vLannaAi/noy-db-on`. Nine left on 09-01. `on-shamir` stayed two more
+ * days because hub held it as a devDependency for six recovery tests; that
+ * edge was what forced it to MIRROR hub's `NoydbShamir` instead of importing
+ * it. On 09-03 its math became `@noy-db/shamir` (zero-dep, no hub contract —
+ * see HUB_SATELLITE_DEPS), hub's tests moved onto a four-line adapter over
+ * it, and the package followed the rest (lanna-db#10). The ceremony/library
+ * halves of this check moved WITH the packages and are noy-db-on's to carry;
+ * do not read their absence here as those properties having stopped mattering.
  *
  * What still earns its place in this repo is the UNCLASSIFIED guard below: if
  * an `on-*` package ever appears in `packages/` again, it must be labelled
@@ -1794,16 +1799,16 @@ function checkHubSatelliteDeps() {
  * The `port` label is deliberately NOT asserted from here: an injected port
  * instance is identified by a field on `NoydbOptions`, which this script
  * cannot read without a type checker, and a name-based proxy would be the
- * kind of cheap stand-in this file exists to avoid. on-shamir's binding is
- * checked by its mirrorCheck above instead.
+ * kind of cheap stand-in this file exists to avoid.
  */
 const CEREMONY_CONTRACT = /\b(SlotRewrapCeremony|EnrollAuthenticatorOptions)\b/
 
 const ON_FAMILY = new Map([
-  ['on-shamir', 'port'],
-  // The other nine rows moved to noy-db-on with their packages (2026-09-01).
-  // Re-adding a row here without the package is what the "no longer exists"
-  // failure below catches.
+  // All ten rows moved to noy-db-on with their packages — nine on 2026-09-01,
+  // on-shamir on 2026-09-03 (lanna-db#10), once its math became @noy-db/shamir
+  // and hub's tests stopped needing the package. Re-adding a row here without
+  // the package is what the "no longer exists" failure below catches; an on-*
+  // package reappearing without a row is what the unclassified guard catches.
 ])
 
 function checkOnFamilyClassification() {

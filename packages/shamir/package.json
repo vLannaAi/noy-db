@@ -1,14 +1,14 @@
 {
-  "name": "@noy-db/on-shamir",
+  "name": "@noy-db/shamir",
   "version": "0.7.0",
-  "description": "k-of-n Shamir Secret Sharing of the vault KEK for multi-party unlock. Any K of N shares recombines the key; fewer than K leaks zero bits. Composable — each share can be protected by any other on-* method. Zero runtime dependencies.",
+  "description": "Shamir Secret Sharing over GF(2^8), byte-wise, plus the share codecs (bytes / base32 / JSON). Pure math, zero dependencies, no hub contract — the primitive @noy-db/on-shamir builds its unlock method on.",
   "license": "MIT",
   "author": "vLannaAi <vicio@lanna.ai>",
-  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/on-shamir#readme",
+  "homepage": "https://github.com/vLannaAi/noy-db/tree/main/packages/shamir#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vLannaAi/noy-db.git",
-    "directory": "packages/on-shamir"
+    "directory": "packages/shamir"
   },
   "bugs": {
     "url": "https://github.com/vLannaAi/noy-db/issues"
@@ -39,14 +39,11 @@
   },
   "keywords": [
     "noy-db",
-    "auth",
-    "on-shamir",
     "shamir",
     "secret-sharing",
     "k-of-n",
     "threshold",
-    "multi-party",
-    "zero-knowledge"
+    "gf256"
   ],
   "publishConfig": {
     "access": "public",

@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 import { createNoydb, type Noydb } from '../src/index.js'
 import { ConflictError } from '../src/kernel/errors.js'
-import { shamirRecoveryProvider } from '@noy-db/on-shamir'
+import { shamirRecoveryProvider } from './support/shamir-provider.js'
 
 function inlineMemory(): NoydbStore {
   const data = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()
@@ -69,12 +69,16 @@ describe('Shamir recovery enrollment (#196 slice 1)', () => {
     }
   })
 
-  it('produces base32-shaped share strings (canonical wire format)', async () => {
+  it('returns the provider\'s share strings untouched — n distinct opaque strings', async () => {
+    // Hub's contract says the strings are OPAQUE: whatever NoydbShamir.splitToShares
+    // returned comes back to the caller as-is. The wire FORMAT of those strings
+    // is the primitive's property and is pinned in @noy-db/shamir's own tests
+    // (share-format.test.ts), not here — asserting it from hub would couple hub's
+    // suite to a sibling package's encoding across a repo boundary.
     const { shares } = await db.team.enrollRecovery('acme', { profile: 'shamir', k: 2, n: 3 })
-    for (const s of shares!) {
-      // Per on-shamir share-format: 'SHAMIR_S<x>_K<k>N<n>__<base32-groups>'
-      expect(s).toMatch(/^SHAMIR_S\d+_K2N3__[A-Z2-7\-]+$/)
-    }
+    expect(shares).toHaveLength(3)
+    expect(new Set(shares).size).toBe(3)
+    for (const s of shares!) expect(typeof s).toBe('string')
   })
 
   it('accepts a caller-supplied label and entryId', async () => {
