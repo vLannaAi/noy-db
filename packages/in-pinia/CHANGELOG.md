@@ -1,5 +1,13 @@
 # Changelog — in-pinia
 
+## 0.7.1-pre.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.7.1-pre.0
+  - @noy-db/in-vue@0.7.1-pre.0
+
 ## 0.7.0
 
 ### Patch Changes

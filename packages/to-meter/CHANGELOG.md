@@ -1,5 +1,12 @@
 # @noy-db/to-meter
 
+## 0.7.1-pre.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @noy-db/hub@0.7.1-pre.0
+
 ## 0.7.0
 
 ### Patch Changes
