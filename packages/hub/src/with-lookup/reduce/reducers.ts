@@ -76,7 +76,18 @@ export interface Reducer<R, S = R> {
    * render human-readable aggregate descriptors in `dumpSchema()`.
    * Optional so third-party custom reducers are unaffected.
    */
-  readonly op?: 'count' | 'countDistinct' | 'sum' | 'avg' | 'min' | 'max'
+  readonly op?:
+    | 'count'
+    | 'countDistinct'
+    | 'sum'
+    | 'avg'
+    | 'min'
+    | 'max'
+    | 'median'
+    | 'percentile'
+    | 'variance'
+    | 'stddev'
+    | 'mode'
   /**
    * Field name for field-based reducers (`sum`, `avg`, `min`, `max`).
    * Absent on `count` which aggregates over record count, not a field.
@@ -92,6 +103,19 @@ export interface Reducer<R, S = R> {
    * Money-only: FX rate map (`'USD->EUR' → rate`) used with `convertTo`.
    */
   readonly fx?: Record<string, number | string>
+  /**
+   * Quantile reducers only (#1353): the probability in `[0, 1]`. Carried as
+   * metadata so `wrapMoneyReducers` can rebuild the reducer on the exact
+   * BigInt path — a rewrite that must reproduce the SAME p, not guess one.
+   * `median` stamps `0.5`.
+   */
+  readonly p?: number
+  /**
+   * `percentile` only (#1353): `true` when the reducer is the bounded-memory
+   * t-digest rather than the exact O(n) one. Read by `wrapMoneyReducers`,
+   * which refuses it over a money field — a t-digest is a float structure.
+   */
+  readonly approx?: boolean
 }
 
 /**
@@ -404,6 +428,461 @@ export function max(
 }
 
 // ---------------------------------------------------------------------------
+// Statistical reducers (#1353)
+// ---------------------------------------------------------------------------
+
+/**
+ * ⚠️ MEMORY, stated once for the whole section.
+ *
+ * `variance` / `stddev` are **streaming** — three numbers of state regardless
+ * of how many records pass through, so they are free in a `.groupBy()` and
+ * free as a running window aggregate (#1349).
+ *
+ * `median`, `percentile` (exact) and `mode` are **O(n) per group**: the first
+ * two keep every contributing value, `mode` keeps one entry per distinct value.
+ * Multiplied by the `GROUPBY_MAX_CARDINALITY` ceiling (100,000 groups) that is
+ * the one place in the reduce vocabulary where a legal query can exhaust
+ * memory, so it is not "free like `sum`". Two ways out, in order of preference:
+ * narrow with `.where()` before grouping, or pass
+ * `percentile(field, p, { approx: true })` for the bounded-memory t-digest —
+ * O(compression) state per group instead of O(n), at a small, measured error.
+ *
+ * Unlike `count` / `sum` / `min` / `max`, whose states are copied on every
+ * `step`, the reducers in this section MUTATE their state in place and return
+ * it (the shape `via/money/money-reducer.ts` already uses). Copy-on-write here
+ * would make a median over a group quadratic in the group size, which is a
+ * worse bug than the inconsistency. States are built fresh by `init()` on every
+ * reduction run and never shared, so the mutation is not observable — except
+ * through `merge`, which therefore always returns a NEW state.
+ */
+
+/**
+ * Welford state behind {@link variance} and {@link stddev}.
+ *
+ * `m2` is the running sum of squared deviations **from the running mean**, not
+ * a sum of squares — that is the entire point. The textbook one-pass identity
+ * `(Σx² − (Σx)²/n)` subtracts two enormous nearly-equal numbers, and on an
+ * accounting column (invoice totals clustered around a large figure) the
+ * cancellation eats every significant digit: four totals just over 1e9 with a
+ * true sample variance of 30 come back as **−170.67**, so `stddev` is `NaN`.
+ * Welford never forms the large intermediate.
+ */
+export interface WelfordState {
+  /** Number of contributing records. */
+  readonly n: number
+  /** Running arithmetic mean. */
+  readonly mean: number
+  /** Running sum of squared deviations from `mean`. */
+  readonly m2: number
+}
+
+/** Options for {@link variance} / {@link stddev}. */
+export interface DispersionOptions extends ReducerOptions<WelfordState> {
+  /**
+   * `true` → **population** dispersion (÷ n). Default `false` → **sample**
+   * dispersion (÷ n−1), which is Postgres's `var_samp` / `stddev_samp`, the
+   * unqualified spelling in every SQL dialect this library is measured
+   * against.
+   *
+   * The divisor is not cosmetic and the wrong one is a silently wrong answer,
+   * so the two disagree loudly at n = 1: sample is `null` (n−1 = 0 is not a
+   * denominator), population is `0`.
+   */
+  readonly population?: boolean
+}
+
+function welfordReducer(
+  op: 'variance' | 'stddev',
+  field: string,
+  population: boolean,
+): Reducer<number | null, WelfordState> {
+  return {
+    op,
+    field,
+    init: () => ({ n: 0, mean: 0, m2: 0 }),
+    step: (state, record) => {
+      const x = readNumber(record, field)
+      const n = state.n + 1
+      const delta = x - state.mean
+      const mean = state.mean + delta / n
+      // (x - mean) uses the UPDATED mean; delta the previous one. Using the
+      // same mean twice is the naive formula wearing a Welford costume.
+      return { n, mean, m2: state.m2 + delta * (x - mean) }
+    },
+    remove: (state, record) => {
+      const x = readNumber(record, field)
+      const n = state.n - 1
+      if (n <= 0) return { n: 0, mean: 0, m2: 0 }
+      const mean = (state.mean * state.n - x) / n
+      return { n, mean, m2: state.m2 - (x - state.mean) * (x - mean) }
+    },
+    // Chan et al.'s parallel combination — the reason a reduction can be
+    // sharded and rolled up without re-reading the leaves.
+    merge: (a, b) => {
+      if (a.n === 0) return b
+      if (b.n === 0) return a
+      const n = a.n + b.n
+      const delta = b.mean - a.mean
+      return {
+        n,
+        mean: a.mean + (delta * b.n) / n,
+        m2: a.m2 + b.m2 + (delta * delta * a.n * b.n) / n,
+      }
+    },
+    finalize: (state) => {
+      const divisor = population ? state.n : state.n - 1
+      if (divisor <= 0) return null
+      const v = state.m2 / divisor
+      return op === 'stddev' ? Math.sqrt(v) : v
+    },
+  }
+}
+
+/**
+ * Variance of a numeric field — **sample (n−1) by default**, `{ population:
+ * true }` for the n divisor. See {@link DispersionOptions}.
+ *
+ * Streaming (Welford): O(1) state, O(1) `step`, O(1) `remove`, associative
+ * `merge`. Safe as a running window aggregate.
+ *
+ * `null` for an empty result set, and `null` for a single record in sample
+ * mode (population mode returns `0`) — see `avg()` for why null rather than
+ * `NaN` or a throw.
+ *
+ * ⛔ Not available over a declared money field: dispersion is inherently a
+ * float computation, so `wrapMoneyReducers` refuses rather than let
+ * `readNumber` read a scaled-integer string as `0`.
+ */
+export function variance(field: string, opts?: DispersionOptions): Reducer<number | null, WelfordState> {
+  const _seed = opts?.seed
+  void _seed
+  return welfordReducer('variance', field, opts?.population === true)
+}
+
+/**
+ * Standard deviation of a numeric field — the square root of {@link variance},
+ * with the same divisor rule, the same empty/single-element answers, the same
+ * streaming Welford state, and the same money refusal.
+ */
+export function stddev(field: string, opts?: DispersionOptions): Reducer<number | null, WelfordState> {
+  const _seed = opts?.seed
+  void _seed
+  return welfordReducer('stddev', field, opts?.population === true)
+}
+
+/**
+ * Exact quantile state: every contributing value, unsorted (sorting happens
+ * once, in `finalize`, on a copy — so a running window aggregate does not
+ * disturb the multiset it is still being appended to).
+ */
+export interface ExactQuantileState {
+  readonly kind: 'exact'
+  readonly values: number[]
+}
+
+/** One t-digest centroid: a weighted summary of `count` nearby values. */
+export interface Centroid {
+  readonly mean: number
+  readonly count: number
+}
+
+/**
+ * t-digest state: compressed centroids plus a small unmerged buffer.
+ *
+ * Implemented here rather than taken from npm — `hub/src/**` adds no
+ * dependency, and this one is ~60 lines.
+ */
+export interface TDigestState {
+  readonly kind: 'tdigest'
+  centroids: Centroid[]
+  buffer: number[]
+  n: number
+}
+
+/** State of {@link median} / {@link percentile}; the arm depends on `approx`. */
+export type QuantileState = ExactQuantileState | TDigestState
+
+/** Options for {@link percentile}. */
+export interface PercentileOptions extends ReducerOptions<number> {
+  /**
+   * `true` → bounded-memory t-digest instead of keeping every value. O(1)-ish
+   * state per group, at a small error (under 1% of the value range at every
+   * quantile on a 10k uniform scan, exact at p = 0 and p = 1).
+   *
+   * The trade is real: an approximate reducer cannot `remove()`, so it does
+   * not participate in incremental live maintenance, and it is refused over a
+   * money field.
+   */
+  readonly approx?: boolean
+}
+
+function assertProbability(op: string, p: number): void {
+  if (!Number.isFinite(p) || p < 0 || p > 1) {
+    throw new Error(`${op}(): p must be a number between 0 and 1, got ${p}.`)
+  }
+}
+
+function asExact(state: QuantileState): ExactQuantileState {
+  if (state.kind !== 'exact') throw new Error('percentile: expected the exact quantile state')
+  return state
+}
+
+function asDigest(state: QuantileState): TDigestState {
+  if (state.kind !== 'tdigest') throw new Error('percentile: expected the t-digest state')
+  return state
+}
+
+/**
+ * `percentile_cont` over an in-memory multiset — the INTERPOLATING definition.
+ *
+ * `x = p * (n − 1)`; when `x` lands between two ranks the answer is the linear
+ * blend of the two neighbours. So the median of `[1,2,3,4]` is `2.5`, a value
+ * that is not in the input. `percentile_disc` would answer `2`. Postgres names
+ * both; this library ships only `_cont`, because it is the one `median` has to
+ * agree with — a `median` that returned `2` while `percentile(f, 0.5)`
+ * returned `2.5` would be the worse surprise.
+ */
+function quantileOf(values: readonly number[], p: number): number | null {
+  const n = values.length
+  if (n === 0) return null
+  if (n === 1) return values[0]!
+  const sorted = [...values].sort((a, b) => a - b)
+  const x = p * (n - 1)
+  const lo = Math.floor(x)
+  const frac = x - lo
+  if (frac === 0) return sorted[lo]!
+  return sorted[lo]! + (sorted[lo + 1]! - sorted[lo]!) * frac
+}
+
+/** Centroid budget. Larger ⇒ more accurate and more memory; 100 is the usual default. */
+const TDIGEST_COMPRESSION = 100
+/** Unmerged values tolerated before a compression pass. */
+const TDIGEST_BUFFER = 256
+
+/**
+ * Fold the buffer into the centroid list and compress.
+ *
+ * The size rule is the standard one: a centroid sitting at estimated quantile
+ * `q` may hold at most `4·n·q·(1−q)/compression` values, which is ~0 at the
+ * tails and widest in the middle. That is what keeps p = 0 and p = 1 EXACT
+ * (the extreme centroids stay singletons) while the middle compresses hard.
+ */
+function tdigestFlush(state: TDigestState, force = false): void {
+  if (state.buffer.length === 0 && !force) return
+  const all: Centroid[] = state.centroids.concat(state.buffer.map((mean) => ({ mean, count: 1 })))
+  state.buffer = []
+  if (all.length === 0) return
+  all.sort((a, b) => a.mean - b.mean)
+  const total = state.n
+  const out: Centroid[] = []
+  let curMean = all[0]!.mean
+  let curCount = all[0]!.count
+  let before = 0
+  for (let i = 1; i < all.length; i++) {
+    const c = all[i]!
+    const q = (before + curCount + c.count / 2) / total
+    const limit = (4 * total * q * (1 - q)) / TDIGEST_COMPRESSION
+    if (curCount + c.count <= Math.max(limit, 1)) {
+      const count = curCount + c.count
+      curMean = curMean + ((c.mean - curMean) * c.count) / count
+      curCount = count
+    } else {
+      out.push({ mean: curMean, count: curCount })
+      before += curCount
+      curMean = c.mean
+      curCount = c.count
+    }
+  }
+  out.push({ mean: curMean, count: curCount })
+  state.centroids = out
+}
+
+/**
+ * Estimate the `p` quantile off the centroids, interpolating between centroid
+ * CENTRES so the answer degrades to `quantileOf` exactly when no compression
+ * has happened (every centroid a singleton ⇒ its centre is its rank).
+ */
+function tdigestQuantile(state: TDigestState, p: number): number | null {
+  tdigestFlush(state)
+  const cs = state.centroids
+  if (cs.length === 0) return null
+  if (cs.length === 1) return cs[0]!.mean
+  const centres: number[] = []
+  let acc = 0
+  for (const c of cs) {
+    centres.push(acc + (c.count - 1) / 2)
+    acc += c.count
+  }
+  const target = p * (state.n - 1)
+  const last = cs.length - 1
+  if (target <= centres[0]!) return cs[0]!.mean
+  if (target >= centres[last]!) return cs[last]!.mean
+  for (let i = 0; i < last; i++) {
+    const a = centres[i]!
+    const b = centres[i + 1]!
+    if (target <= b) {
+      const t = b === a ? 0 : (target - a) / (b - a)
+      return cs[i]!.mean + (cs[i + 1]!.mean - cs[i]!.mean) * t
+    }
+  }
+  return cs[last]!.mean
+}
+
+function exactQuantileReducer(
+  op: 'median' | 'percentile',
+  field: string,
+  p: number,
+): Reducer<number | null, QuantileState> {
+  return {
+    op,
+    field,
+    p,
+    init: (): QuantileState => ({ kind: 'exact', values: [] }),
+    step: (state, record) => {
+      asExact(state).values.push(readNumber(record, field))
+      return state
+    },
+    remove: (state, record) => {
+      const values = asExact(state).values
+      const idx = values.indexOf(readNumber(record, field))
+      if (idx >= 0) values.splice(idx, 1)
+      return state
+    },
+    merge: (a, b) => ({ kind: 'exact', values: [...asExact(a).values, ...asExact(b).values] }),
+    finalize: (state) => quantileOf(asExact(state).values, p),
+  }
+}
+
+function approxQuantileReducer(field: string, p: number): Reducer<number | null, QuantileState> {
+  return {
+    op: 'percentile',
+    field,
+    p,
+    approx: true,
+    init: (): QuantileState => ({ kind: 'tdigest', centroids: [], buffer: [], n: 0 }),
+    step: (state, record) => {
+      const d = asDigest(state)
+      d.buffer.push(readNumber(record, field))
+      d.n += 1
+      if (d.buffer.length >= TDIGEST_BUFFER) tdigestFlush(d)
+      return state
+    },
+    // No `remove`: a centroid has forgotten which values it absorbed, so an
+    // un-fold is not expressible. Deliberate, and asserted by a test.
+    merge: (a, b) => {
+      const A = asDigest(a)
+      const B = asDigest(b)
+      const s: TDigestState = {
+        kind: 'tdigest',
+        centroids: [...A.centroids, ...B.centroids],
+        buffer: [...A.buffer, ...B.buffer],
+        n: A.n + B.n,
+      }
+      tdigestFlush(s, true)
+      return s
+    },
+    finalize: (state) => tdigestQuantile(asDigest(state), p),
+  }
+}
+
+/**
+ * Median of a numeric field — exactly `percentile(field, 0.5)`, and therefore
+ * **`percentile_cont`**: an even-sized input INTERPOLATES (`[1,2,3,4]` → `2.5`)
+ * rather than picking a member. See {@link quantileOf} for why only the
+ * interpolating definition ships.
+ *
+ * `null` on an empty result set. O(n) memory per group — read the memory note
+ * at the top of this section before using it under `.groupBy()`.
+ *
+ * Over a declared money field the reducer is rewritten onto the exact BigInt
+ * path; {@link moneyMedian} is the same call with the honest return type.
+ */
+export function median(field: string, opts?: ReducerOptions<number>): Reducer<number | null, QuantileState> {
+  const _seed = opts?.seed
+  void _seed
+  return exactQuantileReducer('median', field, 0.5)
+}
+
+/**
+ * The `p` quantile of a numeric field, `p ∈ [0, 1]`, by the **`percentile_cont`
+ * (interpolating)** definition — `percentile(f, 0.9)` over `1..10` is `9.1`,
+ * not `9`. `p = 0` is the minimum and `p = 1` the maximum, exactly.
+ *
+ * Throws for a `p` outside `[0, 1]` or a non-finite one, at construction time.
+ *
+ * Exact by default and O(n) per group; pass `{ approx: true }` for the
+ * bounded-memory t-digest (see {@link PercentileOptions}).
+ */
+export function percentile(
+  field: string,
+  p: number,
+  opts?: PercentileOptions,
+): Reducer<number | null, QuantileState> {
+  assertProbability('percentile', p)
+  const _seed = opts?.seed
+  void _seed
+  return opts?.approx === true ? approxQuantileReducer(field, p) : exactQuantileReducer('percentile', field, p)
+}
+
+/** Frequency table behind {@link mode}: value → how many records hold it. */
+export interface ModeState {
+  readonly counts: Map<number, number>
+}
+
+/**
+ * Most frequent value of a numeric field.
+ *
+ * **Tie rule: the LOWEST value wins.** Two values with equal frequency is the
+ * common case on real data, not an edge case, and the alternatives are worse:
+ * "first seen" makes the answer depend on store iteration order (so the same
+ * query answers differently after a compaction, and `merge` stops being
+ * commutative), and "all of them" changes the result TYPE based on the data.
+ * Lowest-wins is total, order-independent, and mergeable.
+ *
+ * `null` on an empty result set. O(distinct values) memory per group.
+ *
+ * ⛔ Numeric only, and not available over a declared money field.
+ */
+export function mode(field: string, opts?: ReducerOptions<number>): Reducer<number | null, ModeState> {
+  const _seed = opts?.seed
+  void _seed
+  return {
+    op: 'mode',
+    field,
+    init: () => ({ counts: new Map<number, number>() }),
+    step: (state, record) => {
+      const v = readNumber(record, field)
+      state.counts.set(v, (state.counts.get(v) ?? 0) + 1)
+      return state
+    },
+    remove: (state, record) => {
+      const v = readNumber(record, field)
+      const current = state.counts.get(v)
+      if (current === undefined) return state
+      if (current <= 1) state.counts.delete(v)
+      else state.counts.set(v, current - 1)
+      return state
+    },
+    merge: (a, b) => {
+      const counts = new Map(a.counts)
+      for (const [v, c] of b.counts) counts.set(v, (counts.get(v) ?? 0) + c)
+      return { counts }
+    },
+    finalize: (state) => {
+      let best: number | null = null
+      let bestCount = 0
+      for (const [v, c] of state.counts) {
+        if (c > bestCount || (c === bestCount && best !== null && v < best)) {
+          best = v
+          bestCount = c
+        }
+      }
+      return best
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Money-typed reducer constructors
 // ---------------------------------------------------------------------------
 
@@ -449,6 +928,44 @@ export function moneyMax(field: string, opts?: ReducerOptions<number>): Reducer<
   return max(field, opts) as unknown as Reducer<MoneyString | null>
 }
 
+/**
+ * `median()` for a **declared money field**, typed `Reducer<MoneyString | null>`.
+ *
+ * Same late-binding rewrite as {@link moneySum}: `wrapMoneyReducers` swaps in a
+ * reducer that keeps the stored scaled integers as `bigint`s and interpolates
+ * the two middle values IN SCALED SPACE with half-even rounding — the money
+ * module's rounding everywhere else. Nothing round-trips through a float, so
+ * the answer is exact past `Number.MAX_SAFE_INTEGER`, where two distinct cent
+ * amounts stop being distinct numbers at all.
+ *
+ * An even-sized input can therefore land on a half unit (`0.10` and `0.15` →
+ * `12.5` cents): that is the one place money median rounds, and it rounds
+ * half-to-even (`0.12`), never away from zero.
+ *
+ * In multi-currency mode the runtime returns a per-currency map, as `moneyMin`
+ * does; an empty result is `null` in fixed mode and `{}` in multi.
+ */
+export function moneyMedian(field: string, opts?: ReducerOptions<number>): Reducer<MoneyString | null> {
+  return median(field, opts) as unknown as Reducer<MoneyString | null>
+}
+
+/**
+ * `percentile()` for a declared money field — see {@link moneyMedian} for the
+ * exactness and rounding contract, which is the same code path (`median` is
+ * `p = 0.5`). The interpolation weight is taken from `p`'s DECIMAL spelling as
+ * an exact rational, so `p = 0.9` is `9/10`, not the float nearest to it.
+ *
+ * There is deliberately no `approx` here: the t-digest is a float structure and
+ * `wrapMoneyReducers` refuses it over a money field.
+ */
+export function moneyPercentile(
+  field: string,
+  p: number,
+  opts?: ReducerOptions<number>,
+): Reducer<MoneyString | null> {
+  return percentile(field, p, opts) as unknown as Reducer<MoneyString | null>
+}
+
 // ---------------------------------------------------------------------------
 // Builder (typed spec-builder for aggregate())
 // ---------------------------------------------------------------------------
@@ -475,9 +992,16 @@ export interface ReducerBuilder<T, S extends keyof T = never, M extends keyof T 
   avg(field: QueryField<T, S>, opts?: ReducerOptions<{ sum: number; count: number }>): ReturnType<typeof avg>
   min<F extends QueryField<T, S>>(field: F, opts?: ReducerOptions<number>): [F] extends [M] ? Reducer<MoneyString | null> : ReturnType<typeof min>
   max<F extends QueryField<T, S>>(field: F, opts?: ReducerOptions<number>): [F] extends [M] ? Reducer<MoneyString | null> : ReturnType<typeof max>
+  median<F extends QueryField<T, S>>(field: F, opts?: ReducerOptions<number>): [F] extends [M] ? Reducer<MoneyString | null> : ReturnType<typeof median>
+  percentile<F extends QueryField<T, S>>(field: F, p: number, opts?: PercentileOptions): [F] extends [M] ? Reducer<MoneyString | null> : ReturnType<typeof percentile>
+  variance(field: QueryField<T, S>, opts?: DispersionOptions): ReturnType<typeof variance>
+  stddev(field: QueryField<T, S>, opts?: DispersionOptions): ReturnType<typeof stddev>
+  mode(field: QueryField<T, S>, opts?: ReducerOptions<number>): ReturnType<typeof mode>
   moneySum(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString>
   moneyMin(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString | null>
   moneyMax(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString | null>
+  moneyMedian(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<MoneyString | null>
+  moneyPercentile(field: QueryField<T, S>, p: number, opts?: ReducerOptions<number>): Reducer<MoneyString | null>
 }
 
 /**
@@ -500,7 +1024,12 @@ export const reducerBuilder: ReducerBuilder<Record<string, unknown>> = {
   avg,
   min: min as ReducerBuilder<Record<string, unknown>>['min'],
   max: max as ReducerBuilder<Record<string, unknown>>['max'],
-  moneySum, moneyMin, moneyMax,
+  median: median as ReducerBuilder<Record<string, unknown>>['median'],
+  percentile: percentile as ReducerBuilder<Record<string, unknown>>['percentile'],
+  variance,
+  stddev,
+  mode,
+  moneySum, moneyMin, moneyMax, moneyMedian, moneyPercentile,
 }
 
 // ---------------------------------------------------------------------------

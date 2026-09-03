@@ -6,7 +6,8 @@
  * Groups every file whose reason-for-existing is record reduction:
  *   - `reduction` (`Reduction<R>`, `reduceRecords`, `buildLiveReduction`)
  *   - `groupby` (`GroupedQuery`, `GroupedReduction`, cardinality guards)
- *   - `reducers` (`count`, `countDistinct`, `sum`, `avg`, `min`, `max` factories)
+ *   - `reducers` (`count`, `countDistinct`, `sum`, `avg`, `min`, `max` factories,
+ *     plus the statistical five — `median`, `percentile`, `variance`, `stddev`, `mode`)
  *
  * The root barrel (`@noy-db/hub`) and the `@noy-db/hub/query` subpath
  * continue to re-export the same symbols for backward compatibility
@@ -38,6 +39,24 @@ export type { GroupedRow, GroupedRowN } from './groupby.js'
 
 export { count, countDistinct, sum, avg, min, max, moneySum, moneyMin, moneyMax, reducerBuilder, bindDistinctReducers } from './reducers.js'
 export type { Reducer, ReducerOptions, ReducerBuilder, CountDistinctState } from './reducers.js'
+
+/** The statistical reducers (#1353) and the money variants of the two quantile ones. */
+export { median, percentile, variance, stddev, mode, moneyMedian, moneyPercentile } from './reducers.js'
+/**
+ * States and option bags named by the signatures directly above (#843a) — a
+ * caller must be able to annotate `variance()`'s state or pass
+ * `{ approx: true }` without reaching past the subpath.
+ */
+export type {
+  WelfordState,
+  DispersionOptions,
+  PercentileOptions,
+  QuantileState,
+  ExactQuantileState,
+  TDigestState,
+  Centroid,
+  ModeState,
+} from './reducers.js'
 
 export {
   withWindow,
