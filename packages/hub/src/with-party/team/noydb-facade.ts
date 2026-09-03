@@ -19,7 +19,8 @@
  * Internal service — reached through `noydb.team.rotateSecret(...)` etc.
  */
 import type { NoydbOptions, NoydbStore, KeyringAuthenticator } from '../../kernel/types.js'
-import type { RotateResult, RotateKeysOptions, RosterVerifyResult, QuarantineResult } from './keyring.js'
+import { ensureCollectionDEK, type RotateResult, type RotateKeysOptions, type RosterVerifyResult, type QuarantineResult } from './keyring.js'
+import { PERIODS_COLLECTION } from '../../with-audit/periods/window.js'
 import { ValidationError } from '../../kernel/errors.js'
 import {
   rotateSecret as keyringRotateSecret,
@@ -148,6 +149,19 @@ export class TeamFacade {
     this.deps.checkPolicyOperation(vault, 'grant')
     await this.deps.checkGate(vault, 'enroll-user', factors)
     const keyring = await this.deps.getKeyringInternal(vault)
+    // #1288 ask 2 — a grant wraps only the DEKs the grantor HOLDS, and the
+    // periods write-gate reads `_periods` before every subject write. `_periods`
+    // is in no schema and no introspection output, so no permission builder
+    // can name it, and a DEK cannot be back-filled after the grant (wrapping
+    // needs the grantee's secret, which the vault never stores). So when the
+    // periods strategy is active, mint the grantor's `_periods` DEK here —
+    // BEFORE the engine's reserved-collection propagation runs — and every
+    // grantee who may write a subject collection can also read the gate that
+    // admits the write. Idempotent once the DEK exists; nothing is written to
+    // `_periods` itself.
+    if (this.deps.options.periodsStrategy !== undefined) {
+      await (await ensureCollectionDEK(this.deps.options.store, vault, keyring))(PERIODS_COLLECTION)
+    }
     await engine(this.deps.options.store, vault, keyring, options)
   }
 

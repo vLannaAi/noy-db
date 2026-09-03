@@ -27,14 +27,19 @@ interface Filing extends Record<string, unknown> {
 describe('TamperedError.reason = key-absent (#1288)', () => {
   it('a per-collection member writing a subject collection behind a closed period sees key-absent, not a bare tamper alert', async () => {
     const store = toMemory()
+    // The grantor runs WITHOUT the periods strategy, so grant() has no reason
+    // to mint `_periods` first (see the ask-2 test below): a grant wraps only
+    // the DEKs that exist at grant time, so `_periods` — minted by the owner's
+    // first closePeriod below — is never in this member's keyring, and cannot
+    // be back-filled.
+    const grantor = await createNoydb({ store, user: 'owner', secret: 'owner-secret', teamStrategy: withTeam() })
+    const gv = await grantor.openVault('acme')
+    await gv.collection<Filing>('filings').put('f1', { id: 'f1', clientId: 'A', amount: 100, date: '2026-06-15' })
+    await grantor.grant('acme', { userId: 'op', displayName: 'Op', role: 'operator', secret: 'op-secret', permissions: { filings: 'rw' } })
+    await grantor.close()
+
     const owner = await createNoydb({ store, user: 'owner', secret: 'owner-secret', periodsStrategy: withPeriods(), teamStrategy: withTeam() })
     const v = await owner.openVault('acme')
-    const filings = v.collection<Filing>('filings')
-    await filings.put('f1', { id: 'f1', clientId: 'A', amount: 100, date: '2026-06-15' })
-    // Granted BEFORE any period exists: a grant wraps only the DEKs that exist
-    // at grant time, so `_periods` — minted by the owner's first closePeriod
-    // below — is never in this member's keyring, and cannot be back-filled.
-    await owner.grant('acme', { userId: 'op', displayName: 'Op', role: 'operator', secret: 'op-secret', permissions: { filings: 'rw' } })
     await v.closePeriod({ name: '2026-06', endDate: '2026-06-30', dateField: 'date' })
 
     const member = await createNoydb({ store, user: 'op', secret: 'op-secret', periodsStrategy: withPeriods(), teamStrategy: withTeam() })
@@ -56,5 +61,31 @@ describe('TamperedError.reason = key-absent (#1288)', () => {
     const v = await owner.openVault('acme')
     // First touch of `_periods` on a fresh vault: no records, so the resolver mints.
     await expect(v.closePeriod({ name: '2026-06', endDate: '2026-06-30', dateField: 'date' })).resolves.not.toThrow()
+  })
+
+  it('ask 2 — with the periods strategy active, grant() carries the `_periods` key even before the first close', async () => {
+    // The gate that admits a subject write is `_periods`; a member who may
+    // write a subject collection MUST be able to read it. `_periods` is in no
+    // schema and no introspection output, so no permission builder can name
+    // it — grant() mints the owner's `_periods` DEK first, so the ordinary
+    // reserved-collection propagation wraps it for every grantee.
+    const store = toMemory()
+    const owner = await createNoydb({ store, user: 'owner', secret: 'owner-secret', periodsStrategy: withPeriods(), teamStrategy: withTeam() })
+    const v = await owner.openVault('acme')
+    await v.collection<Filing>('filings').put('f1', { id: 'f1', clientId: 'A', amount: 100, date: '2026-06-15' })
+    await owner.grant('acme', { userId: 'op', displayName: 'Op', role: 'operator', secret: 'op-secret', permissions: { filings: 'rw' } })
+    await v.closePeriod({ name: '2026-06', endDate: '2026-06-30', dateField: 'date' })
+
+    const member = await createNoydb({ store, user: 'op', secret: 'op-secret', periodsStrategy: withPeriods(), teamStrategy: withTeam() })
+    const mv = await member.openVault('acme')
+    await expect(
+      mv.collection<Filing>('filings').put('f2', { id: 'f2', clientId: 'A', amount: 5, date: '2026-09-01' }),
+    ).resolves.not.toThrow()
+    // And the closed period is still enforced for that member.
+    const err = await mv.collection<Filing>('filings')
+      .put('f3', { id: 'f3', clientId: 'A', amount: 5, date: '2026-06-02' })
+      .catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err).not.toBeInstanceOf(TamperedError)
   })
 })
