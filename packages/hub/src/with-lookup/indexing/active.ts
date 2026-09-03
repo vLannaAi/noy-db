@@ -47,7 +47,14 @@ export function withIndexing(): IndexingStrategy {
         } else if (Array.isArray(def)) {
           for (const f of def as readonly string[]) eager.declare(f)
         } else {
-          for (const f of (def as { fields: readonly string[] }).fields) eager.declare(f)
+          // `kind: 'sorted'` (#1344) additionally builds the ordered array
+          // that drives `<`/`>`/`between`/`startsWith`/`orderBy+limit`. The
+          // hash index is declared either way, so `==`/`in` stay O(1).
+          const obj = def as { fields: readonly string[]; kind?: 'hash' | 'sorted' }
+          for (const f of obj.fields) {
+            eager.declare(f)
+            if (obj.kind === 'sorted') eager.declareSorted(f)
+          }
         }
       }
       return makeEagerState(eager)
