@@ -64,6 +64,23 @@
  * proving identical output including the upstream tie-break, which the index
  * cannot witness. So v1 sorts. This is the correct path, not a placeholder.
  *
+ * ## Opting in — and why there is a second opt-in at all
+ *
+ * `withReduce()` alone does NOT light this up: `.window()` throws until the
+ * strategy is built as `withReduce({ window: withWindow() })`. That is not
+ * ceremony for its own sake — it is the SAME no-op-stub-until-opted-in rule
+ * that keeps `Reduction`/`GroupedQuery` out of the floor bundle, applied one
+ * level down. `withReduce()`'s returned object is a live value the bundler
+ * cannot prove unused, so a `window()` method that named {@link WindowedQuery}
+ * directly made this whole engine reachable from `withReduce` and charged it
+ * to every consumer who opted into ordinary aggregation and will never call
+ * `.window()`. Measured: the `analytics` bundle scenario went 960 → 1,845
+ * gzipped bytes, +92%. Passing the factory in means the engine is reachable
+ * only from a consumer that names `withWindow`.
+ * ⛔ Do not "simplify" this back into `withReduce()` — `check-bundle.mjs`'s
+ * `analytics` scenario carries a `WindowedQuery` eager-import canary that will
+ * fail if you do.
+ *
  * ## Not in `explain()`
  *
  * Same shape as #1336's post-group ops: `explain()` is a terminal on `Query`,
@@ -371,6 +388,38 @@ export function applyWindow<R>(
 // ---------------------------------------------------------------------------
 // Chainable wrappers
 // ---------------------------------------------------------------------------
+
+/**
+ * What `withWindow()` hands to `withReduce()`. Named as a type so
+ * `strategy.ts` / `active.ts` can speak it in a TYPE-ONLY import and never
+ * pull this module into their runtime graph.
+ */
+export type WindowFactory = <T>(
+  executeRecords: () => readonly unknown[],
+  spec: WindowSpec,
+  upstreams: readonly ReductionUpstream[],
+  via?: ViaPipeline,
+) => WindowedQuery<T>
+
+/**
+ * Light up `.window()` on `Query`.
+ *
+ * ```ts
+ * import { withReduce, withWindow } from '@noy-db/hub/reduce'
+ * createNoydb({ store, user, secret, reduceStrategy: withReduce({ window: withWindow() }) })
+ * ```
+ *
+ * The only reference to {@link WindowedQuery} outside this module's own
+ * consumers — see "Opting in" in the module docs for why that matters.
+ */
+export function withWindow(): WindowFactory {
+  return <T>(
+    executeRecords: () => readonly unknown[],
+    spec: WindowSpec,
+    upstreams: readonly ReductionUpstream[],
+    via?: ViaPipeline,
+  ): WindowedQuery<T> => new WindowedQuery<T>(executeRecords, spec, upstreams, via)
+}
 
 /**
  * Chainable wrapper returned by `Query.window(spec)`. Terminates with

@@ -15,7 +15,7 @@
  */
 
 export { withReduce } from './active.js'
-export type { ReduceStrategy } from './strategy.js'
+export type { ReduceStrategy, ReduceOptions } from './strategy.js'
 
 export { Reduction, reduceRecords, buildLiveReduction } from './reduction.js'
 export type {
@@ -40,6 +40,7 @@ export { count, countDistinct, sum, avg, min, max, moneySum, moneyMin, moneyMax,
 export type { Reducer, ReducerOptions, ReducerBuilder, CountDistinctState } from './reducers.js'
 
 export {
+  withWindow,
   rowNumber,
   rank,
   lag,
@@ -51,6 +52,7 @@ export {
   WindowSelection,
 } from './window.js'
 export type {
+  WindowFactory,
   WindowSpec,
   WindowOrderInput,
   WindowFn,

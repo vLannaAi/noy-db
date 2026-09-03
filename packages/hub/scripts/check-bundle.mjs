@@ -89,6 +89,7 @@ const SCENARIOS = [
       'class LedgerStore',     // history (re-added post.)
       'class Reduction',       // reduce
       'class GroupedQuery',    // reduce
+      'class WindowedQuery',   // reduce/window (#1349) — a second opt-in inside reduce
       'class BlobSet',         // blobs
       'class DictionaryHandle',// i18n
       'class SyncEngine',      // sync
@@ -256,6 +257,16 @@ const SCENARIOS = [
       'wrapMoneyReducers',
       'quantizeMoneyFields',
       'decodeMoneyFields',
+      // #1349 — the window engine is a SECOND opt-in inside the reduce
+      // service (`withReduce({ window: withWindow() })`), for exactly the
+      // reason this list exists. `withReduce()` returns a live object the
+      // bundler cannot prove unused, so a `window()` method that named
+      // `WindowedQuery` directly linked the whole engine here: measured 960 →
+      // 1,845 gzipped bytes, +92%, charged to every consumer who opted into
+      // ordinary aggregation and will never call `.window()`.
+      // ⛔ Do not resolve a failure on this line by folding `withWindow()`
+      // back into `withReduce()` — the extra argument IS the fix.
+      'WindowedQuery',
     ],
   },
   {

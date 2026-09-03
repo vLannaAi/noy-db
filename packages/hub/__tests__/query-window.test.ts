@@ -21,6 +21,7 @@ import { z } from 'zod'
 import { Query, type QuerySource } from '../src/kernel/query/index.js'
 import {
   withReduce,
+  withWindow,
   rowNumber,
   rank,
   lag,
@@ -34,7 +35,7 @@ import { createNoydb } from '../src/index.js'
 import { money } from '../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
-const AGG = withReduce()
+const AGG = withReduce({ window: withWindow() })
 
 interface Txn {
   id: string
@@ -295,7 +296,7 @@ async function salesCollection() {
     store: toMemory(),
     user: 'alice',
     secret: 'window-money-secret-2026-issue-1349',
-    reduceStrategy: withReduce(),
+    reduceStrategy: withReduce({ window: withWindow() }),
   })
   const vault = await db.openVault('books')
   vault.collection<Sale>('sales', {
@@ -371,6 +372,22 @@ describe('window() > wiring', () => {
   it('throws without withReduce()', () => {
     const bare = new Query<Txn>(staticSource(LEDGER))
     expect(() => bare.window({ partitionBy: 'clientId' })).toThrow(/@noy-db\/hub\/reduce/)
+  })
+
+  // The bundle contract, asserted as behaviour: `withReduce()` on its own must
+  // NOT reach the window engine, or the `analytics` scenario pays ~900 gzipped
+  // bytes for a feature it never calls (measured +92% before this split).
+  // `check-bundle.mjs` carries the matching `WindowedQuery` eager-import canary.
+  it('throws with withReduce() but no withWindow(), naming the second opt-in', () => {
+    const aggregateOnly = new Query<Txn>(staticSource(LEDGER), undefined, undefined, withReduce())
+    expect(() => aggregateOnly.window({ partitionBy: 'clientId' })).toThrow(/withWindow/)
+    // …while ordinary aggregation is unaffected by the split.
+    expect(
+      new Query<Txn>(staticSource(LEDGER), undefined, undefined, withReduce())
+        .groupBy('clientId')
+        .aggregate({ n: count() })
+        .run().length,
+    ).toBe(2)
   })
 
   it('runs after the query’s own where/orderBy/limit', () => {

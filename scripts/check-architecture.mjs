@@ -634,6 +634,17 @@ const NO_SUBPATH_FACTORIES = new Set([
   'withRetry', 'withLogging', 'withMetrics', 'withCircuitBreaker', 'withCache', 'withHealthCheck',
   // Declaration helpers consumed via createNoydb({ numbering }) / desugared onto another service.
   'withDeferredNumbering', 'withRollup',
+  // #1349 — same class as the two above: consumed as `withReduce({ window:
+  // withWindow() })`, never as a `createNoydb` strategy slot of its own, so it
+  // owns no subpath and ships from `@noy-db/hub/reduce` with the service it
+  // extends. It exists as a separate factory for a BUNDLE reason, not a
+  // catalog one: `withReduce()` returns a live object the bundler cannot prove
+  // unused, so naming `WindowedQuery` inside it linked the window engine into
+  // every aggregation consumer (measured: the `analytics` scenario 960 →
+  // 1,845 gzipped bytes, +92%). Giving it its own subpath would make it look
+  // like a peer service of `/reduce`, which it is not — `.window()` is a
+  // method on `Query`, gated by the reduce strategy.
+  'withWindow',
 ])
 // Subpath spellings that legitimately differ from the factory stem.
 const SUBPATH_ALIASES = new Map([

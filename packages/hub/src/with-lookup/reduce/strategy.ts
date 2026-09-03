@@ -20,7 +20,7 @@ import type {
   ReductionUpstream,
 } from './reduction.js'
 import type { GroupedQuery, GroupedQueryN } from './groupby.js'
-import type { WindowSpec, WindowedQuery } from './window.js'
+import type { WindowFactory, WindowSpec, WindowedQuery } from './window.js'
 /**
  * Re-exported so `kernel/query/builder.ts` can name `.window()`'s spec and
  * return type WITHOUT a second spine→service import specifier: this strategy
@@ -29,6 +29,15 @@ import type { WindowSpec, WindowedQuery } from './window.js'
  * there for a type-only import would loosen the ratchet for no gain.
  */
 export type { WindowSpec, WindowedQuery } from './window.js'
+
+/**
+ * Options for {@link withReduce}. `window` is the {@link WindowFactory}
+ * returned by `withWindow()` — omitted, `.window()` throws and the window
+ * engine stays out of the bundle entirely (see `window.ts` § "Opting in").
+ */
+export interface ReduceOptions {
+  readonly window?: WindowFactory
+}
 import type { ViaPipeline } from '../../kernel/via/pipeline.js'
 
 /**
@@ -80,10 +89,14 @@ export interface ReduceStrategy {
   ): GroupedQueryN<T, F, S, M>
 
   /**
-   * Build a `WindowedQuery<T, S, M>` for `Query.window(spec)` (#1349). Same
-   * closure / upstream inputs as `groupBy`, plus the window definition. The
-   * Via pipeline is threaded so `.select()` gets the same money/distinct
-   * reducer rewriting `.aggregate()` gets.
+   * Build a `WindowedQuery<T>` for `Query.window(spec)` (#1349). Same closure
+   * / upstream inputs as `groupBy`, plus the window definition. The Via
+   * pipeline is threaded so `.select()` gets the same money/distinct reducer
+   * rewriting `.aggregate()` gets.
+   *
+   * Throws unless the strategy was built as `withReduce({ window: withWindow() })`
+   * — the second opt-in exists so the window engine is not charged to a
+   * consumer who only aggregates. See `window.ts` § "Opting in".
    */
   window<T>(
     executeRecords: () => readonly unknown[],
