@@ -248,6 +248,124 @@ function moneyMinMaxReducer(
   }
 }
 
+
+/**
+ * Parse a probability into an EXACT rational from its decimal spelling.
+ *
+ * `0.9` becomes `9/10`, not the binary float nearest `0.9`. This is what keeps
+ * a money percentile exact: the interpolation weight multiplies a scaled
+ * integer, so a float weight would reintroduce the very rounding the BigInt
+ * path exists to avoid.
+ */
+function parseProbability(p: number): { num: bigint; den: bigint } {
+  const { int, scale } = parseRate(p)
+  return { num: int, den: 10n ** BigInt(scale) }
+}
+
+/**
+ * `percentile_cont` over sorted scaled integers, in BigInt throughout.
+ *
+ * `x = p·(n−1)`; when `x` falls between two ranks the answer is
+ * `a + (b−a)·frac`, and the division by the fraction's denominator rounds
+ * HALF-EVEN — the same {@link divRoundHalfEven} the rest of the money module
+ * uses for conversion. An even-sized median is exactly this case with
+ * `frac = 1/2`.
+ */
+function quantileScaled(sorted: readonly bigint[], p: number): bigint {
+  const n = sorted.length
+  if (n === 1) return sorted[0]!
+  const { num, den } = parseProbability(p)
+  const xNum = num * BigInt(n - 1)
+  const lo = xNum / den
+  const rem = xNum - lo * den
+  const i = Number(lo)
+  if (rem === 0n) return sorted[i]!
+  const a = sorted[i]!
+  const b = sorted[i + 1]!
+  return a + divRoundHalfEven((b - a) * rem, den)
+}
+
+/**
+ * Exact money `median` / `percentile` (#1353). Mirrors
+ * {@link moneyMinMaxReducer}: per-currency multisets of scaled integers, so a
+ * multi-currency field yields a per-currency map and currencies are never
+ * mixed. `remove()` is supported, so these participate in incremental live
+ * maintenance like every other money reducer.
+ */
+function moneyQuantileReducer(
+  op: 'median' | 'percentile',
+  field: string,
+  desc: MoneyDescriptor,
+  p: number,
+): Reducer<unknown, Map<string, bigint[]>> {
+  const quantile = (arr: readonly bigint[]): bigint => {
+    const sorted = [...arr].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0))
+    return quantileScaled(sorted, p)
+  }
+  return {
+    op,
+    field,
+    p,
+    init: () => new Map<string, bigint[]>(),
+    step: (state, record) => {
+      const m = readMoney(record, field, desc)
+      if (m) {
+        const arr = state.get(m.currency)
+        if (arr) arr.push(m.value)
+        else state.set(m.currency, [m.value])
+      }
+      return state
+    },
+    remove: (state, record) => {
+      const m = readMoney(record, field, desc)
+      if (m) {
+        const arr = state.get(m.currency)
+        if (arr) {
+          const idx = arr.indexOf(m.value)
+          if (idx >= 0) arr.splice(idx, 1)
+        }
+      }
+      return state
+    },
+    finalize: (state) => {
+      if (desc.mode === 'fixed') {
+        const cur = desc.fixedCurrency!
+        const arr = state.get(cur)
+        if (!arr || arr.length === 0) return null
+        return formatScaledInt(quantile(arr), desc.scaleFor(cur))
+      }
+      const out: Record<string, string> = {}
+      for (const [cur, arr] of state) {
+        if (arr.length > 0) out[cur] = formatScaledInt(quantile(arr), desc.scaleFor(cur))
+      }
+      return out
+    },
+  }
+}
+
+/**
+ * Why `variance` / `stddev` / `mode` / an approximate `percentile` refuse over
+ * a money field rather than falling through to the generic reducer.
+ *
+ * The generic reducers read the field with `readNumber`, which coerces the
+ * stored scaled-integer STRING to `0` — so the fall-through answer is not
+ * "slightly off", it is a confidently reported zero. Refusing is the same
+ * choice `avg` already made.
+ *
+ * `variance` / `stddev` are unimplementable exactly (a square root is not a
+ * decimal), and `mode` is exactly computable but not implemented — the message
+ * says which, because "unsupported" and "not built yet" call for different
+ * consumer reactions.
+ */
+const MONEY_REFUSALS: Record<string, string> = {
+  avg: 'avg() is not supported on money field "%s" in v1 — use sum() and count() and divide at the boundary.',
+  variance:
+    'variance() is not supported on money field "%s" — a variance of currency is not a currency amount, and the exact BigInt path cannot express it. Read the scaled integers out and compute at the boundary.',
+  stddev:
+    'stddev() is not supported on money field "%s" — a square root is not a decimal, so there is no exact answer to return. Read the scaled integers out and compute at the boundary.',
+  mode: 'mode() is not implemented for money field "%s" (#1353) — it is exactly computable, but the generic reducer would read the stored scaled integer as 0, so it refuses rather than answer wrongly.',
+}
+
 /**
  * Rewrite any `sum` / `min` / `max` reducer over a declared money field
  * into its exact BigInt money-aware equivalent. Other reducers (and
@@ -263,11 +381,25 @@ export function wrapMoneyReducers(
   for (const [key, reducer] of Object.entries(spec)) {
     const field = reducer.field
     const desc = field ? moneyFields[field] : undefined
-    if (desc && reducer.op === 'avg') {
+    const refusal = desc && reducer.op ? MONEY_REFUSALS[reducer.op] : undefined
+    if (refusal !== undefined) {
+      throw new MoneyUnsupportedError(field!, refusal.replace('%s', field!))
+    }
+    if (desc && reducer.op === 'percentile' && reducer.approx === true) {
       throw new MoneyUnsupportedError(
         field!,
-        `avg() is not supported on money field "${field}" in v1 — use sum() and count() and divide at the boundary.`,
+        `percentile({ approx: true }) is not supported on money field "${field}" — a t-digest summarises values as floating-point centroids. Drop \`approx\` for the exact BigInt path (O(n) memory per group).`,
       )
+    }
+    if (desc && (reducer.op === 'median' || reducer.op === 'percentile')) {
+      changed = true
+      out[key] = moneyQuantileReducer(
+        reducer.op,
+        field!,
+        desc,
+        reducer.op === 'median' ? 0.5 : (reducer.p ?? 0.5),
+      ) as Reducer<unknown, unknown>
+      continue
     }
     if (desc && (reducer.op === 'sum' || reducer.op === 'min' || reducer.op === 'max')) {
       changed = true
