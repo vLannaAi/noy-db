@@ -37,17 +37,17 @@
 import {
   deriveSecretKey,
   generateSalt,
-  generateIV,
+  encryptBytes,
+  decryptBytes,
   bufferToBase64,
   base64ToBuffer,
   exportDekSet,
   importDekSet,
   type EnclaveKey,
 } from '../../kernel/enclave/index.js'
+import { InvalidKeyError, TamperedError } from '../../kernel/errors.js'
 
 const PBKDF2_ITERATIONS = 600_000
-
-const subtle = globalThis.crypto.subtle
 
 // ─── Type ──────────────────────────────────────────────────────────────
 
@@ -98,22 +98,13 @@ export async function mintWrappedDeksBlob(
   credential: string,
 ): Promise<WrappedDeksBlob> {
   const salt = generateSalt()
-  const iv = generateIV()
   const wrappingKey = await deriveWrappingKey(credential, salt)
 
   // Serialize the DEK set as JSON `{ deks: { collection: base64 } }`.
   const plaintext = new TextEncoder().encode(JSON.stringify({ deks: await exportDekSet(deks) }))
-  const ciphertext = await subtle.encrypt(
-    { name: 'AES-GCM', iv: iv as BufferSource },
-    wrappingKey,
-    plaintext as BufferSource,
-  )
+  const { iv, data } = await encryptBytes(plaintext, wrappingKey)
 
-  return {
-    salt: bufferToBase64(salt),
-    iv: bufferToBase64(iv),
-    wrappedDeks: bufferToBase64(new Uint8Array(ciphertext)),
-  }
+  return { salt: bufferToBase64(salt), iv, wrappedDeks: data }
 }
 
 // ─── Unwrap ────────────────────────────────────────────────────────────
@@ -132,11 +123,23 @@ export async function unwrapDeksFromBlob(
   credential: string,
 ): Promise<Map<string, EnclaveKey>> {
   const wrappingKey = await deriveWrappingKey(credential, base64ToBuffer(blob.salt))
-  const plaintext = await subtle.decrypt(
-    { name: 'AES-GCM', iv: base64ToBuffer(blob.iv) as BufferSource },
-    wrappingKey,
-    base64ToBuffer(blob.wrappedDeks) as BufferSource,
-  )
+  let plaintext: Uint8Array
+  try {
+    plaintext = await decryptBytes(blob.iv, blob.wrappedDeks, wrappingKey)
+  } catch (e) {
+    // The barrel reports an AEAD failure as TamperedError — which means
+    // exactly "did not authenticate under THIS key" and is the enclave's to
+    // throw (lanna-db #4). Here the key was derived from a user-supplied
+    // credential, so the overwhelmingly likely cause is a wrong recovery code
+    // / password / share set, and saying "tampered" is the misdiagnosis
+    // #1288 reported. Translate to the class whose contract already reads
+    // "wrong secret or corrupted keyring"; on-password does the same one
+    // layer up. Anything else propagates untouched.
+    if (e instanceof TamperedError) {
+      throw new InvalidKeyError('Wrapped DEK set did not open — the credential does not match this blob, or the blob is corrupted')
+    }
+    throw e
+  }
   const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as { deks: Record<string, string> }
   return importDekSet(parsed.deks)
 }
