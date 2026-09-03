@@ -1117,7 +1117,12 @@ const KERNEL_SURFACE_BUDGET = {
   // through the existing TiersStrategy seam; the other three are the detect-mode
   // reporter argument and the two TiersContext members that carry the constraint keys
   // out to the tier domain. All the new logic lives in those two services.
-  'packages/hub/src/kernel/collection.ts': 4349,
+  // Bumped 4349→4353 (2026-09-04, #1354 phrase/proximity): the
+  // `textIndexPositions` opt-in is a pure pass-through — one private field, one
+  // ctor assignment, one line in searchContext(). The postings format, the
+  // clause parser and the matcher all live in with-lookup/search/; nothing of
+  // the feature is kernel-resident.
+  'packages/hub/src/kernel/collection.ts': 4353,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

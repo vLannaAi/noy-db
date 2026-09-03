@@ -1655,16 +1655,38 @@ export class GroupCardinalityError extends NoydbError {
   /** The cap that was exceeded. */
   readonly maxGroups: number
 
-  constructor(field: string, cardinality: number, maxGroups: number) {
+  constructor(
+    field: string,
+    cardinality: number,
+    maxGroups: number,
+    /**
+     * Which surface refused (#1340). `'query'` — the eager `.groupBy()`, whose
+     * ceiling is a fixed constant. `'scan'` — the streaming
+     * `scan().groupBy(key, { maxGroups })`, whose ceiling is a DECLARED budget,
+     * so its message names the option that raises it. The two differ only in
+     * the advice; the code, the fields and the class are one.
+     */
+    surface: 'query' | 'scan' = 'query',
+  ) {
     super(
       'GROUP_CARDINALITY',
-      `.groupBy("${field}") produced ${cardinality} distinct groups, ` +
-        `exceeding the ${maxGroups}-group ceiling. This is almost always a ` +
-        `query mistake — grouping on a high-uniqueness field like "id" or ` +
-        `"createdAt" produces one bucket per record. Narrow the query with ` +
-        `.where() before grouping, or group on a lower-cardinality field ` +
-        `(status, category, clientId). If you genuinely need high-cardinality ` +
-        `grouping, file an issue with your use case.`,
+      surface === 'scan'
+        ? `scan().groupBy("${field}") reached ${cardinality} distinct groups, ` +
+            `exceeding the declared { maxGroups: ${maxGroups} } budget. A grouped ` +
+            `scan holds one reducer state per group in memory, so this is a ` +
+            `refusal, never a truncation — the rows you would have got back are ` +
+            `incomplete by definition. Either narrow the scan with .where() ` +
+            `before .groupBy(), group on a lower-cardinality key, or raise the ` +
+            `budget deliberately with .groupBy(key, { maxGroups: N }) once you ` +
+            `have priced N reducer states (an exact median/percentile or a ` +
+            `countDistinct holds O(values) per group; { approx: true } bounds it).`
+        : `.groupBy("${field}") produced ${cardinality} distinct groups, ` +
+            `exceeding the ${maxGroups}-group ceiling. This is almost always a ` +
+            `query mistake — grouping on a high-uniqueness field like "id" or ` +
+            `"createdAt" produces one bucket per record. Narrow the query with ` +
+            `.where() before grouping, or group on a lower-cardinality field ` +
+            `(status, category, clientId). If you genuinely need high-cardinality ` +
+            `grouping, file an issue with your use case.`,
     )
     this.name = 'GroupCardinalityError'
     this.field = field
@@ -2774,13 +2796,19 @@ export class JoinTooLargeError extends NoydbError {
   readonly leftRows: number
   readonly rightRows: number
   readonly maxRows: number
-  readonly side: 'left' | 'right'
+  /**
+   * Which count tripped the ceiling. `'output'` is #1339's addition: a
+   * declared non-equi `.joinOn()` is many-to-many, so it can exceed the
+   * ceiling with both SIDES comfortably under it — the produced row count is
+   * the only thing standing between a theta join and a hang.
+   */
+  readonly side: 'left' | 'right' | 'output'
 
   constructor(opts: {
     leftRows: number
     rightRows: number
     maxRows: number
-    side: 'left' | 'right'
+    side: 'left' | 'right' | 'output'
     message: string
   }) {
     super('JOIN_TOO_LARGE', opts.message)
