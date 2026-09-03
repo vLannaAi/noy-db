@@ -17,6 +17,7 @@
  * signature can't be exposed via a method without breaking `Collection<T>`
  * assignability to `Collection<unknown>`).
  */
+import { groupKeySourceField, type GroupKey } from './query/date-trunc.js'
 import type { StrategyBag } from '../port/with/strategies.js'
 import type { NoydbStore, ConflictPolicy, CollectionConflictResolver, HistoryConfig, TierMode, CrossTierAccessEvent, VdigFieldPolicy } from './types.js'
 import type { EnclaveKey } from './enclave/index.js'
@@ -975,10 +976,13 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     if (virtualFieldNames.length > 0) {
       const virtualSet = new Set(virtualFieldNames)
       for (const reg of opts.materializedViewSource?.registry().mvsForSource(opts.name) ?? []) {
-        const spec = reg.spec as { groupBy?: string | readonly string[]; name?: string }
+        const spec = reg.spec as { groupBy?: GroupKey | readonly GroupKey[]; name?: string }
+        // A `dateTrunc()` key (#1350) reads its SOURCE field off the stored row,
+        // so a virtual source field breaks it exactly as a bare virtual group
+        // key does — resolve through `groupKeySourceField`, not the output name.
         const fields = spec.groupBy === undefined
           ? []
-          : (typeof spec.groupBy === 'string' ? [spec.groupBy] : spec.groupBy)
+          : (Array.isArray(spec.groupBy) ? spec.groupBy : [spec.groupBy as GroupKey]).map(groupKeySourceField)
         for (const f of fields) {
           if (!virtualSet.has(f)) continue
           throw new ValidationError(

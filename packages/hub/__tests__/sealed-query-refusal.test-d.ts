@@ -6,6 +6,7 @@ import { describe, it, expectTypeOf } from 'vitest'
 import { createNoydb, money } from '../src/index.js'
 import { sum } from '../src/with-lookup/reduce/index.js'
 import { memoryStore } from '../src/kernel/memory-store.js'
+import { dateTrunc } from '../src/kernel/query/index.js'
 
 interface Person { id: string; name: string; ssn: string; age: number }
 
@@ -123,6 +124,14 @@ describe('groupBy sensitive-field refusal', () => {
     // @ts-expect-error — multi-field groupBy also refuses a sealed field
     q.groupBy('name', 'ssn')
     q.groupBy('name', 'age')       // ok
+    // #1350 — the derived-calendar-key overloads must not widen the plain
+    // members back to `string`, or the refusal above is defeated by adding a
+    // dateTrunc() key to the same call.
+    const month = dateTrunc('age', 'month', { timeZone: 'UTC' })
+    // @ts-expect-error — sealed field still refused alongside a derived key
+    q.groupBy(month, 'ssn')
+    q.groupBy(month, 'name')       // ok
+    q.groupBy(month)               // ok
   })
 
   it('keeps groupBy permissive without sensitive fields', async () => {

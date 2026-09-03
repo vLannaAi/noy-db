@@ -6,6 +6,8 @@
  */
 
 import type { QueryField } from '../types.js'
+import type { DateTruncKey, GroupKey } from './date-trunc.js'
+import { groupKeyName, isDateTruncKey, projectDateTruncKeys } from './date-trunc.js'
 import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
 import { evaluateClause, hasFnClause } from './predicate.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
@@ -1021,10 +1023,28 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   groupBy<F extends readonly [QueryField<T, S>, QueryField<T, S>, ...QueryField<T, S>[]]>(
     ...fields: F
   ): GroupedQueryN<T, F, S, M>
-  groupBy(...fields: readonly string[]): GroupedQuery<T, string, S, M> | GroupedQueryN<T, readonly string[], S, M> {
-    if (fields.length === 0) {
+  // Derived calendar keys (#1350). Listed last so the two field-name overloads
+  // above still win for plain string arguments — a `DateTruncKey` is an object
+  // and matches neither, so nothing existing re-resolves onto these.
+  groupBy(key: DateTruncKey): GroupedQuery<T, string, S, M>
+  // The string members stay `QueryField<T, S>`, so the sealed-field refusal
+  // still applies to every plain key in a mixed grouping.
+  groupBy(
+    ...keys: readonly [
+      QueryField<T, S> | DateTruncKey,
+      QueryField<T, S> | DateTruncKey,
+      ...(QueryField<T, S> | DateTruncKey)[],
+    ]
+  ): GroupedQueryN<T, readonly string[], S, M>
+  groupBy(...keys: readonly GroupKey[]): GroupedQuery<T, string, S, M> | GroupedQueryN<T, readonly string[], S, M> {
+    if (keys.length === 0) {
       throw new Error('.groupBy() requires at least one field')
     }
+    // A derived key is bucketed into an ordinary row field before the grouping
+    // pipeline runs, so everything downstream — cardinality caps, null/undefined
+    // bucket semantics, live re-grouping — keeps working unchanged.
+    const derived = keys.filter(isDateTruncKey)
+    const fields: readonly string[] = keys.map(groupKeyName)
     assertNoJoinAliasField(fields, this.plan.joins, 'groupBy')
     // Same record-producing closure as .aggregate() — grouped and
     // non-grouped aggregations execute over the same candidate set.
@@ -1044,6 +1064,9 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
         ? candidates
         : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
     }
+    const executeGroupRecords = derived.length === 0
+      ? executeRecords
+      : (): readonly unknown[] => projectDateTruncKeys(executeRecords(), derived)
 
     const upstreams: ReductionUpstream[] = []
     if (source.subscribe) {
@@ -1052,12 +1075,15 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     }
 
     // Dict-label resolution is single-field only — the <field>Label
-    // projection has no meaningful shape for composite keys.
+    // projection has no meaningful shape for composite keys. A derived
+    // calendar key is never a dictKey, so it skips the lookup entirely.
     if (fields.length === 1) {
       const field = fields[0]!
-      const dictLabelResolver = buildDictLabelResolver(this.joinContext, field)
+      const dictLabelResolver = derived.length > 0
+        ? undefined
+        : buildDictLabelResolver(this.joinContext, field)
       return this.reduceStrategy.groupBy<T, string, S, M>(
-        executeRecords,
+        executeGroupRecords,
         field,
         upstreams,
         dictLabelResolver,
@@ -1065,7 +1091,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       )
     }
     return this.reduceStrategy.groupByN<T, readonly string[], S, M>(
-      executeRecords,
+      executeGroupRecords,
       fields,
       upstreams,
       this.source.via,
