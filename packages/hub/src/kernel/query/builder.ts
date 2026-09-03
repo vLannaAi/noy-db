@@ -16,6 +16,8 @@ import { applyJoins, splitAroundJoins } from './join.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError, RefNotDeclaredError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
+import type { SourceChange } from './incremental.js'
+import { LiveMaintainer, canMaintainIncrementally } from './incremental.js'
 import type { ReduceSpec, ReduceResult, ReductionUpstream, Reduction } from '../../with-lookup/reduce/reduction.js'
 import type { ReducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import { reducerBuilder } from '../../with-lookup/reduce/reducers.js'
@@ -162,8 +164,15 @@ function assertNoJoinAliasField(
 export interface QuerySource<T> {
   /** Snapshot of all current records. The query never mutates this array. */
   snapshot(): readonly T[]
-  /** Subscribe to mutations; returns an unsubscribe function. */
-  subscribe?(cb: () => void): () => void
+  /**
+   * Subscribe to mutations; returns an unsubscribe function.
+   *
+   * A source that knows WHICH record changed passes the delta (#1341) so
+   * `.live()` can patch its result set rather than re-run the plan. Calling
+   * `cb()` with no argument stays valid — it means "something changed", and
+   * the live query answers with a full re-run.
+   */
+  subscribe?(cb: (change?: SourceChange) => void): () => void
   /** Index store for the indexed-fast-path. Optional. */
   getIndexes?(): CollectionIndexes | null
   /** O(1) record lookup by id, used to materialize index hits. */
@@ -189,7 +198,7 @@ export interface QuerySource<T> {
 
 interface InternalSource {
   snapshot(): readonly unknown[]
-  subscribe?(cb: () => void): () => void
+  subscribe?(cb: (change?: SourceChange) => void): () => void
   getIndexes?(): CollectionIndexes | null
   lookupById?(id: string): unknown
   via?: ViaPipeline
@@ -1098,7 +1107,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     const clauses = this.plan.clauses
     const joinCtx = this.joinContext
     const hasCrossJoins = clauses.some(c => c.type === 'crossJoin')
-    const executeRecords = (): readonly unknown[] => {
+    const fullScan = (): readonly unknown[] => {
       if (hasCrossJoins) {
         if (!joinCtx) throw new Error('Query.aggregate(): crossJoin requires a join context')
         return executeClausePipeline(source, clauses, joinCtx)
@@ -1109,13 +1118,52 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
         : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
     }
 
+    // #1341 — when the plan admits it, the match set is MAINTAINED across
+    // change events instead of re-scanned, so a live reduction folds over an
+    // incrementally-patched array. The reducers themselves still run a full
+    // fold: the array they see is byte-for-byte the one a re-scan would
+    // produce (same records, same candidate order), so an incremental result
+    // is not merely close to a re-run's — it is the identical computation.
+    const maintainer = this.incrementalMaintainer('records')
+    const executeRecords = maintainer ? (): readonly unknown[] => maintainer.rows() : fullScan
+
     // Upstream for live mode — only the left source subscribes.
     // Joined aggregations are out of scope for (see above), so
     // there are no right-side change streams to merge in.
     const upstreams: ReductionUpstream[] = []
     if (source.subscribe) {
       const subscribe = source.subscribe.bind(source)
-      upstreams.push({ subscribe: (cb: () => void) => subscribe(cb) })
+      upstreams.push(
+        maintainer
+          ? {
+              // The maintainer folds the delta in BEFORE the reduction reads,
+              // which is why it is wrapped here rather than subscribed
+              // separately — emitter callback order would otherwise decide
+              // whether the reduction saw the new record.
+              subscribe: (cb: () => void) => {
+                maintainer.attach()
+                const unsubscribe = subscribe(change => {
+                  // A predicate that throws must not escape into the emitter —
+                  // the maintainer drops its state and the reduction's own
+                  // re-run raises the same error where it can be caught.
+                  try {
+                    maintainer.apply(change)
+                  } catch {
+                    maintainer.invalidate()
+                  }
+                  cb()
+                })
+                // Detach on teardown: the Reduction survives its LiveReduction
+                // (`.run()` reuses the same closure), and a maintainer with no
+                // subscription feeding it would go quietly out of date.
+                return () => {
+                  maintainer.detach()
+                  unsubscribe()
+                }
+              },
+            }
+          : { subscribe: (cb: () => void) => subscribe(cb) },
+      )
     }
 
     return this.reduceStrategy.aggregate<Spec>(executeRecords, spec, upstreams)
@@ -1308,16 +1356,28 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * should call `stop()` automatically; raw consumers must do it
    * themselves.
    *
+   * **Incremental maintenance (#1341).** For a plan
+   * `incrementalMaintainer()` accepts — no joins, no `.filter(fn)`, no
+   * label-sort, and nothing an index would serve in index order (an `==`/`in`
+   * probe, #1344's sorted-index range, or #1344's `orderBy(f).limit(n)`
+   * index page) — the result set is PATCHED per change
+   * event instead of re-run: one predicate evaluation for the changed record,
+   * a binary search, a splice. Everything else, and any change event that
+   * arrives without a delta, still re-runs the whole plan. Either way the
+   * emitted value is identical to `toArray()` — the maintainer reuses this
+   * query's own membership test and sort comparator.
+   *
+   * `options.batch` coalesces a burst of changes into one recompute and one
+   * notification on a microtask. It is OFF by default because it makes
+   * `live.value` stale until the microtask runs: a consumer that reads
+   * synchronously after `await put()` would see the previous value.
+   *
    * **Limitations:**
-   *   - No granular delta updates — the whole query re-runs on
-   *     every change.
-   *   - No microtask batching — bursty changes produce one re-run
-   *     per change.
    *   - No re-planning under live mutations — the planner picks
    *     once at subscription time and reuses the same plan.
    *   - Streaming live joins are deferred.
    */
-  live(): LiveQuery<T> {
+  live(options?: { batch?: boolean }): LiveQuery<T> {
     const upstreams: LiveUpstream[] = []
 
     // Left-side change stream — every live query subscribes to
@@ -1366,8 +1426,68 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     }
 
     // The recompute is just toArray bound to this query — same
-    // pipeline as eager execution, including join application.
-    return buildLiveQuery<T>(() => this.toArray(), upstreams)
+    // pipeline as eager execution, including join application. It stays the
+    // fallback even when a maintainer is attached.
+    const maintainer = this.incrementalMaintainer('rows')
+    return buildLiveQuery<T>(() => this.toArray(), upstreams, {
+      ...(options?.batch === true ? { batch: true } : {}),
+      ...(maintainer ? { maintainer } : {}),
+    })
+  }
+
+  /**
+   * Build the #1341 delta maintainer for this plan, or `undefined` when the
+   * plan shape or the source cannot support one (the query then re-runs in
+   * full, exactly as it did before #1341).
+   *
+   * Everything the maintainer needs is taken from THIS query so the two paths
+   * cannot diverge: `matches` is the same `filterRecords` call the eager
+   * pipeline makes, `compare` is the same comparator `sortRecords` sorts with,
+   * and `decode` is the same Via result decode `toArray()` applies after
+   * slicing.
+   */
+  private incrementalMaintainer(mode: 'rows' | 'records'): LiveMaintainer | undefined {
+    const source = this.source
+    const snapshotEntries = source.snapshotEntries?.bind(source)
+    const lookupById = source.lookupById?.bind(source)
+    if (!snapshotEntries || !lookupById) return undefined
+    // `.aggregate()` reduces the whole match set in candidate order — it never
+    // sorts, offsets, limits or decodes — so its maintainer is the same engine
+    // with the ordering/windowing half switched off.
+    const orderBy = mode === 'rows' ? this.plan.orderBy : []
+    const limit = mode === 'rows' ? this.plan.limit : undefined
+    const indexes = source.getIndexes?.()
+    const probe = indexes
+      ? { covers: (f: string) => indexes.has(f), sorted: (f: string) => indexes.hasSorted(f) }
+      : null
+    if (!canMaintainIncrementally({ ...this.plan, orderBy, limit }, probe)) return undefined
+
+    const clauses = this.plan.clauses
+    const decodeForFns = fnViewDecoder(source)
+    const via = source.via
+    // The ordering comes from the SAME key plan `sortRecords` builds and the
+    // keyset cursor compares against (#1346) — one definition of "what order
+    // is this query in", so the maintained order cannot drift from a re-run's.
+    // `by: 'label'` is refused above, so no label maps are needed here.
+    const keyPlan = orderBy.length > 0 ? buildOrderKeyPlan(orderBy, via) : undefined
+    return new LiveMaintainer({
+      snapshotEntries,
+      lookupById,
+      matches: record => filterRecords([record], clauses, decodeForFns).length === 1,
+      ...(keyPlan
+        ? {
+            order: {
+              keyOf: (record: unknown) => orderKeyOf(keyPlan, record),
+              compare: (a: readonly unknown[], b: readonly unknown[]) => compareOrderKeys(keyPlan, a, b),
+            },
+          }
+        : {}),
+      offset: mode === 'rows' ? this.plan.offset : 0,
+      limit,
+      ...(mode === 'rows' && via?.hasResultDecode
+        ? { decode: (rows: readonly unknown[]) => this.decodeVia(rows) }
+        : {}),
+    })
   }
 
   /**

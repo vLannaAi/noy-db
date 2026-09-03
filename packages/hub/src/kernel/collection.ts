@@ -53,7 +53,7 @@ import type { LedgerStore } from '../with-commit/history/ledger/index.js'
 import type { DiffEntry } from '../with-commit/history/diff.js'
 import { NO_HISTORY } from '../with-commit/history/strategy.js'
 import { Query, ScanBuilder } from './query/index.js'
-import type { QuerySource, JoinContext, JoinableSource } from './query/index.js'
+import type { QuerySource, JoinContext, JoinableSource, SourceChange } from './query/index.js'
 import { normalizeIndexDefs, type CollectionIndexes } from '../with-lookup/indexing/eager-indexes.js'
 import { decodeIdxId } from '../with-lookup/indexing/persisted-indexes.js'
 import type { PersistedCollectionIndex } from '../with-lookup/indexing/persisted-indexes.js'
@@ -3023,10 +3023,10 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // New form: return a chainable builder bound to this collection's cache.
     const source: QuerySource<T> = {
       snapshot: () => [...this.cache.values()].map(e => e.record),
-      subscribe: (cb: () => void) => {
+      subscribe: (cb: (change?: SourceChange) => void) => {
         const handler = (event: ChangeEvent): void => {
           if (event.vault === this.vault && event.collection === this.name) {
-            cb()
+            cb({ id: event.id, action: event.action })
           }
         }
         this.emitter.on('change', handler)

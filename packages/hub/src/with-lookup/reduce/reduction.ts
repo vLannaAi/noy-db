@@ -9,11 +9,15 @@
  *     existing `Query.toArray()` / `.first()` / `.count()` style.
  *   - `.live(): LiveReduction<R>` — reactive primitive that
  *     re-runs the reduction whenever the query's source notifies of
- *     a change. uses naive full re-run; incremental delta
- *     maintenance is admitted by the reducer protocol (`remove()`)
- *     but not wired to the executor yet — a follow-up optimization
- *     can switch from full re-run to delta-based without breaking
- *     the public API. Consumers get correct, reactive values today.
+ *     a change. Since #1341 the RECORD SET it reduces is maintained
+ *     incrementally upstream (see `kernel/query/incremental.ts`), so a
+ *     change costs one predicate evaluation instead of a full scan — but
+ *     the reducers themselves still run a complete `init → step* →
+ *     finalize` fold over that set. Driving `remove()` per delta (the
+ *     reducer protocol admits it) would make a change O(1) rather than
+ *     O(matches); it is deliberately NOT wired, because folding the same
+ *     array a re-run would fold makes the incremental value bit-identical
+ *     to the eager one, while inverting a float `sum` does not.
  *
  * The `Reduction<R>` wrapper is deliberately tiny — it exists so
  * `.aggregate(spec)` can be chained with either `.run()` or `.live()`
@@ -271,12 +275,11 @@ export class Reduction<R> {
    * place.
    *
    * **Implementation note:** every upstream change triggers a full
-   * re-reduction. Incremental maintenance (O(1) per delta for
-   * sum/count/avg via the reducer protocol's `remove()` method) is a
-   * planned follow-up optimization — the protocol already supports
-   * it, but the executor doesn't drive it yet. Consumers get
-   * correct, reactive values today; future PRs can switch to
-   * delta-based maintenance without changing this API.
+   * re-reduction over the matching records — but since #1341 that record
+   * set is itself maintained per delta rather than re-scanned, so the cost
+   * is O(matches) rather than O(collection). Reducer-level `remove()`
+   * (O(1) per delta for sum/count/avg) remains unwired; see the file
+   * docstring for why folding beats inverting here.
    */
   live(): LiveReduction<R> {
     const recompute = (): R =>

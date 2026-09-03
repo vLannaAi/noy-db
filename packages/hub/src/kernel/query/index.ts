@@ -27,6 +27,7 @@ export { explainPlan } from './explain.js'
 export type { QueryExplanation, ExplainNode, ExplainCap, ExplainDispatch, ExplainSource, ExplainIndexProbe } from './explain.js'
 export { buildLiveQuery } from './live.js'
 export type { LiveQuery, LiveUpstream } from './live.js'
+export type { SourceChange } from './incremental.js'
 export { ScanBuilder } from './scan-builder.js'
 // Calendar group keys (#1350) — `.groupBy(dateTrunc('date', 'month', { timeZone }))`.
 export { dateTrunc, isDateTruncKey, truncateDate } from './date-trunc.js'
