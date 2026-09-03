@@ -19,7 +19,7 @@
  * with the store, which is out of scope for an in-memory debounce layer over an
  * arbitrary opaque-blob backend.
  */
-import { InvertedIndex, type IndexDoc } from './inverted-index.js'
+import { InvertedIndex, type IndexDoc, type IndexBuildOptions } from './inverted-index.js'
 import { serializeIndex, deserializeIndex } from './serialize.js'
 import type { IndexStore } from './index-store.js'
 import { PersistedIndexCompensationError } from '../../kernel/errors.js'
@@ -45,10 +45,22 @@ function fpEqual(a: Fingerprint, b: Fingerprint): boolean {
   return a.count === b.count && a.maxVersion === b.maxVersion
 }
 
+/** Set equality between a loaded index's positional fields and the live opt-in (#1354). */
+function positionsMatch(idx: InvertedIndex, opts: IndexBuildOptions | undefined): boolean {
+  const want = new Set(opts?.positions ?? [])
+  const have = idx.positionFields
+  if (want.size !== have.size) return false
+  for (const f of want) if (!have.has(f)) return false
+  return true
+}
+
 export class PersistedIndexStore implements IndexStore {
   private index: InvertedIndex | undefined
   private timer: ReturnType<typeof setTimeout> | null = null
   private lastBuild: (() => ReadonlyArray<IndexDoc>) | undefined
+  /** The positional-postings opt-in the last caller asked for (#1354). A loaded
+   *  sidecar that does not carry exactly these fields is discarded, not adapted. */
+  private lastOpts: IndexBuildOptions | undefined
   private readonly debounceMs: number
   /**
    * Bumped by every purge (removePersisted). A save() captured under a since-stale
@@ -99,16 +111,25 @@ export class PersistedIndexStore implements IndexStore {
 
   get built(): boolean { return this.index !== undefined }
 
-  async ensureBuilt(build: () => ReadonlyArray<IndexDoc>): Promise<InvertedIndex> {
+  async ensureBuilt(build: () => ReadonlyArray<IndexDoc>, opts?: IndexBuildOptions): Promise<InvertedIndex> {
     await this.retryPendingCompensation()
     this.lastBuild = build
+    this.lastOpts = opts
     if (this.index !== undefined) return this.index
     const loaded = await this.cb.load()
     if (loaded !== null && fpEqual(loaded.fingerprint, this.cb.currentFingerprint())) {
-      this.index = deserializeIndex(loaded.json)
-      return this.index
+      // Four independent reasons to rebuild instead, in the #1359 posture: the
+      // blob does not parse, it is stamped for another format, it is internally
+      // inconsistent, or its positional coverage is not the coverage the live
+      // config asks for (a collection that just opted a field into
+      // `textIndexPositions` must not keep answering from the position-free blob).
+      const restored = deserializeIndex(loaded.json)
+      if (restored !== null && positionsMatch(restored, opts)) {
+        this.index = restored
+        return this.index
+      }
     }
-    this.index = InvertedIndex.build(build())
+    this.index = InvertedIndex.build(build(), opts)
     await this.persist()
     return this.index
   }
@@ -156,7 +177,7 @@ export class PersistedIndexStore implements IndexStore {
     await this.retryPendingCompensation()
     if (this.lastBuild === undefined) return
     if (this.index === undefined) {
-      this.index = InvertedIndex.build(this.lastBuild())
+      this.index = InvertedIndex.build(this.lastBuild(), this.lastOpts)
     }
     await this.persist()
   }

@@ -8,7 +8,7 @@
 export { tokenize, type Tokenizer } from './tokenize.js'
 export { searchScan, type SearchOptions, type SearchResult, type SearchEntry } from './scan.js'
 export { segmentTokens, segmentTokenizer, type Token } from './segment.js'
-export { InvertedIndex, type IndexDoc, type IndexHit, type QueryOptions } from './inverted-index.js'
+export { InvertedIndex, type IndexDoc, type IndexHit, type QueryOptions, type IndexBuildOptions, type IndexSnapshot } from './inverted-index.js'
 export { extractSnippet } from './snippet.js'
 export { MemoryIndexStore, type IndexStore } from './index-store.js'
 export { buildStringFieldEntries, type FieldEntry } from './build-docs.js'

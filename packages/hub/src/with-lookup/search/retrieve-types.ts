@@ -26,6 +26,12 @@ export interface RetrieveOptions<T = unknown> {
    * `within` is typed-only retrieval. See `retrieve()` in `collection-facade`.
    */
   readonly within?: Query<T>
+  /**
+   * Per-field score weights (#1354), e.g. `{ boost: { name: 3, notes: 1 } }`.
+   * Query-side only — the index is unchanged, and omitting this leaves every
+   * score exactly as it was. Fields not named weigh 1.
+   */
+  readonly boost?: Readonly<Record<string, number>>
 }
 
 export interface RetrieveHit<T> {
