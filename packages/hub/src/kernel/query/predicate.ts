@@ -18,6 +18,23 @@ export type Operator =
   | '>'
   | '>='
   | 'in'
+  /**
+   * Set non-membership (#1351) — the anti-semi-join half of `in`.
+   *
+   * ⚠️ A NULLISH stored value MATCHES `!in`, deliberately: this module
+   * treats an absent field as "not equal" everywhere (`!=`, and money's
+   * `evaluateMoneyClause`), so `!in` follows. SQL's `NOT IN (…)` is
+   * three-valued and would EXCLUDE the row; noy-db has no NULL logic and
+   * inventing one here would make `!in` disagree with `!=` on the same
+   * record. Spell the SQL behaviour as `.where(f, '!=', undefined)` before
+   * the `!in`.
+   *
+   * ⛔ Never index-served. A hash bucket answers "which ids hold this
+   * value"; a negation needs the complement, which is the whole
+   * collection minus a bucket — so `!in` always falls to the scan, the
+   * same as `!=`.
+   */
+  | '!in'
   | 'contains'
   | 'startsWith'
   | 'between'
@@ -62,6 +79,21 @@ export interface FieldClause {
      * back to a linear scan via `evaluate` above.
      */
     readonly indexValue?: unknown
+  }
+  /**
+   * Provenance of an `in`/`!in` operand that arrived as a SUBQUERY (#1351)
+   * rather than as a literal array. Set by {@link normalizeSubqueryOperand};
+   * `value` already holds the RESOLVED id array by the time this is present.
+   *
+   * Plain data on purpose — it is part of the plan JSON, so it folds into an
+   * MV's `queryHash` and discriminates two queries whose resolved id sets
+   * happen to coincide but whose inner sources differ.
+   */
+  readonly subquery?: {
+    /** The inner source's `identity` (`<vault>/<collection>`), or `'(unnamed)'`. */
+    readonly from: string
+    /** How many ids the inner query produced. */
+    readonly ids: number
   }
 }
 
@@ -206,6 +238,12 @@ export function evaluateFieldClause(record: unknown, clause: FieldClause): boole
       return isComparable(actual, value) && (actual as number) >= (value as number)
     case 'in':
       return Array.isArray(value) && value.includes(actual)
+    case '!in':
+      // An operand that is not an array matches nothing under 'in'; the
+      // negation of that is "matches everything", which is what a caller who
+      // wrote a malformed `!in` gets. Same posture as every other type
+      // mismatch here — no throw at evaluation time.
+      return !Array.isArray(value) || !value.includes(actual)
     case 'contains':
       if (typeof actual === 'string') return typeof value === 'string' && actual.includes(value)
       if (Array.isArray(actual)) return actual.includes(value)
@@ -230,6 +268,56 @@ export function evaluateFieldClause(record: unknown, clause: FieldClause): boole
       return false
     }
   }
+}
+
+// --- subquery operands (#1351) ----------------------------------------
+
+/**
+ * What a `Query` looks like to this module. Duck-typed rather than imported:
+ * `builder.ts` imports THIS file, so naming `Query` here would be a cycle.
+ * `Query._asIdOperand()` is the only member of the contract.
+ */
+interface IdOperandSource {
+  _asIdOperand(): { readonly ids: readonly string[]; readonly from: string }
+}
+
+function isIdOperandSource(value: unknown): value is IdOperandSource {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Partial<IdOperandSource>)._asIdOperand === 'function'
+  )
+}
+
+/**
+ * Resolve a SUBQUERY operand of `in`/`!in` into the literal id array the rest
+ * of the engine already knows how to handle (#1351).
+ *
+ * ⭐ THE INNER QUERY RUNS HERE — ONCE, at `where()` BUILD time — and never
+ * again. That is the whole design, and it is what keeps an O(n) filter from
+ * becoming O(n·m): by the time a record is evaluated the clause holds a plain
+ * array, so `candidateRecords()` dispatches it through the hash index exactly
+ * as it does a hand-written list. `__tests__/query-subquery-in.test.ts`
+ * witnesses it with an evaluation counter, not by inspection.
+ *
+ * ⚠️ THE PRICE, stated once: the operand is a SNAPSHOT taken when `where()`
+ * was called. A query object built now and executed later — `.live()` being
+ * the case that matters — keeps the id set it was built with, so a change to
+ * the INNER collection does not re-fire the outer live query and does not
+ * change its answer. Rebuild the query to pick up a new inner result.
+ *
+ * Every other operator, and an operand that is not a Query, passes through
+ * untouched — including a malformed one, which keeps this a resolution step
+ * and not a new validation gate.
+ */
+export function normalizeSubqueryOperand(
+  op: Operator,
+  value: unknown,
+): { op: Operator; value: unknown; subquery?: FieldClause['subquery'] } {
+  if (op !== 'in' && op !== '!in') return { op, value }
+  if (!isIdOperandSource(value)) return { op, value }
+  const { ids, from } = value._asIdOperand()
+  return { op, value: [...ids], subquery: { from, ids: ids.length } }
 }
 
 // --- 'matches' (#1357) ------------------------------------------------
