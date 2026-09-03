@@ -35,6 +35,7 @@ import {
   rebuildEagerIndexesFromCache as rebuildEagerIndexesFromCacheImpl, rebuildUniqueConstraintsFromCache as rebuildUniqueConstraintsFromCacheImpl, rebuildIndexes as rebuildIndexesImpl,
   reconcileIndex as reconcileIndexImpl, maintainPersistedIndexesOnPut as maintainPersistedIndexesOnPutImpl, maintainPersistedIndexesOnDelete as maintainPersistedIndexesOnDeleteImpl,
   purgePersistedIndexes as purgePersistedIndexesImpl, syncTierIndexes as syncTierIndexesImpl, type IndexingContext,
+  createPersistedFieldIndexes as createPersistedFieldIndexesImpl, hydrateEagerIndexes as hydrateEagerIndexesImpl, type PersistedFieldIndexes,
 } from '../with-lookup/indexing/collection-facade.js'
 import { ReadOnlyError, ClassifiedConfigError, ClassifiedRevealError, ClassifiedVerifyError } from './errors.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
@@ -330,6 +331,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** Session-scoped lexical index store; `undefined` (zero-cost) unless `textIndexes` is non-empty. */
   private readonly searchIndexStore: IndexStore | undefined
+
+  /** Encrypted field-index sidecars (#1359); `null` (zero-cost) unless an index declared `persist: true`. */
+  private readonly fieldIndexStore: PersistedFieldIndexes | null
 
   /** Embedding config for write-time vector derivation; `undefined` (zero-cost) for ordinary
    *  collections. When set, `put()` encodes the source field(s) and stores an encrypted `_vec` sidecar. */
@@ -825,6 +829,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       lazy: this.lazy,
     })
     this.declaredIndexes = normalizeIndexDefs(opts.indexes ?? [])
+    // #1359: `null` unless an index opted in; thunk resolves lazily (pre-`this.codec`, as the search bridge does).
+    this.fieldIndexStore = createPersistedFieldIndexesImpl(() => this.indexingContext(), this.indexes)
     this.indexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #672 review C1: one-time canonicalizer registration; lazy `this.via` read survives late `_setVia` (#666)
     this.persistedIndexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #677: lazy twin of the line above
 
@@ -3026,7 +3032,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       subscribe: (cb: (change?: SourceChange) => void) => {
         const handler = (event: ChangeEvent): void => {
           if (event.vault === this.vault && event.collection === this.name) {
-            cb({ id: event.id, action: event.action })
+            // A remote-origin event (#1362) is an ADDRESS, not a delta this process
+            // observed — `undefined` makes the maintainer rebuild instead of patch.
+            cb(event.remote === true ? undefined : { id: event.id, action: event.action })
           }
         }
         this.emitter.on('change', handler)
@@ -3165,7 +3173,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       },
       // Sync join dressing (#650 Task 6, #626 retirement) — i18n-text + lookup-label, from this collection's own bindings.
       ...(this.presentForJoin !== undefined ? { presentForJoin: this.presentForJoin } : {}),
-      decodeResults: (record: unknown): unknown => (this.via && this.via.hasResultDecode ? this.via.decodeResults(record) : record), // #1289 Via result decode for a record served under an ALIAS — contract + rationale on JoinableSource in query/join.ts. Reads `this.via` per call, never a captured value: _applyMoneyFields rebuilds the pipeline after this source is handed out
+      decodeResults: (record: unknown): unknown => (this.via && this.via.hasResultDecode ? this.via.decodeResults(record) : record), via: () => this.via, // #1289 Via result decode for a record served under an ALIAS, and #1337/#1338's `via()` — the pipeline ITSELF, for a record ORDERED (compareForOrder) or REDUCED (wrapReducers) under one. Contract + rationale on JoinableSource in query/join.ts. Both read `this.via` per call, never a captured value: _applyMoneyFields rebuilds the pipeline after this source is handed out — which is also why `via` is a thunk and not a property
     }
   }
 
@@ -3566,6 +3574,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     await this._onRecordMutated(id, action, 'tab-mirror')
   }
 
+  /** @internal #1362 — same as {@link _applyRemoteChange}, for a frame that carries NO verb.
+   *  A peer's claim about the verb is not evidence; the re-read decides it, exactly as
+   *  `_compensateRevertedWrite` does. Untrusted ingress is why the frame omits it. */
+  async _applyRemoteSignal(id: string): Promise<void> {
+    await this._invalidateCacheEntry(id)
+    const action: 'put' | 'delete' = (await this.get(id)) !== null ? 'put' : 'delete'
+    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action, remote: true })
+    this.searchIndexStore?.markDirty()
+  }
+
   /**
    * Origin-tagged mutation choke point (#623 task 10) — the single dispatch
    * point every put/delete path funnels through, AFTER its own store write,
@@ -3608,7 +3626,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
         const version = ctx!.version!
         await this.onDirty?.(this.name, id, 'put', version)
         this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'put' } satisfies ChangeEvent)
-        this.searchIndexStore?.markDirty() // zero-cost for non-search collections
+        this.searchIndexStore?.markDirty(); this.fieldIndexStore?.markDirty() // zero-cost unless declared
         await this.onAccess?.('put', id)
         await this.dispatchDerivations(id, record, version, undefined, ctx!.prior)
         await this.dispatchMaterializedViews(id, record)
@@ -3617,14 +3635,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       case 'local-delete': {
         await this.onDirty?.(this.name, id, 'put', ctx!.version!)
         this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action: 'delete' } satisfies ChangeEvent)
-        this.searchIndexStore?.markDirty() // zero-cost for non-search collections
+        this.searchIndexStore?.markDirty(); this.fieldIndexStore?.markDirty() // zero-cost unless declared
         await this.onAccess?.('delete', id)
         return
       }
       case 'tab-mirror':
         await this._invalidateCacheEntry(id)
-        this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
-        this.searchIndexStore?.markDirty() // peer write changed the cache; rebuild on next retrieve
+        // `remote` (#1362): a peer told us the address; we re-read the state. Not a trustworthy delta.
+        this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action, remote: true })
+        this.searchIndexStore?.markDirty(); this.fieldIndexStore?.markDirty() // peer write changed the cache
         return
       case 'sync-apply': {
         this._invalidateCekCacheEntry(id)
@@ -3668,7 +3687,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
     }
     this.hydrated = true
-    this.rebuildEagerIndexesFromCache()
+    await hydrateEagerIndexesImpl(this.indexingContext())
     this.rebuildUniqueConstraintsFromCache()
   }
 
@@ -3682,7 +3701,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       this.cache.set(id, { record, version: envelope._v })
     }
     this.hydrated = true
-    this.rebuildEagerIndexesFromCache()
+    await hydrateEagerIndexesImpl(this.indexingContext())
     this.rebuildUniqueConstraintsFromCache()
   }
 
@@ -3933,6 +3952,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     await this.adapter.delete(this.vault, '_vec', encodeVecId(this.name, id))
     this.vectorSet?.markDirty()
   }
+
+  /** @internal #1359 — force an immediate sidecar write, cancelling the debounce. No-op when none opted in. */
+  async _flushFieldIndexes(): Promise<void> { await this.fieldIndexStore?.flush() }
 
   /** Drop the persisted lexical-index blob (forget/erasure): an opaque
    *  all-records index must not survive crypto-shred. Idempotent; no-op without persist. */
@@ -4313,6 +4335,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       indexes: this.indexes,
       uniqueConstraints: this.uniqueConstraints,
       persistedIndexes: this.persistedIndexes,
+      fieldIndexes: this.fieldIndexStore,
       ensureHydrated: () => this.ensureHydrated(),
       ensurePersistedIndexesLoaded: () => this.ensurePersistedIndexesLoaded(),
       setPersistedIndexesLoaded: (value) => { this.persistedIndexesLoaded = value },

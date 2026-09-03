@@ -27,6 +27,14 @@ import { IndexWriteFailureError } from '../../kernel/errors.js'
 import type { CollectionIndexes } from './eager-indexes.js'
 import type { UniqueConstraintSet } from './unique-constraints.js'
 import { encodeIdxId, decodeIdxId, type PersistedCollectionIndex, type PersistedIndexDef } from './persisted-indexes.js'
+import {
+  PersistedFieldIndexes,
+  fieldIndexFingerprint,
+  type FieldIndexCallbacks,
+  type FieldIndexFingerprint,
+} from './persisted-field-indexes.js'
+
+export type { PersistedFieldIndexes } from './persisted-field-indexes.js'
 
 /** Everything the moving index-maintenance methods touched on `this.*`. */
 export interface IndexingContext<T> {
@@ -50,6 +58,8 @@ export interface IndexingContext<T> {
   readonly uniqueConstraints: UniqueConstraintSet | null
   /** The lazy-mode persisted-index mirror, or null (SHARED reference). */
   readonly persistedIndexes: PersistedCollectionIndex | null
+  /** The eager-mode persisted field-index sidecars (#1359), or null (SHARED reference). */
+  readonly fieldIndexes: PersistedFieldIndexes | null
   /** Hydrate the eager cache before rebuilding from it. */
   ensureHydrated(): Promise<void>
   /** Bulk-load the persisted-index mirror from side-cars (lazy mode). */
@@ -135,14 +145,111 @@ function valuesMatch(stored: unknown, live: unknown): boolean {
  * Called after any bulk hydration; incremental put/delete updates go through
  * `indexes.upsert()`/`.remove()` directly, so this only fires for full reloads.
  */
-export function rebuildEagerIndexesFromCache<T>(ctx: IndexingContext<T>): void {
+export function rebuildEagerIndexesFromCache<T>(ctx: IndexingContext<T>, skip?: ReadonlySet<string>): void {
   const eager = ctx.indexes
   if (!eager || eager.fields().length === 0) return
   const snapshot: Array<{ id: string; record: T }> = []
   for (const [id, entry] of ctx.cache) {
     snapshot.push({ id, record: entry.record })
   }
-  eager.build(snapshot)
+  eager.build(snapshot, skip)
+}
+
+/**
+ * Collection namespace the encrypted field-index sidecars live in (#1359).
+ * Reserved-underscore, same convention as `_ftindex` / `_vec` / `_idx/`.
+ */
+const FIELD_IDX = '_fieldidx'
+
+/**
+ * Bridge the crypto-free {@link PersistedFieldIndexes} to this collection's
+ * codec + adapter — the exact division `buildPersistedIndexCallbacks` uses for
+ * the search index: crypto lives here, the store does not know it exists.
+ *
+ * One record per `(collection, index)`, at `_fieldidx / <collection>/<key>`.
+ * The freshness stamp rides INSIDE the encrypted body (`{fp, idx}`) rather
+ * than on the envelope, so the `EncryptedEnvelope` shape is never extended and
+ * the stamp is not readable at rest.
+ *
+ * Takes a context THUNK for the same reason the search bridge does: it is
+ * built from the `Collection` constructor, before `this.codec` is assigned.
+ */
+export function buildFieldIndexCallbacks<T>(
+  provideCtx: () => IndexingContext<T>,
+  debounceMs?: number,
+): FieldIndexCallbacks {
+  const sidecarId = (name: string, key: string): string => `${name}/${key}`
+  return {
+    keys: () => provideCtx().indexes?.persistableKeys() ?? [],
+    snapshot: (key) => provideCtx().indexes?.snapshotIndex(key),
+    restore: (key, snap, isLive) => provideCtx().indexes?.restoreIndex(key, snap, isLive) ?? false,
+    load: async (key) => {
+      const ctx = provideCtx()
+      const id = sidecarId(ctx.name, key)
+      const env = await ctx.adapter.get(ctx.vault, FIELD_IDX, id)
+      if (!env) return null
+      const body = await ctx.codec.decryptJsonString({ collection: FIELD_IDX, id }, env)
+      if (body === null) return null
+      try {
+        const wrapped = JSON.parse(body) as { fp: FieldIndexFingerprint; idx: string }
+        if (typeof wrapped?.idx !== 'string' || typeof wrapped?.fp?.digest !== 'string') return null
+        return { json: wrapped.idx, fingerprint: wrapped.fp }
+      } catch {
+        return null // a torn or foreign body is an absent one — rebuild
+      }
+    },
+    save: async (key, json, fp) => {
+      const ctx = provideCtx()
+      const id = sidecarId(ctx.name, key)
+      const body = JSON.stringify({ fp, idx: json })
+      const env = await ctx.codec.encryptJsonString({ collection: FIELD_IDX, id }, body, fp.count)
+      await ctx.adapter.put(ctx.vault, FIELD_IDX, id, env)
+    },
+    remove: async (key) => {
+      const ctx = provideCtx()
+      await ctx.adapter.delete(ctx.vault, FIELD_IDX, sidecarId(ctx.name, key))
+    },
+    currentFingerprint: () => fieldIndexFingerprint(provideCtx().cache),
+    ...(debounceMs !== undefined ? { debounceMs } : {}),
+  }
+}
+
+/**
+ * Build this collection's sidecar coordinator, or `null` when no index asked
+ * to be persisted — so every other collection pays nothing. Kept here rather
+ * than in `Collection` so the kernel spine never names a `with-*` class
+ * (port-layering); the collection holds it only as a type.
+ */
+export function createPersistedFieldIndexes<T>(
+  provideCtx: () => IndexingContext<T>,
+  indexes: CollectionIndexes | null,
+): PersistedFieldIndexes | null {
+  if ((indexes?.persistableKeys().length ?? 0) === 0) return null
+  return new PersistedFieldIndexes(buildFieldIndexCallbacks(provideCtx))
+}
+
+/**
+ * The bulk-hydration index build, with the #1359 persisted-sidecar fast path
+ * in front of it: adopt every sidecar whose freshness stamp still matches the
+ * cache, then rebuild only what was not adopted, then owe a write-back for
+ * whatever had to be rebuilt (a fully restored open rewrites nothing).
+ *
+ * A sidecar that is absent, stale, unreadable or internally inconsistent
+ * simply does not appear in `restored`, so the outcome is the pre-#1359
+ * rebuild — the failure mode is always cost, never a wrong answer. The
+ * liveness predicate is the record cache itself.
+ *
+ * Collapses to exactly the old synchronous call when no index opted in.
+ */
+export async function hydrateEagerIndexes<T>(ctx: IndexingContext<T>): Promise<void> {
+  const store = ctx.fieldIndexes
+  if (!store || !store.enabled || !ctx.indexes) {
+    rebuildEagerIndexesFromCache(ctx)
+    return
+  }
+  const restored = await store.restore((id) => ctx.cache.has(id))
+  rebuildEagerIndexesFromCache(ctx, restored)
+  if (restored.size < ctx.indexes.persistableKeys().length) store.markDirty()
 }
 
 /**
@@ -441,10 +548,15 @@ export async function maintainPersistedIndexesOnDelete<T>(ctx: IndexingContext<T
  * + the `def.key`s whose delete FAILED (residue that still leaks the value).
  */
 export async function purgePersistedIndexes<T>(ctx: IndexingContext<T>, id: string): Promise<{ purged: number; residue: string[] }> {
+  // #1359: the eager persisted field-index sidecars hold the indexed field
+  // VALUES under the collection DEK, which `forget()` does not shred — so they
+  // are dropped whole here alongside the lazy-mode ones. They are a rebuildable
+  // cache, so deleting them costs an index rebuild and nothing else.
+  const field = ctx.fieldIndexes ? await ctx.fieldIndexes.removeAll() : { purged: 0, residue: [] as string[] }
   const persisted = ctx.persistedIndexes
-  if (!persisted) return { purged: 0, residue: [] }
-  let purged = 0
-  const residue: string[] = []
+  if (!persisted) return field
+  let purged = field.purged
+  const residue: string[] = [...field.residue]
   for (const def of persisted.definitions()) {
     try {
       await ctx.adapter.delete(ctx.vault, ctx.name, encodeIdxId(def.key, id))

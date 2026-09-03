@@ -47,6 +47,7 @@
 
 import type { RefDescriptor, RefMode } from '../refs.js'
 import type { Clause } from './predicate.js'
+import type { ViaPipeline } from '../via/pipeline.js'
 import { readPath } from './predicate.js'
 import { JoinTooLargeError, DanglingReferenceError } from '../errors.js'
 
@@ -191,6 +192,27 @@ export interface JoinableSource {
    */
   readonly decodeResults?: (record: unknown) => unknown
   /**
+   * This source's own compiled Via pipeline (#1337 / #1338).
+   *
+   * The two halves above (`presentForJoin`, `decodeResults`) dress a record
+   * that is ON ITS WAY OUT. Ordering, grouping and reduction happen while it
+   * is still under an alias mid-plan, and they need the pipeline itself:
+   * `compareForOrder` to sort an aliased money field by MAGNITUDE rather than
+   * lexically over its stored scaled integer, and `wrapReducers` to rewrite
+   * `sum('client.credit')` into the exact-BigInt money reducer (which also
+   * applies the RIGHT collection's `queryable: 'none'` posture gate — the
+   * gate whose silent absence is why joined aggregation was refused).
+   *
+   * A THUNK, not a property: `_applyMoneyFields` can rebuild a collection's
+   * pipeline after this source object has been handed out, and a copied
+   * reference would go quietly stale — the same discipline `decodeResults`
+   * above already follows.
+   *
+   * Optional: a plain-object test source declares none, and every consumer
+   * treats absence as "no binding covers anything here".
+   */
+  readonly via?: () => ViaPipeline | undefined
+  /**
    * Subscribe to mutations on this source. The callback fires
    * AFTER the underlying record set has been updated. Returns an
    * unsubscribe function. Optional — sources without this method
@@ -288,6 +310,28 @@ export function splitAroundJoins(
 }
 
 /**
+ * Does any `orderBy` entry address a field that only exists once the legs are
+ * attached (#1337)?
+ *
+ * The ordering half of {@link splitAroundJoins}, kept beside it because the
+ * two answer the same question about different parts of the plan, and because
+ * `Query.toArray()` and `Query.explain()` must not drift on the answer — one
+ * decides when the sort runs, the other reports it.
+ *
+ * ⚠️ Only `plan.joins` legs count. A `crossJoin` alias lives in the CLAUSE
+ * list and its expansion already runs before ordering, so an ordering over
+ * one has never needed moving.
+ */
+export function orderReferencesJoinAlias(
+  orderBy: readonly { readonly field: string }[],
+  joins: readonly JoinLeg[],
+): boolean {
+  if (joins.length === 0 || orderBy.length === 0) return false
+  const aliases = new Set(joins.map(leg => leg.as))
+  return orderBy.some(entry => aliases.has(entry.field.split('.')[0]!))
+}
+
+/**
  * Coerce an unknown FK value into a lookup key string.
  *
  * Legitimate ref values are strings or numbers — the same narrowing
@@ -355,12 +399,16 @@ function warnCeilingApproaching(
  * top-level object is a fresh clone so consumers can further mutate
  * safely).
  *
- * **Ordering:** joins run AFTER orderBy / limit / offset in v1.
- * This keeps the planner simple and means queries like "top 10
- * invoices with client" sort and paginate the left side first, then
- * join. Sorting *by* a joined field is out of scope for  — users
- * can post-sort the result array in userland or wait for 
- * (multi-FK chaining) which can be layered on top.
+ * **Ordering:** joins run AFTER orderBy / limit / offset by DEFAULT, so
+ * "top 10 invoices with client" sorts and paginates the left side first
+ * (index-driven) and joins only the page. Two things flip that, and both
+ * are decided by the plan, never by a flag: a `where` addressing an alias
+ * (#1030, {@link splitAroundJoins}) and an `orderBy` addressing one (#1337,
+ * {@link orderReferencesJoinAlias}). Either one moves the sort and the page
+ * to AFTER the legs, because neither can be evaluated against a row where
+ * the alias does not exist yet. ⚠️ That query necessarily loses the
+ * index-driven ordering fast path — the cost of sorting on a field the
+ * index does not hold. `Query.explain()` names which placement a plan gets.
  *
  * **Multi-FK chaining:** each leg's `maxRows` is enforced
  * against the current left-row count independently. Because
