@@ -8,8 +8,14 @@ name: CI
 on:
   push:
     branches: [main]
+  # No `branches:` filter on pull_request, deliberately (lanna-db#12). That
+  # filter matches the BASE branch, so a PR stacked on another branch triggers
+  # no workflow at all — and GitHub renders "no checks reported", which reads
+  # as pending and is never-ran. A sibling repo shipped a stacked PR whose
+  # green came from a hand dispatch. The cost of dropping it is CI minutes on
+  # the rare PR not targeting main; the cost of keeping it is a check whose
+  # absence looks like a pass.
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
