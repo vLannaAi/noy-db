@@ -1220,6 +1220,7 @@ export type {
   ExplainSource,
   LiveQuery,
   LiveUpstream,
+  LiveBuildOptions,
   ScanPageProvider,
 } from './kernel/query/index.js'
 

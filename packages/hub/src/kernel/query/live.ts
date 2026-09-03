@@ -38,18 +38,27 @@
  * vault + name. Vault's `resolveSource` reads from
  * `collectionCache` so this assumption holds.
  *
- * **What .live() does NOT do in v1:**
- *   - No granular delta updates — the whole query re-runs on every
- *     change. Granular delta tracking is a v2 optimization once
- *     the API is stable.
- *   - No batching of bursty changes — one event in, one re-run
- *     out. Batching with microtask coalescing is a v2 enhancement.
- *   - No async notifications — every notification is synchronous
+ * **Delta maintenance (#1341).** A live query over a plan
+ * `canMaintainIncrementally()` admits no longer re-runs: the change event
+ * carries which record moved, and `LiveMaintainer` patches the result set —
+ * one predicate evaluation, a binary search, a splice. The emitted value is
+ * identical to a re-run's, because the maintainer is handed the query's OWN
+ * membership test and sort comparator. Every other plan, and every
+ * notification that arrives without a delta, re-runs exactly as before.
+ *
+ * **What .live() still does NOT do:**
+ *   - No batching unless asked — `live({ batch: true })` coalesces a burst
+ *     into one recompute + one notification on a microtask; the default stays
+ *     one event in, one notification out, because batching makes `value`
+ *     stale until the microtask runs.
+ *   - No async notifications — every unbatched notification is synchronous
  *     within the source's change handler.
  *   - No re-planning under live mutations — the planner picks once
  *     at subscription time and reuses the same plan for every
  *     re-run.
  */
+
+import type { LiveMaintainer, SourceChange } from './incremental.js'
 
 /**
  * The reactive primitive returned by `Query.live()`.
@@ -120,7 +129,30 @@ export interface LiveQuery<T> {
  * `JoinableSource.subscribe` (added in ).
  */
 export interface LiveUpstream {
-  subscribe(cb: () => void): () => void
+  /**
+   * `cb` may be handed the delta that caused the notification (#1341) so the
+   * live query can patch its result set instead of re-running. Calling it with
+   * NO argument is always valid and always correct — it means "something
+   * changed, I can't say what", and the live query answers with a full re-run.
+   */
+  subscribe(cb: (change?: SourceChange) => void): () => void
+}
+
+/** Options for {@link buildLiveQuery}. */
+export interface LiveBuildOptions {
+  /**
+   * Coalesce a burst of upstream changes into ONE recompute and ONE
+   * notification, flushed on a microtask (#1341). Off by default: with it on,
+   * `live.value` is stale until the microtask runs, so a consumer that reads
+   * synchronously after an `await put()` would see the old value.
+   */
+  readonly batch?: boolean
+  /**
+   * Incremental maintainer for this query's result set. When present it
+   * REPLACES `recompute` as the value source — it patches per delta and
+   * rebuilds itself whenever a delta is not provably patchable.
+   */
+  readonly maintainer?: LiveMaintainer
 }
 
 /**
@@ -136,8 +168,9 @@ export interface LiveUpstream {
 export function buildLiveQuery<T>(
   recompute: () => T[],
   upstreams: readonly LiveUpstream[],
+  options?: LiveBuildOptions,
 ): LiveQuery<T> {
-  return new LiveQueryImpl<T>(recompute, upstreams)
+  return new LiveQueryImpl<T>(recompute, upstreams, options)
 }
 
 class LiveQueryImpl<T> implements LiveQuery<T> {
@@ -147,10 +180,21 @@ class LiveQueryImpl<T> implements LiveQuery<T> {
   private readonly unsubs: Array<() => void> = []
   private stopped = false
 
+  private readonly maintainer: LiveMaintainer | undefined
+  private readonly batch: boolean
+  private queued: Array<SourceChange | undefined> = []
+  private flushScheduled = false
+
   constructor(
     private readonly recompute: () => T[],
     upstreams: readonly LiveUpstream[],
+    options?: LiveBuildOptions,
   ) {
+    this.maintainer = options?.maintainer
+    this.batch = options?.batch === true
+    // From here on the maintainer is delta-driven: it patches on every event
+    // and only rebuilds when it has to.
+    this.maintainer?.attach()
     // Initial compute. If this throws, the constructor still
     // succeeds — we want consumers to be able to render an error
     // state from `live.error` rather than wrapping every
@@ -183,8 +227,49 @@ class LiveQueryImpl<T> implements LiveQuery<T> {
    * upstream's subscribe. Bound via class field so the `this`
    * context survives the indirect call from arbitrary upstreams.
    */
-  private readonly onUpstreamChange = (): void => {
+  private readonly onUpstreamChange = (change?: SourceChange): void => {
+    if (this.batch) {
+      this.queued.push(change)
+      if (!this.flushScheduled) {
+        this.flushScheduled = true
+        queueMicrotask(this.flush)
+      }
+      return
+    }
+    this.absorb([change])
+    this.notify()
+  }
+
+  /**
+   * Drain a coalesced burst: every queued delta is folded in, then the value
+   * is read ONCE and listeners are notified ONCE.
+   */
+  private readonly flush = (): void => {
+    this.flushScheduled = false
+    const batch = this.queued
+    this.queued = []
+    if (this.stopped) return
+    this.absorb(batch)
+    this.notify()
+  }
+
+  private absorb(changes: ReadonlyArray<SourceChange | undefined>): void {
+    if (this.stopped) return
+    if (this.maintainer) {
+      try {
+        for (const change of changes) this.maintainer.apply(change)
+      } catch {
+        // A predicate threw mid-patch. Drop the maintained state and let the
+        // read below rebuild: it runs the same predicate, so the consumer sees
+        // exactly the error (and the preserved last-good value) a full re-run
+        // would have produced.
+        this.maintainer.invalidate()
+      }
+    }
     this.refresh()
+  }
+
+  private notify(): void {
     for (const cb of this.listeners) {
       try {
         cb()
@@ -198,10 +283,13 @@ class LiveQueryImpl<T> implements LiveQuery<T> {
   private refresh(): void {
     if (this.stopped) return
     try {
-      this._value = this.recompute()
+      this._value = (this.maintainer ? this.maintainer.rows() : this.recompute()) as T[]
       this._error = null
     } catch (err) {
       this._error = err instanceof Error ? err : new Error(String(err))
+      // Whatever the maintainer holds is no longer trustworthy — the next
+      // read pays for a rebuild rather than serving a half-patched set.
+      this.maintainer?.invalidate()
       // Don't clobber the previous value on error — consumers
       // typically want to keep showing the last known good state
       // alongside the error message rather than flashing to an
