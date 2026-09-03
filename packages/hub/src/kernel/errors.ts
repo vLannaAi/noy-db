@@ -1520,6 +1520,26 @@ export class ValidationError extends NoydbError {
 }
 
 /**
+ * Thrown when a `where(field, 'matches', …)` operand is refused (#1357).
+ *
+ * Three distinct refusals, all loud and all at the `where()` call site:
+ *   - the operand is neither a `RegExp` nor a LIKE string,
+ *   - the pattern trips the ReDoS budget (source length, group nesting,
+ *     quantifier count, or a quantified group that itself quantifies),
+ *   - the RegExp carries a `g`/`y` flag, which makes `test()` stateful
+ *     across records and would silently drop rows.
+ *
+ * Deliberately a REFUSAL, never a rewrite: a sanitiser that "fixes" a
+ * user pattern changes which rows come back without saying so.
+ */
+export class UnsafePatternError extends NoydbError {
+  constructor(message: string) {
+    super('UNSAFE_PATTERN', message)
+    this.name = 'UnsafePatternError'
+  }
+}
+
+/**
  * Thrown when a Standard Schema v1 validator rejects a record on
  * `put()` (input validation) or on read (output validation). Carries
  * the raw issue list so callers can render field-level errors.
