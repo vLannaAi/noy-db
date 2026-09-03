@@ -52,6 +52,7 @@ import { readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assertCanonicalAdvanced, nextLineVersion, changesetWroteASection } from './release/version-advanced.mjs'
+import { isLockstepMember } from './release/lockstep-members.mjs'
 
 const __dir = fileURLToPath(new URL('.', import.meta.url))
 const ROOT = resolve(__dir, '..')
@@ -175,7 +176,9 @@ for (const dir of packageDirs) {
     continue
   }
 
-  if (!pkg.name || !pkg.name.startsWith('@noy-db/')) {
+  // Workspace membership, not a name shape — `create-noy-db` is unscoped and
+  // the old `startsWith('@noy-db/')` test let it drift off the line (#1313).
+  if (!isLockstepMember(pkg)) {
     continue
   }
 
@@ -254,7 +257,7 @@ for (const dir of packageDirs) {
   } catch {
     continue
   }
-  if (!pkg.name || !pkg.name.startsWith('@noy-db/')) continue
+  if (!isLockstepMember(pkg)) continue
 
   const [maj, min, pat] = (pkg.version ?? '').split('.').map(Number)
   if (maj > coreMajor || (maj === coreMajor && min > coreMinor) || (maj === coreMajor && min === coreMinor && pat > corePatch)) {
@@ -276,7 +279,7 @@ if (failed) {
 // ─── 6. Done ───────────────────────────────────────────────────────────
 
 console.log(`
-[release] Done. All @noy-db/* packages are now at ${canonicalVersion}.
+[release] Done. Every lockstep member (including create-noy-db) is now at ${canonicalVersion}.
 
 Next steps:
   git diff packages/*/package.json          # verify the normalization

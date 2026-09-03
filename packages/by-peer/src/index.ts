@@ -12,7 +12,8 @@
  *      any other store.
  *
  *   2. **`servePeerStore()`** — the remote-side listener that funnels
- *      incoming RPCs into the local store.
+ *      incoming RPCs into the local store. **`serveMultiPeerStore()`** is
+ *      the star-topology form: N invites, one token per peer (#1239).
  *
  *   3. **`createOffer()` / `acceptOffer()`** — thin WebRTC handshake
  *      helpers. Signaling is out of scope — the caller ferries SDP
@@ -41,6 +42,8 @@ export type { PeerStoreOptions } from './peer-store.js'
 export { peerStore } from './peer-store.js'
 export type { ServePeerStoreOptions, MinimalLockManager } from './serve.js'
 export { servePeerStore } from './serve.js'
+export type { PeerInvite, MultiPeerServerOptions, MultiPeerServer } from './serve-multi.js'
+export { serveMultiPeerStore } from './serve-multi.js'
 export type { WebRTCOptions, Initiator, Responder } from './webrtc.js'
 export { createOffer, acceptOffer } from './webrtc.js'
 export { channelMesh, byPeer } from './coordination.js'
