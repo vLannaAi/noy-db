@@ -1539,7 +1539,7 @@ function executePlanWithSource(
     }
     result = executeClausePipeline(source, plan.clauses, joinContext)
   } else {
-    const ordered = orderedIndexRows(source, plan)
+    const ordered = orderedIndexRows(source, plan) ?? compoundOrderedRows(source, plan)
     if (ordered) return ordered
     // Index-aware fast path: only the clauses NOT consumed by the index need
     // re-evaluation. For a single-clause query against an indexed field,
@@ -1643,6 +1643,180 @@ function viaOrdersField(via: ViaPipeline | undefined, field: string): boolean {
   return via !== undefined && via.compareForOrder(field, '', '') !== undefined
 }
 
+/**
+ * A range operand for the component just past a compound index's equality
+ * prefix. `op` repeats {@link isRangeOperator}'s union rather than importing
+ * `RangeOperator`, keeping this file's import list unchanged.
+ */
+interface CompoundRange {
+  readonly op: '<' | '<=' | '>' | '>=' | 'between' | 'startsWith'
+  readonly value: unknown
+}
+
+interface CompoundPick {
+  readonly fields: readonly string[]
+  /** Equality operands for `fields[0..values.length-1]`, in index order. */
+  readonly values: readonly unknown[]
+  readonly range?: CompoundRange
+  /** Indices into the plan's clause list that this pick answers. */
+  readonly consumed: ReadonlySet<number>
+}
+
+/**
+ * Split the top-level clauses into the `==` and range clauses a compound
+ * index could answer. Via-covered clauses are excluded for the same reason
+ * `candidateRecords` excludes them from the sorted path — a binding's
+ * `indexProbe` yields an equality operand in STORED form, never an ordered
+ * one, and this path compares raw operands. A repeated field keeps its FIRST
+ * clause; the duplicate stays in `remainingClauses` and is re-evaluated.
+ */
+function indexableClauses(clauses: readonly Clause[]): {
+  eq: Map<string, { value: unknown; at: number }>
+  ranges: Map<string, { op: CompoundRange['op']; value: unknown; at: number }>
+} {
+  const eq = new Map<string, { value: unknown; at: number }>()
+  const ranges = new Map<string, { op: CompoundRange['op']; value: unknown; at: number }>()
+  for (let i = 0; i < clauses.length; i++) {
+    const clause = clauses[i]!
+    if (clause.type !== 'field' || clause.via !== undefined) continue
+    if (clause.op === '==') {
+      if (!eq.has(clause.field)) eq.set(clause.field, { value: clause.value, at: i })
+    } else if (isRangeOperator(clause.op)) {
+      if (!ranges.has(clause.field)) ranges.set(clause.field, { op: clause.op, value: clause.value, at: i })
+    }
+  }
+  return { eq, ranges }
+}
+
+/**
+ * Choose the declared field tuple that answers the most clauses: the longest
+ * equality PREFIX of the tuple, plus a range on the component immediately
+ * after it. A pick answering fewer than two clauses is declined — the
+ * single-field hash or sorted index already covers that, at lower cost.
+ */
+function pickCompound(indexes: CollectionIndexes, clauses: readonly Clause[]): CompoundPick | null {
+  const { eq, ranges } = indexableClauses(clauses)
+  if (eq.size === 0) return null
+  let best: CompoundPick | null = null
+  for (const fields of indexes.compoundTuples()) {
+    const values: unknown[] = []
+    const consumed = new Set<number>()
+    let depth = 0
+    while (depth < fields.length) {
+      const hit = eq.get(fields[depth]!)
+      if (!hit) break
+      values.push(hit.value)
+      consumed.add(hit.at)
+      depth++
+    }
+    if (depth === 0) continue
+    let range: CompoundRange | undefined
+    if (depth < fields.length) {
+      const hit = ranges.get(fields[depth]!)
+      if (hit) {
+        range = { op: hit.op, value: hit.value }
+        consumed.add(hit.at)
+      }
+    }
+    if (consumed.size < 2) continue
+    if (!best || consumed.size > best.consumed.size) {
+      best = { fields, values, consumed, ...(range ? { range } : {}) }
+    }
+  }
+  return best
+}
+
+/**
+ * #1345 candidate fast path: narrow through a compound index instead of
+ * scanning, for `where(a, '==', x).where(b, '==', y)` and for
+ * `where(a, '==', x).where(b, '>=', d)`.
+ *
+ * Returns `null` — fall back — unless the index COVERS THE SNAPSHOT. A record
+ * whose value for any component is nullish or has no order-defined runtime
+ * type is absent from the tuple index, and the consumed clauses leave the
+ * plan, so an under-covering index would silently drop matching records.
+ */
+function compoundCandidates(
+  source: InternalSource,
+  indexes: CollectionIndexes,
+  lookupById: (id: string) => unknown,
+  clauses: readonly Clause[],
+): CandidateResult | null {
+  const pick = pickCompound(indexes, clauses)
+  if (!pick) return null
+  if (indexes.compoundSize(pick.fields) !== source.snapshot().length) return null
+  const ids = indexes.lookupCompound(pick.fields, pick.values, pick.range)
+  if (!ids) return null
+  const remaining: Clause[] = []
+  for (let j = 0; j < clauses.length; j++) {
+    if (!pick.consumed.has(j)) remaining.push(clauses[j]!)
+  }
+  return { candidates: materializeIds(ids, lookupById), remainingClauses: remaining }
+}
+
+/**
+ * #1345 ordered fast path: answer the headline shape
+ * `where(a, '==', x).orderBy(b).limit(n)` from a `[a, b]` compound index —
+ * the equality prefix is a contiguous run already sorted by `b`, so neither
+ * the filter nor the sort has to touch the rest of the snapshot.
+ *
+ * Guards, on top of the ones {@link orderedIndexRows} carries for the
+ * single-field case:
+ *
+ *  - EVERY clause must be a via-free `==` on a distinct field, because
+ *    nothing re-filters the rows this returns,
+ *  - the tuple must be exactly those fields followed by the order field.
+ *    A LONGER tuple would break tie order: entries equal on the order
+ *    component are then ranked by the components after it, whereas
+ *    `sortRecords()` leaves them in insertion order,
+ *  - the index must cover the snapshot, same reason as above.
+ */
+function compoundOrderedRows(source: InternalSource, plan: QueryPlan): unknown[] | null {
+  const limit = plan.limit
+  if (limit === undefined || plan.clauses.length === 0 || plan.orderBy.length !== 1) return null
+  const [order] = plan.orderBy
+  if (!order || order.by === 'label') return null
+  const indexes = source.getIndexes?.()
+  if (!indexes || !source.lookupById) return null
+  if (viaOrdersField(source.via, order.field)) return null
+  const { eq } = indexableClauses(plan.clauses)
+  if (eq.size !== plan.clauses.length) return null
+  const match = pickCompoundOrder(indexes, eq, order.field)
+  if (!match) return null
+  const snapshot = source.snapshot()
+  if (indexes.compoundSize(match.fields) !== snapshot.length) return null
+  const ids = indexes.compoundOrderedIds(match.fields, match.values, order.direction)
+  if (!ids) return null
+  // Arrow-bound so `this` can't drift (same discipline as `candidateRecords`).
+  const lookupById = (id: string): unknown => source.lookupById?.(id)
+  const out: unknown[] = []
+  for (let i = plan.offset; i < ids.length && out.length < limit; i++) {
+    const record = lookupById(ids[i]!)
+    if (record !== undefined) out.push(record)
+  }
+  return out
+}
+
+/** The declared tuple that is exactly `eq`'s fields followed by `orderField`. */
+function pickCompoundOrder(
+  indexes: CollectionIndexes,
+  eq: ReadonlyMap<string, { value: unknown; at: number }>,
+  orderField: string,
+): { fields: readonly string[]; values: readonly unknown[] } | null {
+  for (const fields of indexes.compoundTuples()) {
+    if (fields.length !== eq.size + 1) continue
+    if (fields[fields.length - 1] !== orderField) continue
+    const values: unknown[] = []
+    for (let i = 0; i < fields.length - 1; i++) {
+      const hit = eq.get(fields[i]!)
+      if (!hit) break
+      values.push(hit.value)
+    }
+    if (values.length === fields.length - 1) return { fields, values }
+  }
+  return null
+}
+
 interface CandidateResult {
   /** The reduced candidate set, materialized to record objects. */
   readonly candidates: readonly unknown[]
@@ -1671,6 +1845,12 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
   // Bind the lookup method through an arrow so it doesn't drift from
   // its `this` context — keeps the unbound-method lint rule happy.
   const lookupById = (id: string): unknown => source.lookupById?.(id)
+
+  // #1345: a compound index consuming an equality PREFIX (plus an optional
+  // range on the next component) removes MORE clauses from the plan than any
+  // single-clause choice below, so it is tried first.
+  const compound = compoundCandidates(source, indexes, lookupById, clauses)
+  if (compound) return compound
 
   for (let i = 0; i < clauses.length; i++) {
     const clause = clauses[i]!
