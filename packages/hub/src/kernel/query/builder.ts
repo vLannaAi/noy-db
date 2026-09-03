@@ -22,6 +22,7 @@ import { reducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/reduce/groupby.js'
 import { NO_REDUCE, type ReduceStrategy } from '../../with-lookup/reduce/strategy.js'
 import type { ViaPipeline } from '../via/pipeline.js'
+import { decodeCursor, encodeCursor, keysetShape } from './cursor.js'
 import type { QueryExplanation } from './explain.js'
 import { explainPlan } from './explain.js'
 
@@ -54,6 +55,16 @@ export interface QueryPlan {
   readonly limit: number | undefined
   readonly offset: number
   /**
+   * Opaque keyset cursor from `.after(cursor)` (#1346). When present, the
+   * window starts strictly after the `(sortKey, id)` the cursor names,
+   * instead of at a positional offset.
+   *
+   * OPTIONAL, unlike its `limit`/`offset` neighbours: `QueryPlan` is an
+   * exported type that consumers construct, so a required new property would
+   * be a breaking change where an optional one is additive.
+   */
+  readonly after?: string | undefined
+  /**
    * Zero-or-more join legs to apply after where/orderBy/limit/offset.
    * Each leg attaches a resolved right-side record (or null) under its
    * alias. See `query/join.ts` for the full semantics.
@@ -66,6 +77,7 @@ const EMPTY_PLAN: QueryPlan = {
   orderBy: [],
   limit: undefined,
   offset: 0,
+  after: undefined,
   joins: [],
 }
 
@@ -167,6 +179,12 @@ export interface QuerySource<T> {
    * id projection). Optional: only collection-backed queries supply it.
    */
   snapshotEntries?(): readonly { id: string; record: T }[]
+  /**
+   * Stable name for this source (`<vault>/<collection>`), used to bind a
+   * keyset cursor to the query that minted it (#1346) so a cursor replayed
+   * against another collection is refused rather than silently mis-paged.
+   */
+  identity?: string
 }
 
 interface InternalSource {
@@ -176,6 +194,7 @@ interface InternalSource {
   lookupById?(id: string): unknown
   via?: ViaPipeline
   snapshotEntries?(): readonly { id: string; record: unknown }[]
+  identity?: string
 }
 
 /**
@@ -471,6 +490,40 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     )
   }
 
+  /**
+   * Resume strictly after the row an opaque keyset cursor names (#1346).
+   *
+   * ```ts
+   * const first = people.query().orderBy('name').limit(20).page()
+   * const next = people.query().orderBy('name').limit(20).after(first.nextCursor!).page()
+   * ```
+   *
+   * Unlike `offset(n)`, the window is anchored to a `(sortKey, id)` position,
+   * so a record inserted or deleted before it — including the cursor's own
+   * row — cannot re-serve or skip a record.
+   *
+   * The cursor is OPAQUE: pass back a `nextCursor` from `.page()` verbatim
+   * and do not parse it. It is validated when the query executes (not here —
+   * the sort spec it is bound to may still be added to the chain), and a
+   * cursor from a different collection or a different `orderBy(...)` spec is
+   * REFUSED rather than mis-paged.
+   *
+   * Requires at least one `orderBy(...)`, an id-paired (collection-backed)
+   * source, no join legs and no `offset()`; each is a loud error at execution.
+   */
+  after(cursor: string): Query<T, S, Q, M> {
+    if (typeof cursor !== 'string' || cursor.length === 0) {
+      throw new Error('Query.after(): a cursor must be a non-empty string — pass back the `nextCursor` from .page().')
+    }
+    return new Query<T, S, Q, M>(
+      this.source as QuerySource<T>,
+      { ...this.plan, after: cursor },
+      this.joinContext,
+      this.reduceStrategy,
+      this.predicates,
+    )
+  }
+
   /** Skip the first N matching records (after ordering). */
   offset(n: number): Query<T, S, Q, M> {
     return new Query<T, S, Q, M>(
@@ -743,6 +796,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * (Left/base i18n fields are resolved by `get`/`list`, not here.)
    */
   toArray(opts?: { locale?: string }): T[] {
+    // A cursor was applied: the window is decided by the keyset, not by
+    // offset/limit slicing. Same rows `page()` would serve, same signature.
+    if (this.plan.after !== undefined) return this.executeKeyset(opts).rows
+
     const { preJoin, postJoin } = splitAroundJoins(this.plan.clauses, this.plan.joins)
 
     if (postJoin.length === 0) {
@@ -814,6 +871,100 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     const via = this.source.via
     if (!via || !via.hasResultDecode) return records as unknown[]
     return records.map(r => via.decodeResults(r))
+  }
+
+  /**
+   * Terminal sibling of `toArray()` that also returns the cursor for the next
+   * page (#1346): `{ rows, nextCursor }`, where `nextCursor` is `null` once
+   * the last page has been served.
+   *
+   * ```ts
+   * const { rows, nextCursor } = people.query().orderBy('name').limit(20).page()
+   * ```
+   *
+   * Without a sorted index this is still a scan with a keyset filter — stable,
+   * not fast. The fast path is a separate concern (#1344).
+   *
+   * Same requirements as `.after()`: at least one `orderBy(...)`, an id-paired
+   * (collection-backed) source, no join legs, no `offset()`.
+   */
+  page(opts?: { locale?: string }): { rows: T[]; nextCursor: string | null } {
+    return this.executeKeyset(opts)
+  }
+
+  /**
+   * The keyset engine behind `page()` / `after()`.
+   *
+   * It deliberately does NOT reuse `applyOrderAndPage`: paging by keyset needs
+   * a TOTAL order (the id breaks ties that the ordinary sort leaves to input
+   * order) and needs the id alongside each row to mint the cursor. Both are
+   * properties of this path only, so the ordinary read path is untouched.
+   */
+  private executeKeyset(opts?: { locale?: string }): { rows: T[]; nextCursor: string | null } {
+    const plan = this.plan
+    if (plan.orderBy.length === 0) {
+      throw new Error(
+        'Query.page()/after(): keyset pagination requires at least one orderBy(...) — ' +
+          'a cursor names a position in a sort order, so there must be one to name.',
+      )
+    }
+    if (plan.offset > 0) {
+      throw new Error(
+        'Query.page()/after(): offset() cannot be combined with a keyset cursor. ' +
+          'They are two different pagination strategies — drop offset() and page with after(nextCursor).',
+      )
+    }
+    if (plan.joins.length > 0 || plan.clauses.some(c => c.type === 'crossJoin')) {
+      throw new Error(
+        'Query.page()/after(): keyset pagination does not support join legs or crossJoin ' +
+          '(joined rows are new objects, so the record id the cursor needs is not recoverable). ' +
+          'Page the left side, then join per page.',
+      )
+    }
+    const entries = this.source.snapshotEntries?.()
+    if (entries === undefined) {
+      throw new Error(
+        'Query.page()/after(): the query source has no snapshotEntries(); keyset pagination ' +
+          'requires a collection-backed query (collection.query()).',
+      )
+    }
+    const refToId = new Map<unknown, string>()
+    for (const { id, record } of entries) refToId.set(record, id)
+
+    // Match without ordering or paging — this path owns both.
+    const matched = executePlanWithSource(
+      this.source,
+      { ...plan, orderBy: [], limit: undefined, offset: 0, after: undefined },
+      this.joinContext,
+      opts?.locale,
+    )
+
+    const labelMaps = buildOrderLabelMaps(plan.orderBy, this.joinContext, opts?.locale, this.source.via)
+    const keyPlan = buildOrderKeyPlan(plan.orderBy, this.source.via, labelMaps)
+    const sorted = matched
+      .map(record => ({ record, id: refToId.get(record) ?? '', key: orderKeyOf(keyPlan, record) }))
+      .sort((a, b) => compareOrderKeys(keyPlan, a.key, b.key) || compareIds(a.id, b.id))
+
+    const shape = keysetShape(this.source.identity, plan.orderBy)
+    let start = 0
+    if (plan.after !== undefined) {
+      const cursor = decodeCursor(plan.after, shape)
+      // Strictly after the cursor's position. The row itself may be gone —
+      // that is exactly the case an offset cannot survive.
+      start = sorted.findIndex(
+        r => (compareOrderKeys(keyPlan, r.key, cursor.values) || compareIds(r.id, cursor.id)) > 0,
+      )
+      if (start < 0) start = sorted.length
+    }
+
+    const end = plan.limit === undefined ? sorted.length : start + plan.limit
+    const window = sorted.slice(start, end)
+    const last = window[window.length - 1]
+    const nextCursor =
+      last !== undefined && end < sorted.length
+        ? encodeCursor({ shape, values: last.key, id: last.id })
+        : null
+    return { rows: this.decodeVia(window.map(r => r.record)) as T[], nextCursor }
   }
 
   /** Return the first matching record, or null. Joins are applied. `opts.locale` resolves joined i18n fields. */
@@ -1653,38 +1804,83 @@ function applyCrossJoin(
   return expanded
 }
 
+/**
+ * One `orderBy` entry, resolved: how to read its sort value off a record and
+ * how to compare two of those values.
+ *
+ * Split out of `sortRecords` so the keyset path (`page()`/`after()`) can
+ * compare a row against a cursor's STORED values with exactly the ordering
+ * the sort used — the alternative was a second comparator that would drift.
+ */
+interface OrderKeyPlan {
+  readonly entries: readonly {
+    readonly field: string
+    readonly direction: 'asc' | 'desc'
+    readonly labelResolver: ((code: string) => string | undefined) | undefined
+  }[]
+  readonly via: ViaPipeline | undefined
+}
+
+function buildOrderKeyPlan(
+  orderBy: readonly OrderBy[],
+  via?: ViaPipeline,
+  labelMaps?: Map<string, (code: string) => string | undefined>,
+): OrderKeyPlan {
+  return {
+    entries: orderBy.map(({ field, direction, by }) => ({
+      field,
+      direction,
+      labelResolver: by === 'label' ? labelMaps?.get(field) : undefined,
+    })),
+    via,
+  }
+}
+
+/** The sort-key tuple of one record, in `orderBy` order. */
+function orderKeyOf(plan: OrderKeyPlan, record: unknown): unknown[] {
+  return plan.entries.map(({ field, labelResolver }) => {
+    const v = readField(record, field)
+    // dictKey/lookup label-sort: compare resolved labels (fallback to the
+    // code when unresolved), so e.g. honorific codes sort by their locale label.
+    if (labelResolver) return (typeof v === 'string' ? labelResolver(v) : undefined) ?? v
+    return v
+  })
+}
+
+function compareOrderKeys(plan: OrderKeyPlan, a: readonly unknown[], b: readonly unknown[]): number {
+  for (let i = 0; i < plan.entries.length; i++) {
+    const { field, direction, labelResolver } = plan.entries[i]!
+    const av = a[i]
+    const bv = b[i]
+    // A Via-covered field (e.g. money) may store a representation the
+    // generic comparator would order wrong (money's scaled-integer
+    // strings sort lexically, not numerically: '9882' > '10004'). Ask
+    // the pipeline for an exact ordering first; fall back to the
+    // generic comparator when no binding covers the field. Label-resolved
+    // values are already plain strings, so they skip the pipeline.
+    const viaCmp = labelResolver ? undefined : plan.via?.compareForOrder(field, av, bv)
+    const cmp = viaCmp !== undefined ? viaCmp : compareValues(av, bv)
+    if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
+  }
+  return 0
+}
+
+/** Ids are opaque strings; lexical order is enough to make the keyset total. */
+function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
 function sortRecords(
   records: unknown[],
   orderBy: readonly OrderBy[],
   via?: ViaPipeline,
   labelMaps?: Map<string, (code: string) => string | undefined>,
 ): unknown[] {
+  const plan = buildOrderKeyPlan(orderBy, via, labelMaps)
   // Stable sort: Array.prototype.sort is required to be stable since ES2019.
-  return [...records].sort((a, b) => {
-    for (const { field, direction, by } of orderBy) {
-      let av = readField(a, field)
-      let bv = readField(b, field)
-      // dictKey/lookup label-sort: compare resolved labels (fallback to the
-      // code when unresolved), so e.g. honorific codes sort by their locale label.
-      const labelResolver = by === 'label' ? labelMaps?.get(field) : undefined
-      if (labelResolver) {
-        av = (typeof av === 'string' ? labelResolver(av) : undefined) ?? av
-        bv = (typeof bv === 'string' ? labelResolver(bv) : undefined) ?? bv
-        const cmp = compareValues(av, bv)
-        if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
-        continue
-      }
-      // A Via-covered field (e.g. money) may store a representation the
-      // generic comparator would order wrong (money's scaled-integer
-      // strings sort lexically, not numerically: '9882' > '10004'). Ask
-      // the pipeline for an exact ordering first; fall back to the
-      // generic comparator when no binding covers the field.
-      const viaCmp = via?.compareForOrder(field, av, bv)
-      const cmp = viaCmp !== undefined ? viaCmp : compareValues(av, bv)
-      if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
-    }
-    return 0
-  })
+  return [...records].sort((a, b) =>
+    compareOrderKeys(plan, orderKeyOf(plan, a), orderKeyOf(plan, b)),
+  )
 }
 
 /**
@@ -1773,6 +1969,7 @@ function serializePlan(plan: QueryPlan): unknown {
     orderBy: plan.orderBy,
     limit: plan.limit,
     offset: plan.offset,
+    after: plan.after,
     joins: plan.joins,
   }
 }

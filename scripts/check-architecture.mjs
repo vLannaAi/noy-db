@@ -1067,7 +1067,14 @@ const KERNEL_SURFACE_BUDGET = {
   // already constructed used to vanish silently, taking strict FK enforcement with it.
   // The reconcile LOGIC deliberately lives in kernel/via/reconcile.ts with the rest of
   // the late-attach ladder; only the setter it drives is here.
-  'packages/hub/src/kernel/collection.ts': 4318,
+  // Bumped 4318→4320 (2026-09-03, #1346 keyset cursor): the QuerySource built by
+  // `query()` gains an `identity` property (`<vault>/<collection>`) plus its one-line
+  // rationale. It is what binds an opaque keyset cursor to the collection that minted
+  // it, so a cursor replayed against a sibling collection is refused instead of
+  // silently mis-paged. Cannot move onto the ServiceBus: only the kernel knows which
+  // vault/collection a Query's source is. The pagination LOGIC is entirely in
+  // kernel/query/{builder,cursor}.ts; only the name it needs is here.
+  'packages/hub/src/kernel/collection.ts': 4320,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

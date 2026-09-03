@@ -3038,6 +3038,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       getIndexes: () => this.getIndexes(),
       lookupById: (id: string) => this.cache.get(id)?.record,
       snapshotEntries: () => [...this.cache.entries()].map(([id, e]) => ({ id, record: e.record })),
+      // Binds a keyset cursor to this collection (#1346).
+      identity: `${this.vault}/${this.name}`,
       ...(this.via ? { via: this.via } : {}),
     }
     // Build a JoinContext if the vault passed a join resolver.
