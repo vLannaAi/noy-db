@@ -2405,11 +2405,11 @@ function checkEnclaveBarrelOnly() {
 // ⚠️ Do not harden this to zero in one commit. Every entry is known debt
 // with a landing place on the barrel — `encryptBytes`/`decryptBytes`,
 // `exportDekSet`/`importDekSet` (#1317), `deriveSecretKey`, `wrapKey`/
-// `unwrapKey` — and `wrapped-deks.ts`'s remaining two are `subtle.encrypt`/
-// `subtle.decrypt`, held by #1318 until the family decides what
-// `TamperedError` means (the barrel's `decryptBytes` rethrows it, and hub
-// branches on that class at six sites in blob-set.ts). Migrate one file at a
-// time and shrink the map in the same commit.
+// `unwrapKey`. `wrapped-deks.ts` reached zero on 2026-09-03 (#1318): it goes
+// through `decryptBytes` and translates the barrel's TamperedError into
+// InvalidKeyError, because a credential-derived key failing to open is a
+// wrong KEY, not tampering (lanna-db #4). Migrate one file at a time and
+// shrink the map in the same commit.
 //
 // Detection: `subtle.<method>(` after `stripComments`, so a call quoted in
 // JSDoc does not count, but one inside a string literal would (accepted
@@ -2425,8 +2425,6 @@ const SUBTLE_OUTSIDE_ENCLAVE = new Map([
   ['packages/hub/src/with-party/team/keyring.ts', 1],
   ['packages/hub/src/with-party/team/magic-link-grant.ts', 3],
   ['packages/hub/src/with-party/team/managed-secret.ts', 9],
-  // encrypt + decrypt only — held by #1318 (TamperedError semantics), not debt.
-  ['packages/hub/src/with-party/team/wrapped-deks.ts', 2],
   ['packages/hub/src/with-sync/presence.ts', 5],
 ])
 
