@@ -15,6 +15,7 @@ import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes
 import type { JoinableSource, JoinContext, JoinDirection, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins, joinsDropLeftRows, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
 import { reduceViaFor, refuseAliasReduceVia } from './join-reduce.js'
+import { normalizeJoinOn, type JoinOnSpec } from './join-on.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError, RefNotDeclaredError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
@@ -718,6 +719,101 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     opts: { as: As; mode?: 'inner' | undefined; strategy?: JoinStrategy; maxRows?: number },
   ): Query<T & Record<As, R>, S, Q, M> | Query<T & Record<As, R | null>, S, Q, M> {
     return this.withJoinLeg(field, opts, 'left') as unknown as Query<T & Record<As, R | null>, S, Q, M>
+  }
+
+  /**
+   * DECLARED non-equi / non-id join (#1339) — a join whose `on` is data, not
+   * a callback.
+   *
+   * ```ts
+   * // composite equality — a hash join over a tuple key
+   * entries.query().joinOn<'rate', Rate>('rates', {
+   *   as: 'rate',
+   *   on: [['clientId', 'clientId'], ['year', 'year']],
+   * })
+   *
+   * // a range — nested loop over a right side sorted once
+   * entries.query().joinOn<'rate', Rate>('rates', {
+   *   as: 'rate',
+   *   on: { left: 'date', op: 'between', right: ['from', 'to'] },
+   * })
+   * ```
+   *
+   * ⭐ **Why this exists when `.crossJoin({ on })` already pairs anything.**
+   * `crossJoin`'s `on` is a closure. It cannot be serialized, so a
+   * materialized view built over one has its drift detection disabled — the
+   * plan summary records the sentinel `'[inline]'` and two different
+   * predicates hash identically. A `joinOn` predicate is plain JSON: it folds
+   * into `toPlan()` and into the MV `queryHash`, so an MV can genuinely
+   * DEPEND on it. That, not the pairing, is the feature.
+   *
+   * **No `ref()` needed** — the predicate names both sides itself, so `target`
+   * is the collection name rather than a declared FK field. Dangling is not a
+   * concept here: a left row matching nothing gets `null` under the alias (a
+   * LEFT outer join, like `.join()`), and `{ mode: 'inner' }` drops it.
+   *
+   * **⚠️ This join EXPANDS rows.** A ref join is one-to-one, so the left row
+   * count is constant; a declared `on` emits one row per MATCH, so a left row
+   * matching three right records becomes three rows. The per-side `maxRows`
+   * ceilings therefore cannot bound the result, and a third ceiling on the
+   * OUTPUT throws `JoinTooLargeError` with `side: 'output'`. Do not remove
+   * it: without it an unbounded theta join is a hang, not an error.
+   *
+   * **Cost.** Composite equality is O(n + m + output). A range is
+   * O(m log m) to sort the right side once, then O(log m) per left row for
+   * `< <= > >=`; `between` is O(log m + p) per left row, where p is the
+   * number of right intervals starting at or before the probe — which
+   * degrades to O(n·m) when every interval starts early. `explain()` names
+   * which of the two ran. Neither reaches the right collection's declared
+   * indexes: a `JoinableSource` does not expose them.
+   */
+  joinOn<As extends string, R = unknown>(
+    target: string,
+    opts: { as: As; on: JoinOnSpec; mode: 'inner'; maxRows?: number },
+  ): Query<T & Record<As, R>, S, Q, M>
+  joinOn<As extends string, R = unknown>(
+    target: string,
+    opts: { as: As; on: JoinOnSpec; mode?: undefined; maxRows?: number },
+  ): Query<T & Record<As, R | null>, S, Q, M>
+  joinOn<As extends string, R = unknown>(
+    target: string,
+    // `| undefined` is load-bearing under `exactOptionalPropertyTypes`, same
+    // as `.join()`'s implementation signature.
+    opts: { as: As; on: JoinOnSpec; mode?: 'inner' | undefined; maxRows?: number },
+  ): Query<T & Record<As, R>, S, Q, M> | Query<T & Record<As, R | null>, S, Q, M> {
+    if (!this.joinContext) {
+      throw new Error(
+        `Query.joinOn() requires a join context. Use collection.query() to construct a ` +
+          `join-capable Query instead of the Query constructor directly (the direct ` +
+          `constructor is only used for tests with plain-object sources).`,
+      )
+    }
+    // Validated and normalised at PLAN time, never at execution: an `on` that
+    // cannot be serialised deterministically must not reach a queryHash.
+    const on = normalizeJoinOn(opts.on, target)
+    const leg: JoinLeg = {
+      // The driving left field. Not a ref — it exists so error messages and
+      // `explain()` have something to name, and it is derivable from `on`.
+      field: on.kind === 'composite' ? on.pairs[0]![0] : on.left,
+      as: opts.as,
+      target,
+      // There is no ref(), so there is no dangling-ref policy to apply.
+      // 'cascade' is the mode that attaches null silently, which is exactly
+      // the left-outer behaviour a declared join wants.
+      mode: 'cascade',
+      strategy: undefined,
+      maxRows: opts.maxRows,
+      ...(opts.mode === 'inner' ? { inner: true as const } : {}),
+      on,
+      partitionScope: 'all',
+    }
+    return new Query<T, S, Q, M>(
+      this.source as QuerySource<T>,
+      { ...this.plan, joins: [...this.plan.joins, leg] },
+      this.joinContext,
+      this.reduceStrategy,
+      this.predicates,
+    ) as unknown as Query<T & Record<As, R | null>, S, Q, M>
   }
 
   /**

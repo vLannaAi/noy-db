@@ -32,7 +32,7 @@ import { embeddingSourceText, type VectorSet, type EmbeddingDescriptor, type Sto
 import { encodeVecId, decodeVecId, isVecIdFor } from '../embeddings/vec-id.js'
 import { EmbeddingDimMismatchError } from '../../kernel/errors.js'
 import { liveRecordIsElevated } from '../../kernel/tier-visibility.js'
-import { searchScan, fuseRetrieval, type SearchOptions, type SearchResult } from './index.js'
+import { searchScan, fuseRetrieval, segmentTokenizer, type SearchOptions, type SearchResult } from './index.js'
 import type { IndexStore } from './index-store.js'
 import type { PersistedIndexCallbacks } from './persisted-index-store.js'
 import { extractSnippet } from './snippet.js'
@@ -309,19 +309,98 @@ export async function warmIndex<T>(ctx: SearchContext<T>): Promise<void> {
   await ctx.searchIndexStore.ensureBuilt(() => buildRetrievalDocs(ctx, labelMaps, blobFilenames), positionBuildOptions(ctx))
 }
 
-/** Retrieval. mode: 'lexical' (default) | 'semantic' (L2) | 'hybrid' (L3). */
+/**
+ * Sentinel `limit` pushed into the mode branches when a `within` is present, so
+ * the branch's own truncation (`InvertedIndex.query`'s slice, `cosineTopK`'s
+ * `k`, `fuseRetrieval`'s `limit`) becomes a no-op and the caller's real `limit`
+ * can be applied AFTER narrowing. `slice(0, Infinity)` is the whole list.
+ */
+const NO_LIMIT = Number.POSITIVE_INFINITY
+
+/**
+ * Retrieval. mode: 'lexical' (default) | 'semantic' (L2) | 'hybrid' (L3).
+ *
+ * ## `within` — the typed half of retrieval (#1343)
+ *
+ * Money / number / date / boolean fields are NOT tokenised into the lexical
+ * index and never will be: instead of a second (typed-token) index format, a
+ * typed match is expressed as an ordinary `Query` and handed to `within`, so
+ * the comparison runs in the query engine — over the sorted / compound range
+ * indexes — in each field's CANONICAL space (money as its scaled integer, not
+ * as a lexically-compared string). `retrieve()` contributes the text half and
+ * intersects.
+ *
+ * Two ordering properties, both load-bearing:
+ *
+ * - **Scoring is global; narrowing is not.** BM25 runs over the WHOLE corpus
+ *   (df / N / avgdl unchanged by `within`), so a document's score is the same
+ *   whichever `within` it is paired with — a filter re-ranks nothing. Narrowing
+ *   the postings instead would make IDF filter-dependent and scores
+ *   incomparable between two calls. It also costs nothing to score first: the
+ *   index already scores every doc and only slices at the end.
+ * - **`limit` counts hits from the NARROWED set.** Truncating corpus-wide first
+ *   and filtering after would under-return (`limit: 10` yielding 1), so the
+ *   mode branches run unlimited and the caller's `limit` is applied last.
+ *
+ * An empty `within` result set yields NO hits — never all of them.
+ *
+ * A `within` with an empty text query is **typed-only retrieval**: the typed
+ * predicate is the whole query, returned in the usual hit shape (score 0,
+ * `field: '(within)'`, empty snippet) so a typed and a text search are read the
+ * same way. An empty query with NO `within` still matches nothing.
+ */
 export async function retrieve<T>(ctx: SearchContext<T>, query: string, opts: RetrieveOptions<T> = {}): Promise<RetrieveHit<T>[]> {
+  if (opts.within === undefined) {
+    return opts.mode === 'semantic' ? retrieveSemantic(ctx, query, opts)
+      : opts.mode === 'hybrid' ? retrieveHybrid(ctx, query, opts)
+      : retrieveLexical(ctx, query, opts)
+  }
+  // Typed-only: no query terms to score, so the whole answer is the id set.
+  // Checked before the mode branches so it needs neither a textIndexes config
+  // nor an embeddings config — a collection of pure money/number fields is a
+  // legitimate `retrieve({ within })` target.
+  if (segmentTokenizer(query).length === 0) return retrieveWithinOnly(ctx, opts, opts.within)
+  const unlimited: RetrieveOptions<T> = { ...opts, limit: NO_LIMIT }
   const hits =
-    opts.mode === 'semantic' ? await retrieveSemantic(ctx, query, opts)
-    : opts.mode === 'hybrid' ? await retrieveHybrid(ctx, query, opts)
-    : await retrieveLexical(ctx, query, opts)
-  return opts.within ? applyWithin(hits, opts.within) : hits
+    opts.mode === 'semantic' ? await retrieveSemantic(ctx, query, unlimited)
+    : opts.mode === 'hybrid' ? await retrieveHybrid(ctx, query, unlimited)
+    : await retrieveLexical(ctx, query, unlimited)
+  return applyWithin(hits, opts.within, opts.limit)
 }
 
-/** L3 — keep only hits whose id matches the structured query, re-rank 1-based. */
-function applyWithin<T>(hits: RetrieveHit<T>[], within: Query<T>): RetrieveHit<T>[] {
+/**
+ * L3 — keep only hits whose id matches the structured query, truncate to the
+ * caller's `limit` (the mode branches ran unlimited), re-rank 1-based.
+ */
+function applyWithin<T>(hits: RetrieveHit<T>[], within: Query<T>, limit: number | undefined): RetrieveHit<T>[] {
   const ids = new Set(within._idArray())
-  return hits.filter(h => ids.has(h.id)).map((h, i) => ({ ...h, rank: i + 1 }))
+  const kept = hits.filter(h => ids.has(h.id))
+  const limited = limit !== undefined ? kept.slice(0, limit) : kept
+  return limited.map((h, i) => ({ ...h, rank: i + 1 }))
+}
+
+/**
+ * #1343 — typed-only retrieval: `retrieve('', { within })`. The hits are the
+ * `within` ids in query order, presented like any other hit so callers need no
+ * second result shape. `score` is 0 and `field` is `'(within)'` because nothing
+ * was scored — a structured predicate either matches or does not, and faking a
+ * BM25 number would invite sorting by it.
+ */
+async function retrieveWithinOnly<T>(ctx: SearchContext<T>, opts: RetrieveOptions<T>, within: Query<T>): Promise<RetrieveHit<T>[]> {
+  if (ctx.lazy) {
+    throw new Error(`Collection "${ctx.name}": retrieve() requires eager mode (prefetch: true).`)
+  }
+  await ctx.ensureHydrated()
+  const ids = within._idArray()
+  const limited = opts.limit !== undefined ? ids.slice(0, opts.limit) : ids
+  return limited.map((id, i) => {
+    const base: RetrieveHit<T> = { id, score: 0, rank: i + 1, field: '(within)', snippet: '' }
+    if (opts.includeRecord) {
+      const e = ctx.cache.get(id)
+      if (e) (base as { record?: T }).record = stripI18nFilled(e.record as Record<string, unknown>) as T
+    }
+    return base
+  })
 }
 
 /** L1 — client-side lexical retrieval; ranked { id, score, field, snippet, locale? }. */

@@ -37,6 +37,7 @@
  */
 
 import { readPath } from '../../kernel/query/predicate.js'
+import { KIND_STRING, compareKeys, toSortKey, type KeyKind, type SortKey } from '../../kernel/query/sort-key.js'
 import {
   FIELD_INDEX_SNAPSHOT_VERSION,
   type FieldIndexSnapshot,
@@ -47,21 +48,13 @@ import {
 /** Range operators a sorted index can answer. */
 export type RangeOperator = '<' | '<=' | '>' | '>=' | 'between' | 'startsWith'
 
-/**
- * Order-defined key kinds. The numeric value IS the sort rank, so entries
- * of different kinds never interleave and a probe only ever compares
- * against its own kind.
- */
-export type KeyKind = 0 | 1 | 2
-const KIND_NUMBER: KeyKind = 0
-export const KIND_STRING: KeyKind = 1
-const KIND_DATE: KeyKind = 2
-
-export interface SortKey {
-  readonly kind: KeyKind
-  /** `number` for {@link KIND_NUMBER} and {@link KIND_DATE}, `string` otherwise. */
-  readonly key: number | string
-}
+// The ordered-key encoding itself moved to `kernel/query/sort-key.ts` (#1339):
+// #1339's declared joins key on it too, and the kernel spine may not
+// statically import a `with-*` service (`check-architecture.mjs`'s
+// port-layering ratchet). Re-exported here so every existing importer of this
+// module is unchanged, and so there is still exactly ONE definition of what
+// makes two stored values comparable.
+export { KIND_STRING, compareKeys, toSortKey, type KeyKind, type SortKey } from '../../kernel/query/sort-key.js'
 
 interface Entry extends SortKey {
   readonly seq: number
@@ -302,24 +295,3 @@ export function buildSortedIndex<T>(
   }
 }
 
-export function compareKeys(a: SortKey, b: SortKey): number {
-  if (a.kind !== b.kind) return a.kind - b.kind
-  if (typeof a.key === 'number' && typeof b.key === 'number') return a.key - b.key
-  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0
-}
-
-/**
- * Map a raw (or canonicalized) value onto its ordered key, or `undefined`
- * when the value has no order-defined runtime type — mirroring
- * `predicate.ts`'s `isComparable`, which refuses to order booleans,
- * objects and arrays.
- */
-export function toSortKey(value: unknown, canonicalKey: string | undefined): SortKey | undefined {
-  // A canonicalized key is a string by contract (`canonicalizeIndexKey`)
-  // and shares the hash index's key space, so it sorts as a string.
-  if (canonicalKey !== undefined) return { kind: KIND_STRING, key: canonicalKey }
-  if (typeof value === 'number') return Number.isNaN(value) ? undefined : { kind: KIND_NUMBER, key: value }
-  if (typeof value === 'string') return { kind: KIND_STRING, key: value }
-  if (value instanceof Date) return { kind: KIND_DATE, key: value.getTime() }
-  return undefined
-}

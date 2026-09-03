@@ -16,7 +16,15 @@ export interface RetrieveOptions<T = unknown> {
   readonly mode?: 'lexical' | 'semantic' | 'hybrid'
   /** L2 — minimum cosine score for semantic hits (semantic mode only). */
   readonly minScore?: number
-  /** L3 — intersect hits with a structured query (retrieve ∩ where). Eager-mode only. */
+  /**
+   * L3 — intersect hits with a structured query (retrieve ∩ where). Eager-mode
+   * only. Also the typed half of retrieval (#1343): money / number / date /
+   * boolean fields are not tokenised into the lexical index, so a typed match
+   * is expressed here as a `Query` and compared in the field's canonical space
+   * by the query engine. Scoring stays global, `limit` counts NARROWED hits,
+   * an empty result set yields no hits, and an empty text query paired with a
+   * `within` is typed-only retrieval. See `retrieve()` in `collection-facade`.
+   */
   readonly within?: Query<T>
   /**
    * Per-field score weights (#1354), e.g. `{ boost: { name: 3, notes: 1 } }`.
