@@ -2,8 +2,8 @@ name: CI
 
 # Dev CI — fast feedback on every PR and push to main.
 # Jobs: architecture → lint/typecheck → build → test (node 24).
-# Single flake-free runtime for speed; the full node 22+24 test matrix and
-# the cross-OS interop run pre-publish as a hard gate in release.yml.
+# Single flake-free runtime for speed; the full node 22+24 test matrix runs
+# pre-publish as a hard gate in release.yml.
 
 on:
   push:
@@ -161,8 +161,8 @@ jobs:
 
   # ── Test (dev CI) ────────────────────────────────────────────────────
   # Single flake-free runtime (node 24) for fast PR feedback. The full
-  # node 22 + 24 matrix AND the cross-OS interop run pre-publish in
-  # release.yml — the hard gate before anything reaches npm.
+  # node 22 + 24 matrix runs pre-publish in release.yml — the hard gate
+  # before anything reaches npm.
   # Depends on build only: lint/typecheck gates the PR in parallel;
   # serializing test behind it added ~2 min of dead critical-path time.
   test:
@@ -214,8 +214,3 @@ jobs:
       - name: Test (satellites)
         run: pnpm turbo test --filter='!@noy-db/hub' --concurrency=4
 
-  # ── Interop moved to the pre-publish gate ────────────────────────────
-  # The cross-OS WinZip-AES-256 interop matrix (ubuntu/macOS/windows +
-  # 7z/unar/choco installs) is the slowest, advisory leg, so it no longer
-  # runs on PRs or main. It now runs in release.yml as part of the full
-  # pre-publish gate, alongside the node 22 + 24 test matrix.
