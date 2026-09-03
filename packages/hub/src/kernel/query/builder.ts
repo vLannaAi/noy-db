@@ -13,7 +13,7 @@ import { evaluateClause, hasFnClause, normalizeMatches, normalizeSubqueryOperand
 import { distinctKeyOf } from './distinct-key.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinDirection, JoinLeg, JoinStrategy } from './join.js'
-import { applyJoins, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
+import { applyJoins, joinsDropLeftRows, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
 import { reduceViaFor, refuseAliasReduceVia } from './join-reduce.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError, RefNotDeclaredError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
@@ -673,10 +673,48 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * correlation goes through `Noydb.queryAcross`, not
    * `.join()`.
    */
+  /**
+   * INNER join (#1361): `{ mode: 'inner' }` drops every left row whose alias
+   * resolves to nothing, and types the alias NON-nullable.
+   *
+   * ```ts
+   * invoices.query()
+   *   .join<'client', Client>('clientId', { as: 'client', mode: 'inner' })
+   *   .orderBy('total', 'desc')
+   *   .limit(10)
+   * // → the ten largest invoices THAT HAVE a client; `row.client.name` needs
+   * //   no null check.
+   * ```
+   *
+   * The long-hand `.join(f, { as }).where(as, '!=', null)` returns the same
+   * rows and keeps working unchanged — what it cannot do is keep the sort on
+   * the pre-join side. That predicate addresses the alias, so #1030 moves the
+   * WHOLE sort and page behind the legs; `mode: 'inner'` moves only the page,
+   * because the drop cannot reorder a left-side sort key. `.explain()` says
+   * which: `pre-join` on the `orderBy` node, `post-join` on the `page` node.
+   *
+   * The drop runs after `attachJoin`, so ref-mode semantics are unchanged — a
+   * `strict` dangling ref still throws rather than vanishing because the
+   * caller asked for an inner join.
+   */
   join<As extends string, R = unknown>(
     field: QueryField<T, S>,
-    opts: { as: As; strategy?: JoinStrategy; maxRows?: number },
-  ): Query<T & Record<As, R | null>, S, Q, M> {
+    opts: { as: As; mode: 'inner'; strategy?: JoinStrategy; maxRows?: number },
+  ): Query<T & Record<As, R>, S, Q, M>
+  join<As extends string, R = unknown>(
+    field: QueryField<T, S>,
+    opts: { as: As; mode?: undefined; strategy?: JoinStrategy; maxRows?: number },
+  ): Query<T & Record<As, R | null>, S, Q, M>
+  // The implementation signature spans both overloads: the alias is
+  // non-nullable only under `mode: 'inner'`, and TS needs a return type both
+  // published shapes are assignable to.
+  join<As extends string, R = unknown>(
+    field: QueryField<T, S>,
+    // `| undefined` is load-bearing under `exactOptionalPropertyTypes`: the
+    // non-inner overload publishes `mode?: undefined`, and an implementation
+    // that omitted it would reject an explicitly-passed `mode: undefined`.
+    opts: { as: As; mode?: 'inner' | undefined; strategy?: JoinStrategy; maxRows?: number },
+  ): Query<T & Record<As, R>, S, Q, M> | Query<T & Record<As, R | null>, S, Q, M> {
     return this.withJoinLeg(field, opts, 'left') as unknown as Query<T & Record<As, R | null>, S, Q, M>
   }
 
@@ -752,7 +790,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    */
   private withJoinLeg(
     field: string,
-    opts: { as: string; strategy?: JoinStrategy; maxRows?: number },
+    opts: { as: string; mode?: 'inner' | undefined; strategy?: JoinStrategy; maxRows?: number },
     direction: JoinDirection,
   ): Query<T, S, Q, M> {
     if (!this.joinContext) {
@@ -783,6 +821,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     // default: a plan built by `.join()` must serialize byte-identically to
     // the one it built before #1289, or every stored queryHash moves.
     const directionField = direction === 'left' ? {} : { direction }
+    // Same discipline as `directionField` (#1361): a non-inner leg carries no
+    // `inner` key at all, so its serialized plan — and its queryHash — is
+    // byte-identical to the pre-#1361 one.
+    const innerField = opts.mode === 'inner' ? { inner: true as const } : {}
     const leg: JoinLeg = descriptor
       ? {
           field,
@@ -792,6 +834,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
           strategy: opts.strategy,
           maxRows: opts.maxRows,
           ...directionField,
+          ...innerField,
           //  constraint #1 — always 'all' in. Do not remove.
           partitionScope: 'all',
         }
@@ -805,6 +848,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
           maxRows: opts.maxRows,
           partitionScope: 'all',
           ...directionField,
+          ...innerField,
           isDictJoin: true,
         }
     return new Query<T, S, Q, M>(
@@ -1054,18 +1098,29 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     // came back in insertion order looking merely unlucky.
     const orderPostJoin = orderReferencesJoinAlias(this.plan.orderBy, this.plan.joins)
 
+    // #1361 — an inner leg DROPS left rows, so pagination cannot precede it.
+    // The SORT still can: the ordering is on a left-side field (an ordering on
+    // the alias is `orderPostJoin` above), and removing rows never reorders the
+    // ones that remain. So this path keeps the pre-join sort — index-driven
+    // narrowing and all — and moves only offset/limit behind the legs.
+    const innerDrops = joinsDropLeftRows(this.plan.joins)
+
     if (postJoin.length === 0 && !orderPostJoin) {
       // Decode Via-covered fields (e.g. money: stored scaled-int → canonical
       // decimal) so query().toArray() matches get()/sum(), which already
       // apply the same decode. Decode the left/base records before joins
       // (right-side aliased fields belong to other collections and are out
       // of this source's Via scope).
+      const pagePlan = innerDrops ? { ...this.plan, offset: 0, limit: undefined } : this.plan
       const base = this.decodeVia(
-        executePlanWithSource(this.source, this.plan, this.joinContext, opts?.locale, this.aliasVia()),
+        executePlanWithSource(this.source, pagePlan, this.joinContext, opts?.locale, this.aliasVia()),
       )
       if (this.plan.joins.length === 0) return this.dressAliases(base) as T[]
+      const joined = applyJoins(base, this.plan.joins, this.requireJoinContext('toArray'), opts?.locale)
+      if (!innerDrops) return this.dressAliases(joined) as T[]
+      const from = this.plan.offset
       return this.dressAliases(
-        applyJoins(base, this.plan.joins, this.requireJoinContext('toArray'), opts?.locale),
+        this.plan.limit === undefined ? joined.slice(from) : joined.slice(from, from + this.plan.limit),
       ) as T[]
     }
 
@@ -1433,7 +1488,11 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     // to run or every reduce-shaped terminal is simply wrong — #1289 found
     // this for count(), and it holds identically for distinct() and exists()
     // now that #1347 made them share this pipeline.
-    const reshapes = this.plan.joins.some(leg => leg.direction !== undefined && leg.direction !== 'left')
+    // #1361 adds a third reshaping leg: an INNER leg drops the left rows whose
+    // alias resolved to nothing, so the left match set is no longer the answer.
+    const reshapes =
+      this.plan.joins.some(leg => leg.direction !== undefined && leg.direction !== 'left') ||
+      joinsDropLeftRows(this.plan.joins)
     // #1338 — `forceJoins` is the third reason the legs have to run: a group
     // key or a reducer addresses an alias, so the relation being reduced IS
     // the joined one. Same pipeline, same order; only the entry condition is
@@ -1545,7 +1604,12 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       return this.matchedRecords('exists').length > 0
     }
     const { preJoin, postJoin } = splitAroundJoins(this.plan.clauses, this.plan.joins)
-    if (postJoin.length > 0) return this.matchedRecords('exists').length > 0
+    // #1361 — an inner leg can empty a non-empty candidate set, so the
+    // short-circuit below (which never runs the legs) would answer `true` for a
+    // query whose every row is unmatched. Same reason #1030 falls back.
+    if (postJoin.length > 0 || joinsDropLeftRows(this.plan.joins)) {
+      return this.matchedRecords('exists').length > 0
+    }
     const { candidates, remainingClauses } = candidateRecords(this.source, preJoin)
     // The index answered the whole predicate — its candidate set IS the match
     // set, so emptiness is the answer and nothing needs evaluating.

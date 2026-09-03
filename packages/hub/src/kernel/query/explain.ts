@@ -27,7 +27,7 @@ import type { Clause } from './predicate.js'
 import type { QueryPlan } from './builder.js'
 import { DEFAULT_CROSS_JOIN_MAX_ROWS } from './builder.js'
 import type { JoinContext, JoinLeg } from './join.js'
-import { DEFAULT_JOIN_MAX_ROWS, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
+import { DEFAULT_JOIN_MAX_ROWS, joinsDropLeftRows, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
 import type { ViaPipeline } from '../via/pipeline.js'
 
 /**
@@ -312,6 +312,11 @@ export function explainPlan(
   // a placement the executor does not use.
   const orderPostJoin = orderReferencesJoinAlias(plan.orderBy, plan.joins)
   const runsPostJoin = postJoin.length > 0 || orderPostJoin
+  // #1361 — an inner leg splits the placement: the SORT stays pre-join (the
+  // drop cannot reorder a left-side key) but the PAGE moves behind the legs,
+  // because a limit must observe the rows that were dropped. Reported as two
+  // words rather than one, because `toArray()` runs it as two steps.
+  const innerSplit = !runsPostJoin && plan.joins.length > 0 && joinsDropLeftRows(plan.joins)
 
   if (runsPostJoin) {
     emitJoins()
@@ -333,6 +338,8 @@ export function explainPlan(
     })
   }
 
+  if (innerSplit) emitJoins()
+
   if (plan.offset > 0 || plan.limit !== undefined) {
     const afterOffset = rows === undefined ? undefined : Math.max(0, rows - plan.offset)
     const paged =
@@ -342,13 +349,13 @@ export function explainPlan(
       dispatch: 'page',
       detail: `offset=${plan.offset} limit=${plan.limit ?? 'none'}`,
       estimatedRows: paged,
-      notes: placement ? [placement] : [],
+      notes: innerSplit ? ['post-join'] : placement ? [placement] : [],
       children: [],
     })
     rows = paged
   }
 
-  if (!runsPostJoin) emitJoins()
+  if (!runsPostJoin && !innerSplit) emitJoins()
 
   return { nodes, caps, reducerRewrite, text: renderText(nodes) }
 }
@@ -410,6 +417,9 @@ function joinNode(
   ]
   if (direction !== 'left') {
     notes.push('reverse index over the left rows; right snapshot drives')
+  }
+  if (leg.inner === true) {
+    notes.push('inner: unmatched left rows are dropped, so the estimate is an upper bound')
   }
   if (leg.strategy !== undefined) notes.push('strategy overridden by the caller')
 
