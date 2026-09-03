@@ -43,16 +43,15 @@
  * ```
  *
  * Note that each aggregation pays a full scan — there's no shared
- * iteration across the two. Multi-way aggregation in a single pass
- * is out of scope; consumers who need it should build a compound spec
- * and run a single `.aggregate({ openN, paidN })` at the DSL level.
+ * iteration across the two. When the specs are known together, pass
+ * them as an ARRAY (#1340): `.aggregate([specA, specB])` steps every
+ * spec's state from the same yielded record, so N specs cost one
+ * pass, not N.
  *
  * **Out of scope for (tracked separately):**
  *   - `scan().aggregate().live()` — unbounded scan + change-stream
- *     reconciliation is a design problem, not just a code one
- *   - `scan().groupBy().aggregate()` — high-cardinality grouping on
- *     huge collections would re-introduce the O(groups) memory
- *     problem that aggregate fixes
+ *     reconciliation is a design problem, not just a code one, and
+ *     #1340 deliberately left it out
  *   - Parallel scan across pages — race-safe page cursor contracts
  *     are not in the adapter API yet
  *   - `scan().join(...)` — tracked under  (streaming join)
@@ -60,7 +59,7 @@
 
 import type { QueryField } from '../types.js'
 import type { ReducerBuilder } from '../../with-lookup/reduce/reducers.js'
-import { reducerBuilder } from '../../with-lookup/reduce/reducers.js'
+import { bindDistinctReducers, reducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import type { Clause, FieldClause, Operator } from './predicate.js'
 import { evaluateClause, hasFnClause, normalizeMatches, normalizeSubqueryOperand, readPath } from './predicate.js'
 import type {
@@ -69,8 +68,19 @@ import type {
 } from '../../with-lookup/reduce/reduction.js'
 import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
 import { splitAroundJoins } from './join.js'
-import { DanglingReferenceError, FieldNotQueryableError, RefNotDeclaredError } from '../errors.js'
+import { DanglingReferenceError, FieldNotQueryableError, GroupCardinalityError, RefNotDeclaredError } from '../errors.js'
 import type { ViaPipeline } from '../via/pipeline.js'
+import type { DateTruncKey } from './date-trunc.js'
+import { groupKeyName, isDateTruncKey, projectDateTruncKeys } from './date-trunc.js'
+
+/**
+ * Result of the multi-spec `.aggregate([specA, specB, …])` form (#1340) — a
+ * tuple positionally matching the specs, each element the shape that spec's
+ * own single-spec `.aggregate()` would have returned.
+ */
+export type MultiReduceResult<Specs extends readonly ReduceSpec[]> = {
+  -readonly [K in keyof Specs]: ReduceResult<Specs[K]>
+}
 
 /**
  * Page provider — the Collection-shaped hook the builder calls to
@@ -628,18 +638,30 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    * method has never run and must not start running as a side effect of
    * this gate).
    */
+  // `const` so an inline `[specA, specB]` infers as a TUPLE, not a `Spec[]` —
+  // that is what makes `const [a, b] = await …` land on the right shapes.
+  async aggregate<const Specs extends readonly ReduceSpec[]>(specs: Specs): Promise<MultiReduceResult<Specs>>
   async aggregate<Spec extends ReduceSpec>(spec: Spec): Promise<ReduceResult<Spec>>
   async aggregate<Spec extends ReduceSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): Promise<ReduceResult<Spec>>
   async aggregate<Spec extends ReduceSpec>(
-    specOrBuild: Spec | ((b: ReducerBuilder<T, S, M>) => Spec),
-  ): Promise<ReduceResult<Spec>> {
+    specOrBuild: Spec | readonly ReduceSpec[] | ((b: ReducerBuilder<T, S, M>) => Spec),
+  ): Promise<ReduceResult<Spec> | unknown[]> {
+    // #1340 — the multi-spec form. N independent specs, ONE pass: the states
+    // for every spec are stepped from the same yielded record, so the page
+    // provider is walked exactly once no matter how many specs are passed.
+    // (Calling `.aggregate(specA)` then `.aggregate(specB)` costs two full
+    // scans — the immutable-builder docs above say so, and this is the fix.)
+    if (Array.isArray(specOrBuild)) return this.aggregateMany(specOrBuild as readonly ReduceSpec[])
     // Opt-in builder form `aggregate(b => spec)`: `b`'s field args are
     // `QueryField<T, S>`, refusing sensitive fields (the standalone-spec form
     // stays unrefused for back-compat), and `sum`/`min`/`max` over a declared
     // `moneyFields` (`M`) member return a `MoneyString`. Mirrors `Query.aggregate`.
     const spec: Spec = typeof specOrBuild === 'function'
       ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)(reducerBuilder as unknown as ReducerBuilder<T, S, M>)
-      : specOrBuild
+      // `Array.isArray` above does not narrow a READONLY array out of the
+      // union, so the array arm is already returned and this cast is the
+      // remainder — a plain spec.
+      : (specOrBuild as Spec)
     this.via?.refuseUnqueryableReducers(spec)
     const keys = Object.keys(spec)
     // Per-reducer state. Exactly |keys| entries, never grows with
@@ -664,6 +686,79 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
       result[key] = spec[key]!.finalize(state[key])
     }
     return result as ReduceResult<Spec>
+  }
+
+  /**
+   * The multi-spec `.aggregate([specA, specB, …])` executor (#1340).
+   *
+   * One iteration of the scan, `Σ|spec|` reducer states — memory stays
+   * O(reducers) exactly as the single-spec terminal's does, with the sum taken
+   * across specs instead of within one. Every spec's state is stepped from the
+   * SAME yielded record, so the page provider is read once per page.
+   *
+   * Semantics per spec are identical to the single-spec form, deliberately:
+   * the posture gate is `refuseUnqueryableReducers` (metadata only), NOT the
+   * full `wrapReducers` — so `aggregate([a, b])` returns exactly what
+   * `aggregate(a)` and `aggregate(b)` return, and the array form is a pure
+   * cost optimisation with no behavioural delta to reason about. (The grouped
+   * scan path DOES wrap — it has to agree with the eager grouped path, which
+   * wraps. See `scan-groupby.ts`.)
+   */
+  private async aggregateMany(specs: readonly ReduceSpec[]): Promise<unknown[]> {
+    for (const spec of specs) this.via?.refuseUnqueryableReducers(spec)
+    const keysPerSpec = specs.map((spec) => Object.keys(spec))
+    const states: Record<string, unknown>[] = specs.map((spec, i) => {
+      const state: Record<string, unknown> = {}
+      for (const key of keysPerSpec[i]!) state[key] = spec[key]!.init()
+      return state
+    })
+
+    for await (const record of this) {
+      for (let i = 0; i < specs.length; i++) {
+        const spec = specs[i]!
+        const state = states[i]!
+        for (const key of keysPerSpec[i]!) state[key] = spec[key]!.step(state[key], record)
+      }
+    }
+
+    return specs.map((spec, i) => {
+      const result: Record<string, unknown> = {}
+      for (const key of keysPerSpec[i]!) result[key] = spec[key]!.finalize(states[i]![key])
+      return result
+    })
+  }
+
+  /**
+   * Group the scan stream and reduce each group — `#1340`.
+   *
+   * ```ts
+   * const byClient = await invoices.scan()
+   *   .where('status', '==', 'open')
+   *   .groupBy('clientId', { maxGroups: 5_000 })
+   *   .aggregate({ total: sum('amount'), n: count() })
+   * ```
+   *
+   * ⚠️ **This is the one scan terminal whose memory is NOT O(pageSize).** It
+   * holds one reducer state per group, which is why the budget is explicit:
+   * `maxGroups` defaults to the eager path's 100_000-group ceiling and is
+   * REFUSED — never truncated — the moment a scan would exceed it. Price the
+   * budget before raising it: an exact `median`/`percentile`, a `mode` or a
+   * `countDistinct` holds O(values) per group, so an unbounded scan wants
+   * `{ approx: true }` on the quantiles. Full rationale in `scan-groupby.ts`.
+   *
+   * The key may be a field name or a `dateTrunc()` derived calendar key (the
+   * monthly-rollup shape); grouping BY a `sensitive` field is refused at
+   * compile time, same as `Query.groupBy()`.
+   */
+  groupBy<F extends QueryField<T, S>>(field: F, opts?: { maxGroups?: number }): ScanGroupedScan<T, F, S, M>
+  groupBy(key: DateTruncKey, opts?: { maxGroups?: number }): ScanGroupedScan<T, string, S, M>
+  groupBy(key: QueryField<T, S> | DateTruncKey, opts?: { maxGroups?: number }): ScanGroupedScan<T, string, S, M> {
+    return new ScanGroupedScan<T, string, S, M>(
+      this,
+      key as string | DateTruncKey,
+      opts?.maxGroups ?? SCAN_GROUPBY_DEFAULT_MAX_GROUPS,
+      this.via,
+    )
   }
 
   /**
@@ -707,4 +802,190 @@ function coerceRefKey(value: unknown): string | null {
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'bigint') return String(value)
   return null
+}
+
+/**
+ * ── Grouped streaming reduction over a `scan()` — `#1340` ──────────────────
+ *
+ * `scan().groupBy(key, { maxGroups }).aggregate(spec)` folds an unbounded,
+ * page-by-page scan into one row per group. The distinguishing property
+ * against the eager `Query.groupBy()` path is WHAT IS HELD:
+ *
+ *   - eager (`groupAndReduce` in `with-lookup/reduce/groupby.ts`) partitions
+ *     the matched records into `Map<key, records[]>` and reduces each bucket
+ *     afterwards — O(matched records) memory;
+ *   - this one holds **one reducer state per group and no records at all** —
+ *     O(groups × state), with the left side still streaming at O(pageSize).
+ *
+ * So the two cannot share an implementation, and this deliberately does
+ * NOT use `groupAndReduce`: reusing it would mean collecting the stream,
+ * which is the exact thing `scan()` exists to avoid. What IS shared is every
+ * piece that decides SEMANTICS — the group-key canonicalisation (so `null`
+ * and `undefined` bucket apart here exactly as they do there), the reducer
+ * protocol, `ViaPipeline.wrapReducers` (money stays BigInt-exact),
+ * `bindDistinctReducers` (`countDistinct` dedups on the canonical index key),
+ * and `projectDateTruncKeys` (a derived calendar key is stamped onto a
+ * shallow copy of the row before bucketing, same as `Query.groupBy()`).
+ *
+ * ## The memory budget IS the feature
+ *
+ * `maxGroups` defaults to `GROUPBY_MAX_CARDINALITY` (100_000) — the same
+ * ceiling the eager path enforces — and is refused the moment the group that
+ * would exceed it is first seen, mid-stream, before its state is allocated.
+ * ⛔ It never truncates: a truncated rollup is a WRONG ANSWER that looks like
+ * a right one, and the whole point of declaring a budget is to learn that the
+ * grouping does not fit. The refusal names the option and the observed count.
+ *
+ * ⚠️ **Per-group state is NOT constant.** `count`/`sum`/`avg`/`min`/`max` are
+ * O(1) per group, but `median`/`percentile` (exact) hold every sampled value
+ * — O(n) per group — `mode` holds one entry per distinct value, and
+ * `countDistinct` one per distinct value. A grouped scan with an exact
+ * `median` is therefore O(matched records) overall no matter what `maxGroups`
+ * says, since the values live in the group states. Pair it with
+ * `{ approx: true }` (the t-digest, bounded per group) when the scan is
+ * genuinely unbounded — that is what makes `maxGroups` a real ceiling rather
+ * than an accounting fiction.
+ *
+ * ## Post-group `having` / `orderBy` / `limit` (#1336) are NOT on this path
+ *
+ * Those live on `GroupedReduction`, which is built around a SYNCHRONOUS
+ * `executeRecords()` closure and the eager pipeline; a scan has neither.
+ * Rather than grow a second, subtly different implementation of the same
+ * three operations, this terminal returns the row array — bounded by
+ * `maxGroups` and already in memory — and the caller filters, sorts and
+ * slices it. See the report on #1340; if a consumer wants the chainable
+ * shape, the honest fix is to lift the post-group stage out of
+ * `GroupedReduction` and share it, not to copy it here.
+ *
+ * ⚠️ Lives in THIS file rather than its own `scan-groupby.ts` for one
+ * mechanical reason: `check-architecture`'s `port-layering` ratchet
+ * grandfathers `scan-builder.ts`'s two `with-lookup/reduce/*` imports per
+ * specifier, and a NEW kernel file may not statically import a `with-*`
+ * service at all. Splitting it out means either a dynamic import on the
+ * reducer protocol or a new grandfather entry; neither is worth it for a
+ * class that only exists to terminate `ScanBuilder.groupBy()`.
+ */
+
+/**
+ * Default group ceiling — the same constant the eager `.groupBy()` enforces.
+ * Duplicated as a literal rather than imported from
+ * `with-lookup/reduce/groupby.ts` on purpose: that module carries the eager
+ * `groupAndReduce` + `GroupedReduction` classes, and the always-on kernel must
+ * not pull them in to read one number. The pairing is asserted by a test.
+ */
+export const SCAN_GROUPBY_DEFAULT_MAX_GROUPS = 100_000
+
+/**
+ * Single-field spelling of `canonicalGroupKey` (`with-lookup/reduce/canonical-key.ts`).
+ *
+ * ⛔ Inlined, not imported, and not by preference: `check-architecture`'s
+ * `port-layering` rule grandfathers this file for exactly two
+ * `with-lookup/reduce/*` specifiers (`reducers.js`, `reduction.js`), and
+ * `canonical-key.js` is not one of them — a new one may not be added
+ * silently. The eager helper sorts its field list and serialises
+ * each value — with exactly one field, that reduces to this line, including
+ * the part that matters: `undefined` gets a sentinel so a MISSING key and an
+ * explicit `null` land in different buckets, as they do under
+ * `Query.groupBy()`. The agreement is held by test, not by comment
+ * (`query-scan-groupby.test.ts` — null/undefined bucketing, and full equality
+ * with the eager path).
+ */
+function scanGroupKey(field: string, value: unknown): string {
+  return `${field}=${value === undefined ? 'undefined' : JSON.stringify(value)}`
+}
+
+/** Group-key result-row shape: the key under its own name, plus the reducers. */
+export type ScanGroupedRow<F extends string, R> = { [K in F]: unknown } & R
+
+/**
+ * Chainable wrapper returned by `ScanBuilder.groupBy()`. The only operation on
+ * it is `.aggregate()` — same minimal shape as `GroupedQuery`.
+ */
+export class ScanGroupedScan<
+  T,
+  F extends string,
+  S extends keyof T = never,
+  M extends keyof T & string = never,
+> {
+  constructor(
+    private readonly stream: AsyncIterable<T>,
+    private readonly key: string | DateTruncKey,
+    private readonly maxGroups: number,
+    private readonly via: ViaPipeline | undefined,
+  ) {
+    if (!Number.isInteger(maxGroups) || maxGroups < 1) {
+      throw new Error(
+        `scan().groupBy(): { maxGroups: ${String(maxGroups)} } must be a positive integer — ` +
+          `it is the declared ceiling on how many reducer states the grouped scan may hold.`,
+      )
+    }
+  }
+
+  /**
+   * Fold the scan into one row per group. Resolves to `R[]`, ordered by each
+   * group's FIRST-SEEN position in the stream (`Map` insertion order), which
+   * is the same ordering rule the eager path documents.
+   *
+   * ```ts
+   * const byMonth = await invoices.scan()
+   *   .where('status', '==', 'paid')
+   *   .groupBy(dateTrunc('closedAt', 'month', { as: 'month', timeZone: 'UTC' }), { maxGroups: 240 })
+   *   .aggregate({ total: sum('amount'), n: count() })
+   * ```
+   */
+  async aggregate<Spec extends ReduceSpec>(spec: Spec): Promise<ScanGroupedRow<F, ReduceResult<Spec>>[]>
+  async aggregate<Spec extends ReduceSpec>(
+    build: (b: ReducerBuilder<T, S, M>) => Spec,
+  ): Promise<ScanGroupedRow<F, ReduceResult<Spec>>[]>
+  async aggregate<Spec extends ReduceSpec>(
+    specOrBuild: Spec | ((b: ReducerBuilder<T, S, M>) => Spec),
+  ): Promise<ScanGroupedRow<F, ReduceResult<Spec>>[]> {
+    const raw: Spec =
+      typeof specOrBuild === 'function'
+        ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)(reducerBuilder as unknown as ReducerBuilder<T, S, M>)
+        : specOrBuild
+    // Same reducer rewriting as the eager grouped path, and for the same
+    // reason: a money `sum` must accumulate per-currency BigInt totals, and a
+    // `countDistinct` must dedup on the canonical index key — otherwise a
+    // grouped scan and a grouped query disagree on identical data.
+    // `wrapReducers` runs the `queryable: 'none'` posture refusal itself.
+    const spec: ReduceSpec = bindDistinctReducers(this.via ? this.via.wrapReducers(raw) : raw, this.via)
+    const keys = Object.keys(spec)
+
+    const field = groupKeyName(this.key)
+    const derived: readonly DateTruncKey[] = isDateTruncKey(this.key) ? [this.key] : []
+    const groups = new Map<string, { keyValue: unknown; state: Record<string, unknown> }>()
+
+    for await (const record of this.stream) {
+      // A derived calendar key is stamped onto a shallow copy before bucketing
+      // — the reducers then see an ordinary row carrying an ordinary field,
+      // exactly as they do under `Query.groupBy(dateTrunc(...))`.
+      const row = derived.length === 0 ? record : projectDateTruncKeys([record], derived)[0]!
+      const keyValue = readPath(row, field)
+      const dedupKey = scanGroupKey(field, keyValue)
+      let group = groups.get(dedupKey)
+      if (group === undefined) {
+        if (groups.size >= this.maxGroups) {
+          // Loud and early: the state for this group is never allocated, so
+          // the refusal fires at the budget, not after blowing through it.
+          throw new GroupCardinalityError(field, groups.size + 1, this.maxGroups, 'scan')
+        }
+        const state: Record<string, unknown> = {}
+        for (const k of keys) state[k] = spec[k]!.init()
+        group = { keyValue, state }
+        groups.set(dedupKey, group)
+      }
+      for (const k of keys) group.state[k] = spec[k]!.step(group.state[k], row)
+    }
+
+    const out: ScanGroupedRow<F, ReduceResult<Spec>>[] = []
+    for (const group of groups.values()) {
+      // Group key first, then the reducer outputs — same row shape as the
+      // eager path, which tests assert by key order.
+      const outRow: Record<string, unknown> = { [field]: group.keyValue }
+      for (const k of keys) outRow[k] = spec[k]!.finalize(group.state[k])
+      out.push(outRow as ScanGroupedRow<F, ReduceResult<Spec>>)
+    }
+    return out
+  }
 }
