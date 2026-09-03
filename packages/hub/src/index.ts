@@ -230,6 +230,10 @@ export type { DryRunResult, AffectedDocument, GuardViolation } from './with-comm
 
 // Multi-tab coordination
 export type { TabRole, TabPresence, TabCoordinationOptions, TabLockManager, TabChannel } from './with-sync/tab-coordination.js'
+// #1362 — cross-tab / cross-process live-query reactivity. Opt-in, tree-shaken
+// unless `enableChangeBroadcast` is referenced; no new published subpath.
+export { enableChangeBroadcast, ChangeBroadcast, defaultChangeChannel, changeChannelName } from './with-sync/change-broadcast.js'
+export type { ChangeSignal, ChangeBroadcastOptions, ChangeBroadcastHost } from './with-sync/change-broadcast.js'
 // Cross-tab write conflict
 export type { WriteConflict } from './kernel/types.js'
 

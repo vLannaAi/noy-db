@@ -3026,7 +3026,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       subscribe: (cb: (change?: SourceChange) => void) => {
         const handler = (event: ChangeEvent): void => {
           if (event.vault === this.vault && event.collection === this.name) {
-            cb({ id: event.id, action: event.action })
+            // A remote-origin event (#1362) is an ADDRESS, not a delta this process
+            // observed — `undefined` makes the maintainer rebuild instead of patch.
+            cb(event.remote === true ? undefined : { id: event.id, action: event.action })
           }
         }
         this.emitter.on('change', handler)
@@ -3566,6 +3568,16 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     await this._onRecordMutated(id, action, 'tab-mirror')
   }
 
+  /** @internal #1362 — same as {@link _applyRemoteChange}, for a frame that carries NO verb.
+   *  A peer's claim about the verb is not evidence; the re-read decides it, exactly as
+   *  `_compensateRevertedWrite` does. Untrusted ingress is why the frame omits it. */
+  async _applyRemoteSignal(id: string): Promise<void> {
+    await this._invalidateCacheEntry(id)
+    const action: 'put' | 'delete' = (await this.get(id)) !== null ? 'put' : 'delete'
+    this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action, remote: true })
+    this.searchIndexStore?.markDirty()
+  }
+
   /**
    * Origin-tagged mutation choke point (#623 task 10) — the single dispatch
    * point every put/delete path funnels through, AFTER its own store write,
@@ -3623,7 +3635,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       }
       case 'tab-mirror':
         await this._invalidateCacheEntry(id)
-        this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action })
+        // `remote` (#1362): a peer told us the address; we re-read the state. Not a trustworthy delta.
+        this.emitter.emit('change', { vault: this.vault, collection: this.name, id, action, remote: true })
         this.searchIndexStore?.markDirty() // peer write changed the cache; rebuild on next retrieve
         return
       case 'sync-apply': {

@@ -1672,6 +1672,14 @@ export interface ChangeEvent {
   readonly collection: string
   readonly id: string
   readonly action: 'put' | 'delete'
+  /**
+   * True when this change was produced by APPLYING another tab's or process's
+   * signal rather than by a write here (#1362). Two consumers read it:
+   * `ChangeBroadcast` never re-posts one (echo suppression), and the query
+   * source hands the live query NO delta for one — a remote address is not a
+   * trustworthy delta, so the live query re-runs instead of patching.
+   */
+  readonly remote?: boolean
 }
 
 export interface NoydbEventMap {

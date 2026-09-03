@@ -1083,7 +1083,11 @@ const KERNEL_SURFACE_BUDGET = {
   // move onto the ServiceBus: both are views of `this.cache` / `this.via`, which only the
   // kernel holds. All the join LOGIC is in kernel/query/{join,builder}.ts; only the two
   // accessors it reads through are here.
-  'packages/hub/src/kernel/collection.ts': 4322,
+  // Bumped 4322→4335 (2026-09-04, #1362 cross-tab/process change signals): the relay
+  // itself is ~250 LOC in src/with-sync/change-broadcast.ts. What lands here is only the
+  // re-read seam it cannot reach from outside — Collection._applyRemoteSignal (re-read, derive the verb, emit). There is no bus
+  // socket for "invalidate one cached record": that is the kernel's own cache.
+  'packages/hub/src/kernel/collection.ts': 4335,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
@@ -1388,7 +1392,11 @@ const KERNEL_SURFACE_BUDGET = {
   // rejected it with exactly the right instruction. All of it moved to
   // port/as/active.ts. What remains is the entry point an opt-in service
   // needs on Vault, which is the same cost withBlobs() and the rest pay.
-  'packages/hub/src/kernel/vault.ts': 3742,
+  // Bumped 3742→3747 (2026-09-04, #1362 cross-tab/process change signals): the relay
+  // itself is ~250 LOC in src/with-sync/change-broadcast.ts. What lands here is only the
+  // re-read seam it cannot reach from outside — Vault._applyRemoteSignal, a one-line forward. There is no bus
+  // socket for "invalidate one cached record": that is the kernel's own cache.
+  'packages/hub/src/kernel/vault.ts': 3747,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
   // summary dirty and push carries it. The decision (which reserved collections push and
@@ -1565,7 +1573,11 @@ const KERNEL_SURFACE_BUDGET = {
   // They belong on `Noydb` rather than behind a bus registration because they are the
   // sibling operations of `grant`/`revoke`/`rotate`, which are already here: an operator
   // reaching for the remedy should find it beside the thing that refused them.
-  'packages/hub/src/kernel/noydb.ts': 2224,  // see the #1121 note above
+  // Bumped 2224→2232 (2026-09-04, #1362 cross-tab/process change signals): the relay
+  // itself is ~250 LOC in src/with-sync/change-broadcast.ts. What lands here is only the
+  // re-read seam it cannot reach from outside — Noydb._applyRemoteSignal + the _storeName getter. There is no bus
+  // socket for "invalidate one cached record": that is the kernel's own cache.
+  'packages/hub/src/kernel/noydb.ts': 2232,  // see the #1121 note above
   // Lowered 2407→2345 (#834 vault() cache-only, 2026-07-26): deleting the two drifted
   // fallback Vault constructors from vault() removed ~80 lines of duplicated option block.
   // A test now asserts noydb.ts contains exactly ONE `new Vault(` site — that invariant,
