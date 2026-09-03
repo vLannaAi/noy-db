@@ -55,6 +55,12 @@ export function withIndexing(): IndexingStrategy {
             eager.declare(f)
             if (obj.kind === 'sorted') eager.declareSorted(f)
           }
+          // A MULTI-FIELD `kind: 'sorted'` declaration additionally builds the
+          // tuple-keyed compound index (#1345) that drives an equality prefix
+          // plus a range or `orderBy` on the next component. The per-field
+          // indexes above are kept too, so a query touching only one component
+          // keeps its existing plan.
+          if (obj.kind === 'sorted') eager.declareCompound(obj.fields)
         }
       }
       return makeEagerState(eager)
