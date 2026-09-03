@@ -1224,6 +1224,8 @@ function executePlanWithSource(
     }
     result = executeClausePipeline(source, plan.clauses, joinContext)
   } else {
+    const ordered = orderedIndexRows(source, plan)
+    if (ordered) return ordered
     // Index-aware fast path: only the clauses NOT consumed by the index need
     // re-evaluation. For a single-clause query against an indexed field,
     // `remainingClauses` is empty and we skip per-record predicate evaluation.
@@ -1269,6 +1271,63 @@ function applyOrderAndPage(
   return result
 }
 
+const RANGE_OPERATORS: ReadonlySet<string> = new Set(['<', '<=', '>', '>=', 'between', 'startsWith'])
+
+function isRangeOperator(op: string): op is '<' | '<=' | '>' | '>=' | 'between' | 'startsWith' {
+  return RANGE_OPERATORS.has(op)
+}
+
+/**
+ * #1344 ordered fast path: answer `orderBy(field, dir).limit(n)` from a
+ * sorted index instead of sorting the whole decrypted snapshot.
+ *
+ * Returns `null` — meaning "fall back" — unless EVERY guard holds, because
+ * an index-served page must be byte-identical to the scan-and-sort one:
+ *
+ *  - no where clauses (the index prefix is only the answer for the whole
+ *    collection; with a filter the first `n` index rows may not survive it),
+ *  - exactly one `orderBy`, no `{ by: 'label' }` (label sort resolves
+ *    through the dict registry, not the stored key),
+ *  - an explicit `limit` (without one there is nothing to save),
+ *  - a sorted index covering the field whose entry count equals the
+ *    snapshot size — a record with a nullish or non-orderable value is
+ *    absent from the index but `sortRecords` still places it (last in
+ *    `asc`, first in `desc`), so partial coverage must not take this path,
+ *  - the Via pipeline does not order the field (money/lookup supply their
+ *    own `compareForOrder`, which the stored-key order need not match).
+ */
+function orderedIndexRows(source: InternalSource, plan: QueryPlan): unknown[] | null {
+  const limit = plan.limit
+  if (limit === undefined || plan.clauses.length > 0 || plan.orderBy.length !== 1) return null
+  const [order] = plan.orderBy
+  if (!order || order.by === 'label') return null
+  const indexes = source.getIndexes?.()
+  if (!indexes || !source.lookupById || !indexes.hasSorted(order.field)) return null
+  // Arrow-bound so `this` can't drift (same discipline as `candidateRecords`).
+  const lookupById = (id: string): unknown => source.lookupById?.(id)
+  if (viaOrdersField(source.via, order.field)) return null
+  const snapshot = source.snapshot()
+  if (indexes.sortedSize(order.field) !== snapshot.length) return null
+  const ids = indexes.orderedIds(order.field, order.direction)
+  if (!ids) return null
+  const out: unknown[] = []
+  for (let i = plan.offset; i < ids.length && out.length < limit; i++) {
+    const record = lookupById(ids[i]!)
+    if (record !== undefined) out.push(record)
+  }
+  return out
+}
+
+/**
+ * True when a Via binding claims the ORDERING of this field. Probed with
+ * two equal strings: `compareForOrder` returns `undefined` for any field
+ * no binding covers (money checks its field map first; lookup checks its
+ * `sortBy` declaration), and a number for one it does.
+ */
+function viaOrdersField(via: ViaPipeline | undefined, field: string): boolean {
+  return via !== undefined && via.compareForOrder(field, '', '') !== undefined
+}
+
 interface CandidateResult {
   /** The reduced candidate set, materialized to record objects. */
   readonly candidates: readonly unknown[]
@@ -1301,7 +1360,7 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
   for (let i = 0; i < clauses.length; i++) {
     const clause = clauses[i]!
     if (clause.type !== 'field') continue
-    if (!indexes.has(clause.field)) continue
+    if (!indexes.has(clause.field) && !indexes.hasSorted(clause.field)) continue
     // A Via-covered clause (e.g. money) only carries a build-time
     // evaluator payload for per-record comparison by default — `buildClause`
     // does not rewrite `clause.value` into the index's stored representation
@@ -1336,6 +1395,14 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
       ids = indexes.lookupEqual(clause.field, probeValue)
     } else if (clause.op === 'in' && Array.isArray(probeValue)) {
       ids = indexes.lookupIn(clause.field, probeValue)
+    } else if (clause.via === undefined && isRangeOperator(clause.op)) {
+      // #1344 sorted index: `<`/`<=`/`>`/`>=`/`between`/`startsWith`.
+      // `null` when no SORTED index covers the field (a hash-only field
+      // keeps falling through to the scan). Via-covered clauses are
+      // excluded deliberately — `indexProbe` only yields an EQUALITY
+      // operand today, never an ordered one, so a money range must still
+      // be evaluated per record by the binding.
+      ids = indexes.lookupRange(clause.field, clause.op, clause.value)
     }
 
     if (ids !== null) {
