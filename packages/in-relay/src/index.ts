@@ -65,8 +65,8 @@ export type RelayMethod = (typeof RELAY_METHODS)[number]
  *
  * - `presenceSubscribe` — returns an unsubscribe FUNCTION. A frame carries
  *   JSON, so this is not merely unimplemented, it is unrepresentable in a
- *   request/response shape. Server-initiated delivery is what a notify frame is
- *   for (#1238), not a return value.
+ *   request/response shape. Server-initiated delivery is what the notify frame
+ *   is for ({@link RelayNotifyFrame}, #1238), not a return value.
  * - `presignUrl` — hands the caller a time-limited URL that fetches the
  *   envelope **directly from the backing object store**, around this relay.
  *   That defeats the reason a relay exists: it is the mediating point, so a
@@ -108,6 +108,112 @@ export interface RelayHandlerOptions {
    * carry `saveAll`, but this handler structurally cannot reach it.
    */
   readonly store: NoydbRelayStore
+  /**
+   * Where successful mutations are announced (#1238). Omit it and the handler
+   * behaves exactly as before — pull-only.
+   */
+  readonly notify?: RelayNotifier
+}
+
+// ─── The notify frame — BESIDE /rpc (#1238) ──────────────────────────────
+//
+// Every transport in this family is client-pull. A hosted store that knows a
+// record changed had no way to say so, so a client polled or learned on its
+// next read. This frame is the server's one sentence, and it is deliberately a
+// SMALL one. The shape questions the issue asked, answered here rather than
+// assumed:
+//
+// - **Not a third encoding of the store contract.** A request is still
+//   `{ id, method, args }`; a notification is not a method call and shares no
+//   vocabulary with one. There are exactly two things on a relay wire besides
+//   results: requests, discriminated by `method`, and this, discriminated by
+//   `t: 'notify'`.
+// - **Correlation id semantics.** `seq` is a per-SUBSCRIPTION sequence,
+//   contiguous from 1 — not a request correlation (there is no request) and
+//   not a subscription handle (that is the transport's business). A sequence
+//   lets a client detect a GAP; a handle would not. The client's recovery from
+//   a gap is `listSince(vault, collection, <last ts it applied>)`, which
+//   already exists and is the reconciliation path: the frame is a hint that
+//   makes polling unnecessary, never the source of truth.
+// - **What it carries.** The ADDRESS of the change (`vault/collection/id`),
+//   the op, and the envelope's own `_ts` (a delete has none, so the relay's
+//   clock stands in). **Never the envelope.** Carrying it would make the push a
+//   write path, with everything that implies for a fail-closed auth check and
+//   for a store that is untrusted by construction; the client fetches through
+//   the authenticated request path it already has.
+// - **Delivery guarantee: at-most-once, in order per subscription.** A dropped
+//   frame is recoverable by the gap + `listSince` rule above. A subscriber
+//   that throws is dropped for that frame and never breaks the write or its
+//   neighbours — the mutation already landed.
+// - **Auth.** A subscription is scoped to the ONE vault it named — a client
+//   never hears about a vault it did not already know, which keeps the
+//   `listVaults` exclusion honest. Binding a subscription to an authenticated
+//   session is the transport's job (this package is transport-neutral); the
+//   frame carries no secret and no content, so the failure mode of a mistake
+//   there is an existence leak, not a data leak — still a leak, still the
+//   transport's to close.
+
+/** Server-push frame: one successful mutation, by address. See the block above. */
+export interface RelayNotifyFrame {
+  readonly t: 'notify'
+  /** Per-subscription, contiguous from 1. A gap means frames were missed: reconcile with `listSince`. */
+  readonly seq: number
+  readonly vault: string
+  readonly collection: string
+  readonly id: string
+  readonly op: 'put' | 'delete'
+  /** The envelope's `_ts` for a put; the relay's clock for a delete. Feed it to `listSince`. */
+  readonly ts: string
+}
+
+/** A change as the handler reports it, before any subscriber's `seq` is stamped. */
+export type RelayChange = Omit<RelayNotifyFrame, 't' | 'seq'>
+
+export interface RelayNotifier {
+  /**
+   * Deliver every subsequent change in `vault` to `deliver`, each stamped with
+   * this subscription's own `seq`. Returns an unsubscribe. Late joiners start
+   * at 1 — the sequence is the subscription's, not the server's history.
+   */
+  subscribe(vault: string, deliver: (frame: RelayNotifyFrame) => void): () => void
+  /** Called by the handler after a mutation LANDED. Not for transports to call. */
+  publish(change: RelayChange): void
+}
+
+/**
+ * The in-process fan-out. One per relay; a transport calls `subscribe` when an
+ * authenticated session asks to watch a vault and forwards each frame on that
+ * session's wire.
+ */
+export function createRelayNotifier(): RelayNotifier {
+  type Sub = { deliver: (frame: RelayNotifyFrame) => void; seq: number }
+  const byVault = new Map<string, Set<Sub>>()
+  return {
+    subscribe(vault, deliver) {
+      const sub: Sub = { deliver, seq: 0 }
+      let subs = byVault.get(vault)
+      if (!subs) byVault.set(vault, (subs = new Set()))
+      subs.add(sub)
+      return () => {
+        subs.delete(sub)
+        if (subs.size === 0) byVault.delete(vault)
+      }
+    },
+    publish(change) {
+      const subs = byVault.get(change.vault)
+      if (!subs) return
+      for (const sub of [...subs]) {
+        const frame: RelayNotifyFrame = { t: 'notify', seq: ++sub.seq, ...change }
+        try {
+          sub.deliver(frame)
+        } catch {
+          // The write landed; a subscriber that cannot take the frame does not
+          // get to un-land it or starve the others. Its seq advanced, so it
+          // will see the gap and reconcile.
+        }
+      }
+    },
+  }
 }
 
 /** Thrown for a method this relay does not implement — including excluded ones. */
@@ -208,6 +314,28 @@ async function dispatch(store: NoydbRelayStore, method: RelayMethod, args: reado
   }
 }
 
+/** The changes a successful mutating frame implies; empty for a read. */
+function changesOf(method: RelayMethod, args: readonly unknown[]): RelayChange[] {
+  switch (method) {
+    case 'put': {
+      const [vault, collection, id, envelope] = args as [string, string, string, EncryptedEnvelope]
+      return [{ vault, collection, id, op: 'put', ts: envelope._ts }]
+    }
+    case 'delete': {
+      const [vault, collection, id] = args as [string, string, string]
+      return [{ vault, collection, id, op: 'delete', ts: new Date().toISOString() }]
+    }
+    case 'tx': {
+      const [ops] = args as [readonly TxOp[]]
+      return ops.map((op) => op.type === 'put'
+        ? { vault: op.vault, collection: op.collection, id: op.id, op: 'put' as const, ts: op.envelope!._ts }
+        : { vault: op.vault, collection: op.collection, id: op.id, op: 'delete' as const, ts: new Date().toISOString() })
+    }
+    default:
+      return []
+  }
+}
+
 /**
  * Build a frame handler over a narrowed store.
  *
@@ -216,7 +344,7 @@ async function dispatch(store: NoydbRelayStore, method: RelayMethod, args: reado
  * package knowing which.
  */
 export function createRelayHandler(options: RelayHandlerOptions): (frame: RelayFrame) => Promise<RelayResult> {
-  const { store } = options
+  const { store, notify } = options
   return async (frame: RelayFrame): Promise<RelayResult> => {
     if (!isRelayMethod(frame.method)) {
       // 400 unknown-method, NOT 403. Distinguishing would name the excluded
@@ -227,7 +355,12 @@ export function createRelayHandler(options: RelayHandlerOptions): (frame: RelayF
       }
     }
     try {
-      return { ok: true, id: frame.id, value: await dispatch(store, frame.method, frame.args) }
+      const value = await dispatch(store, frame.method, frame.args)
+      // Announce AFTER the store returned: a frame reports what landed, so a
+      // failed mutation publishes nothing and a tx publishes only once the
+      // whole batch committed (#1238).
+      if (notify) for (const change of changesOf(frame.method, frame.args)) notify.publish(change)
+      return { ok: true, id: frame.id, value }
     } catch (err) {
       const e = err as Error
       // A store that does not implement an OPTIONAL method is a capability gap,
