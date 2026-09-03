@@ -27,7 +27,7 @@ import type { Clause } from './predicate.js'
 import type { QueryPlan } from './builder.js'
 import { DEFAULT_CROSS_JOIN_MAX_ROWS } from './builder.js'
 import type { JoinContext, JoinLeg } from './join.js'
-import { DEFAULT_JOIN_MAX_ROWS, splitAroundJoins } from './join.js'
+import { DEFAULT_JOIN_MAX_ROWS, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
 import type { ViaPipeline } from '../via/pipeline.js'
 
 /**
@@ -296,14 +296,21 @@ export function explainPlan(
     }
   }
 
-  if (postJoin.length > 0) {
+  // #1337 — an ordering that addresses an alias moves the sort/page after the
+  // legs, exactly as a post-join predicate does. The decision is read from the
+  // same two helpers `Query.toArray()` routes on, so `explain()` cannot report
+  // a placement the executor does not use.
+  const orderPostJoin = orderReferencesJoinAlias(plan.orderBy, plan.joins)
+  const runsPostJoin = postJoin.length > 0 || orderPostJoin
+
+  if (runsPostJoin) {
     emitJoins()
     for (const clause of postJoin) {
       nodes.push(scanNode(clause, rows, ['post-join: addresses a join alias, so no index can serve it']))
     }
   }
 
-  const placement = plan.joins.length === 0 ? undefined : postJoin.length > 0 ? 'post-join' : 'pre-join'
+  const placement = plan.joins.length === 0 ? undefined : runsPostJoin ? 'post-join' : 'pre-join'
 
   if (plan.orderBy.length > 0) {
     nodes.push({
@@ -331,7 +338,7 @@ export function explainPlan(
     rows = paged
   }
 
-  if (postJoin.length === 0) emitJoins()
+  if (!runsPostJoin) emitJoins()
 
   return { nodes, caps, reducerRewrite, text: renderText(nodes) }
 }

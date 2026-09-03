@@ -13,7 +13,7 @@ import { evaluateClause, hasFnClause, normalizeMatches, readPath } from './predi
 import { distinctKeyOf } from './distinct-key.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinDirection, JoinLeg, JoinStrategy } from './join.js'
-import { applyJoins, splitAroundJoins } from './join.js'
+import { applyJoins, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError, RefNotDeclaredError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
@@ -639,7 +639,8 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * left set and one `Map` the size of the distinct FK values; both sides are
    * fully materialized either way, and both row ceilings still apply.
    *
-   * **Ordering.** Like `.join()`, legs run AFTER `orderBy`/`limit`/`offset`,
+   * **Ordering.** Like `.join()`, legs run AFTER `orderBy`/`limit`/`offset`
+   * unless the ordering addresses the alias (#1337),
    * so those narrow the LEFT side. Rows are emitted in right-snapshot order.
    *
    * A left row whose non-null FK resolves to nothing is dropped, but the
@@ -964,8 +965,11 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   /**
    * Execute the plan and return the matching records. When the plan
    * carries any join legs, they are applied after `where` / `orderBy`
-   * / `limit` / `offset` narrow the left set. See the `.join()` doc
-   * for the ordering rationale.
+   * / `limit` / `offset` narrow the left set — UNLESS a clause (#1030) or
+   * the ordering (#1337) addresses a join alias, in which case the legs run
+   * first and the sort/page observe the joined relation. See the `.join()`
+   * doc for the ordering rationale, and `.explain()` for which one a given
+   * plan gets.
    *
    * `opts.locale` resolves JOINED right-side i18n fields at the
    * `join` layer to that locale; without it, the owning collection's default
@@ -978,14 +982,22 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     if (this.plan.after !== undefined) return this.executeKeyset(opts).rows
 
     const { preJoin, postJoin } = splitAroundJoins(this.plan.clauses, this.plan.joins)
+    // #1337 — an ORDERING that addresses an alias moves the sort/page after
+    // the legs for exactly the reason #1030's predicate did: the field does
+    // not exist yet. The failure was quieter than #1030's, not louder — every
+    // sort key read `undefined`, so the sort was a stable no-op and the page
+    // came back in insertion order looking merely unlucky.
+    const orderPostJoin = orderReferencesJoinAlias(this.plan.orderBy, this.plan.joins)
 
-    if (postJoin.length === 0) {
+    if (postJoin.length === 0 && !orderPostJoin) {
       // Decode Via-covered fields (e.g. money: stored scaled-int → canonical
       // decimal) so query().toArray() matches get()/sum(), which already
       // apply the same decode. Decode the left/base records before joins
       // (right-side aliased fields belong to other collections and are out
       // of this source's Via scope).
-      const base = this.decodeVia(executePlanWithSource(this.source, this.plan, this.joinContext, opts?.locale))
+      const base = this.decodeVia(
+        executePlanWithSource(this.source, this.plan, this.joinContext, opts?.locale, this.aliasVia()),
+      )
       if (this.plan.joins.length === 0) return this.dressAliases(base) as T[]
       return this.dressAliases(
         applyJoins(base, this.plan.joins, this.requireJoinContext('toArray'), opts?.locale),
@@ -1013,7 +1025,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     const joined = applyJoins(narrowed, this.plan.joins, joinContext, opts?.locale)
     const filtered = filterRecords(joined, postJoin, fnViewDecoder(this.source))
     return this.dressAliases(
-      applyOrderAndPage(filtered, this.plan, this.source, joinContext, opts?.locale),
+      applyOrderAndPage(filtered, this.plan, this.source, joinContext, opts?.locale, this.aliasVia()),
     ) as T[]
   }
 
@@ -1077,6 +1089,45 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       }
       return out ?? row
     })
+  }
+
+  /**
+   * Alias → the Via pipeline of the collection whose records sit under it
+   * (#1337). Every alias this plan can produce: a `.join()`/`.rightJoin()`
+   * leg, a `.crossJoin()` right side, and both sides of `.crossJoinWith()`.
+   *
+   * ⭐ **Ordering compares in RAW STORED SPACE, never in dressed space, and
+   * that is what forces this map to exist.** `dressAliases` runs LAST — after
+   * every filter, sort and page — because a `where` operand is built raw. So
+   * the sort sees money as its stored scaled integer, where a generic compare
+   * is lexical and gets `'9882'` vs `'10004'` backwards. The left side has
+   * always avoided that by asking `source.via.compareForOrder`; an aliased
+   * field needs the same question asked of the RIGHT side's pipeline, keyed
+   * by the field name WITHOUT the alias prefix (a pipeline covers bare field
+   * names — that is the whole of #1335's shape).
+   *
+   * Empty when no alias resolves a pipeline, in which case the comparator
+   * falls back to exactly what it did before.
+   */
+  private aliasVia(): ReadonlyMap<string, ViaPipeline> | undefined {
+    const ctx = this.joinContext
+    if (!ctx) return undefined
+    const out = new Map<string, ViaPipeline>()
+    const push = (alias: string, collection: string): void => {
+      const via = ctx.resolveSource(collection)?.via?.()
+      if (via) out.set(alias, via)
+    }
+    for (const clause of this.plan.clauses) {
+      if (clause.type !== 'crossJoin') continue
+      push(clause.as, clause.target)
+      if (clause.leftAs !== undefined) push(clause.leftAs, ctx.leftCollection)
+    }
+    for (const leg of this.plan.joins) {
+      // A dict join attaches `{ key, ...labels }` — no collection pipeline.
+      if (leg.isDictJoin === true) continue
+      push(leg.as, leg.target)
+    }
+    return out.size > 0 ? out : undefined
   }
 
   /**
@@ -1893,6 +1944,7 @@ function executePlanWithSource(
   plan: QueryPlan,
   joinContext?: JoinContext,
   locale?: string,
+  aliasVia?: ReadonlyMap<string, ViaPipeline>,
 ): unknown[] {
   const hasCrossJoins = plan.clauses.some(c => c.type === 'crossJoin')
 
@@ -1918,7 +1970,7 @@ function executePlanWithSource(
         : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
   }
 
-  return applyOrderAndPage(result, plan, source, joinContext, locale)
+  return applyOrderAndPage(result, plan, source, joinContext, locale, aliasVia)
 }
 
 /**
@@ -1934,6 +1986,7 @@ function applyOrderAndPage(
   source: InternalSource,
   joinContext?: JoinContext,
   locale?: string,
+  aliasVia?: ReadonlyMap<string, ViaPipeline>,
 ): unknown[] {
   let result = rows
   if (plan.orderBy.length > 0) {
@@ -1942,7 +1995,7 @@ function applyOrderAndPage(
     // labels. `source.via` also feeds the #650 Task 7 matrix-tier fallback
     // (fields `joinContext.resolveDictSource` doesn't bridge).
     const labelMaps = buildOrderLabelMaps(plan.orderBy, joinContext, locale, source.via)
-    result = sortRecords(result, plan.orderBy, source.via, labelMaps)
+    result = sortRecords(result, plan.orderBy, source.via, labelMaps, aliasVia)
   }
   if (plan.offset > 0) {
     result = result.slice(plan.offset)
@@ -2521,22 +2574,36 @@ interface OrderKeyPlan {
     readonly field: string
     readonly direction: 'asc' | 'desc'
     readonly labelResolver: ((code: string) => string | undefined) | undefined
+    /**
+     * The pipeline to ask for this entry's exact ordering, and the name to
+     * ask it about (#1337). For a left-side field that is the source's own
+     * pipeline and the field verbatim; for `client.credit` it is the RIGHT
+     * collection's pipeline and `credit`, because a pipeline covers bare
+     * field names. `undefined` → the generic comparator, as before.
+     */
+    readonly via: ViaPipeline | undefined
+    readonly viaField: string
   }[]
-  readonly via: ViaPipeline | undefined
 }
 
 function buildOrderKeyPlan(
   orderBy: readonly OrderBy[],
   via?: ViaPipeline,
   labelMaps?: Map<string, (code: string) => string | undefined>,
+  aliasVia?: ReadonlyMap<string, ViaPipeline>,
 ): OrderKeyPlan {
   return {
-    entries: orderBy.map(({ field, direction, by }) => ({
-      field,
-      direction,
-      labelResolver: by === 'label' ? labelMaps?.get(field) : undefined,
-    })),
-    via,
+    entries: orderBy.map(({ field, direction, by }) => {
+      const dot = field.indexOf('.')
+      const aliased = dot > 0 ? aliasVia?.get(field.slice(0, dot)) : undefined
+      return {
+        field,
+        direction,
+        labelResolver: by === 'label' ? labelMaps?.get(field) : undefined,
+        via: aliased ?? via,
+        viaField: aliased ? field.slice(dot + 1) : field,
+      }
+    }),
   }
 }
 
@@ -2553,7 +2620,7 @@ function orderKeyOf(plan: OrderKeyPlan, record: unknown): unknown[] {
 
 function compareOrderKeys(plan: OrderKeyPlan, a: readonly unknown[], b: readonly unknown[]): number {
   for (let i = 0; i < plan.entries.length; i++) {
-    const { field, direction, labelResolver } = plan.entries[i]!
+    const { direction, labelResolver, via, viaField } = plan.entries[i]!
     const av = a[i]
     const bv = b[i]
     // A Via-covered field (e.g. money) may store a representation the
@@ -2562,7 +2629,7 @@ function compareOrderKeys(plan: OrderKeyPlan, a: readonly unknown[], b: readonly
     // the pipeline for an exact ordering first; fall back to the
     // generic comparator when no binding covers the field. Label-resolved
     // values are already plain strings, so they skip the pipeline.
-    const viaCmp = labelResolver ? undefined : plan.via?.compareForOrder(field, av, bv)
+    const viaCmp = labelResolver ? undefined : via?.compareForOrder(viaField, av, bv)
     const cmp = viaCmp !== undefined ? viaCmp : compareValues(av, bv)
     if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
   }
@@ -2579,8 +2646,9 @@ function sortRecords(
   orderBy: readonly OrderBy[],
   via?: ViaPipeline,
   labelMaps?: Map<string, (code: string) => string | undefined>,
+  aliasVia?: ReadonlyMap<string, ViaPipeline>,
 ): unknown[] {
-  const plan = buildOrderKeyPlan(orderBy, via, labelMaps)
+  const plan = buildOrderKeyPlan(orderBy, via, labelMaps, aliasVia)
   // Stable sort: Array.prototype.sort is required to be stable since ES2019.
   return [...records].sort((a, b) =>
     compareOrderKeys(plan, orderKeyOf(plan, a), orderKeyOf(plan, b)),
