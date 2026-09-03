@@ -29,5 +29,12 @@ export function withTiers(): TiersStrategy {
       const { demote } = await import('./index.js')
       return demote(ctx, id, toTier)
     },
+    async checkUnique(ctx, id, record) {
+      // Skip the dynamic import entirely on the overwhelmingly common case:
+      // a tiered collection with no `unique` index declared.
+      if (!ctx.uniqueKeys) return
+      const { checkUniqueAcrossTiers } = await import('./index.js')
+      return checkUniqueAcrossTiers(ctx, id, record)
+    },
   }
 }

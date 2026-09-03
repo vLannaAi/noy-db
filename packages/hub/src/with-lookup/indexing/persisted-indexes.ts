@@ -299,6 +299,24 @@ export class PersistedCollectionIndex {
   }
 
   /**
+   * Equality lookup that applies the registered canonicalizer to `value`
+   * FIRST — the write side (`ingest`/`upsert` → `addToState`) canonicalizes,
+   * so a probe that does not would miss a Via-covered (e.g. money) match.
+   *
+   * {@link lookupEqual} deliberately keeps the caller-canonicalizes contract
+   * because the query planner has already canonicalized by the time it gets
+   * here (#677). The unique-constraint pre-flight (#1358) has not, and has no
+   * access to the Via pipeline, so it probes through this instead. Returns
+   * `null` when the field is not declared.
+   */
+  probeEqual(field: string, value: unknown): ReadonlySet<string> | null {
+    const state = this.indexes.get(field)
+    if (!state) return null
+    const key = this.canonicalize?.(field, value) ?? stringifyKey(value)
+    return state.buckets.get(key) ?? EMPTY_SET
+  }
+
+  /**
    * Set lookup — return the union of record ids whose `field` matches any
    * of `values`. Returns `null` if the field is not declared. Returns a
    * fresh (non-shared) Set — safe for the caller to mutate. Same

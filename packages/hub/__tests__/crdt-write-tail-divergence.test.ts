@@ -71,21 +71,33 @@ describe('#835 — CRDT write-tail divergences: which are reachable?', () => {
   })
 
   /**
-   * ALSO NOT reachable — and this was the one I expected to be a real gap.
-   * `resolveCollectionConfig` refuses a unique index on a CRDT collection
-   * outright (`UnsupportedIndexOptionError`: "crdt mode is incompatible with
-   * eager unique enforcement"), so `uniqueConstraints` is always null there
-   * and the un-called `check`/`upsert` cannot matter.
+   * SUPERSEDED by #1358, and the reason is worth keeping.
+   *
+   * This case used to assert that a unique index on a CRDT collection was
+   * REFUSED at config time, which made the CRDT branch's missing
+   * `uniqueConstraints.check` unreachable. #1358 removed that refusal — but
+   * NOT by adding the missing check: a replica cannot refuse a value another
+   * offline replica may already hold, so `check()` is a deliberate no-op in
+   * CRDT (`detect`) mode. What closes the divergence is `upsert()`, which the
+   * CRDT write tail DOES call, reporting the collision on `unique:violation`.
+   *
+   * So the invariant this file cares about still holds — the CRDT branch
+   * skips nothing that would have refused a write — and it now holds for a
+   * stated reason instead of by unreachability. The behaviour itself is
+   * asserted in `unique-constraint-modes.test.ts`.
    */
-  it('unique index + crdt is REFUSED at config time (so the missing check is unreachable)', async () => {
+  it('unique index + crdt is ACCEPTED, and the write tail reports rather than refuses', async () => {
     const db = await crdtDb({ indexingStrategy: withIndexing() })
     const vault = await db.openVault('acme')
-    expect(() =>
-      vault.collection<Doc>('docs', {
-        crdt: 'lww-map',
-        indexes: [{ fields: ['email'], unique: true }],
-      }),
-    ).toThrowError(/unique indexes are not supported on CRDT/)
+    const violations: Error[] = []
+    db.on('unique:violation', e => { violations.push(e.error) })
+    const docs = vault.collection<Doc & { email?: string }>('docs', {
+      crdt: 'lww-map',
+      indexes: [{ fields: ['email'], unique: true }],
+    })
+    await docs.put('d1', { title: 'a', email: 'x@y.z' })
+    await expect(docs.put('d2', { title: 'b', email: 'x@y.z' })).resolves.toBeUndefined()
+    expect(violations).toHaveLength(1)
   })
 
   /**

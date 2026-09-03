@@ -10,7 +10,9 @@
  *  6. Eager composite: duplicate pair rejects; same workerId + different employerEntityId → OK;
  *     partial null → duplicates allowed.
  *  7. putMany intra-batch dup: two entries sharing unique value → second rejects.
- *  8. Lazy fail-loud: prefetch:false + unique index → throws at registration.
+ *  8. Lazy/CRDT/tiered: the declaration is ACCEPTED (#1358 replaced the three
+ *     registration-time refusals with real enforcement or honest detection).
+ *     What each mode then does is asserted in `unique-constraint-modes.test.ts`.
  *  9. Unique index still queryable: declared unique index serves where('==') queries.
  */
 
@@ -19,7 +21,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { withIndexing } from '../src/with-lookup/indexing/index.js'
 import type { Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
-import { ConflictError, UniqueConstraintError, UnsupportedIndexOptionError } from '../src/kernel/errors.js'
+import { ConflictError, UniqueConstraintError } from '../src/kernel/errors.js'
 
 // ── inline memory adapter ────────────────────────────────────────────────────
 function toMemory(): NoydbStore {
@@ -237,8 +239,8 @@ describe('putMany intra-batch duplicate', () => {
 })
 
 // ── 8. Lazy fail-loud ────────────────────────────────────────────────────────
-describe('lazy mode fail-loud', () => {
-  it('throws UnsupportedIndexOptionError at collection registration when unique index declared with prefetch:false', async () => {
+describe('lazy mode accepts unique (#1358)', () => {
+  it('no longer refuses the declaration — enforcement moved to the persisted mirror', async () => {
     const vault = await openVault()
     expect(() =>
       vault.collection<{ k: string }>('lazy-unique', {
@@ -246,7 +248,9 @@ describe('lazy mode fail-loud', () => {
         cache: { maxRecords: 100 },
         indexes: [{ fields: ['k'], unique: true }],
       }),
-    ).toThrow(UnsupportedIndexOptionError)
+    ).not.toThrow()
+    // That it actually ENFORCES is asserted in unique-constraint-modes.test.ts
+    // — this case only guards the refusal's removal.
   })
 })
 
@@ -328,27 +332,30 @@ describe('hydration rebuild (two-session path)', () => {
 })
 
 // ── 12. CRDT + unique guard ───────────────────────────────────────────────────
-describe('CRDT mode fail-loud', () => {
-  it('throws UnsupportedIndexOptionError at registration when unique index declared on a CRDT collection', async () => {
+describe('CRDT mode accepts unique (#1358)', () => {
+  it('no longer refuses the declaration — CRDT DETECTS duplicates instead of preventing them', async () => {
     const vault = await openVault()
     expect(() =>
       vault.collection<{ taxId: string }>('crdt-unique', {
         crdt: 'lww-map',
         indexes: [{ fields: ['taxId'], unique: true }],
       }),
-    ).toThrow(UnsupportedIndexOptionError)
+    ).not.toThrow()
+    // The detection contract itself is in unique-constraint-modes.test.ts.
   })
 })
 
 // ── 13. Tiered collection + unique guard (C1) ─────────────────────────────────
-describe('tiered collection fail-loud', () => {
-  it('throws UnsupportedIndexOptionError at registration when unique index declared on a tiered collection', async () => {
+describe('tiered collection accepts unique (#1358)', () => {
+  it('no longer refuses the declaration — enforcement spans every readable tier', async () => {
     const vault = await openVault()
     expect(() =>
       vault.collection<{ taxId: string }>('tiered-unique', {
         tiers: [0, 1],
         indexes: [{ fields: ['taxId'], unique: true }],
       }),
-    ).toThrow(UnsupportedIndexOptionError)
+    ).not.toThrow()
+    // The cross-tier contract, and its stated boundary, are in
+    // unique-constraint-modes.test.ts.
   })
 })

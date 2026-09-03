@@ -23,10 +23,10 @@
 import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { RecordCodec } from '../../kernel/enclave/index.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
-import { IndexWriteFailureError } from '../../kernel/errors.js'
+import { IndexWriteFailureError, UniqueConstraintError } from '../../kernel/errors.js'
 import type { CollectionIndexes } from './eager-indexes.js'
 import type { UniqueConstraintSet } from './unique-constraints.js'
-import { encodeIdxId, decodeIdxId, type PersistedCollectionIndex, type PersistedIndexDef } from './persisted-indexes.js'
+import { encodeIdxId, decodeIdxId, compositeKey, type PersistedCollectionIndex, type PersistedIndexDef } from './persisted-indexes.js'
 import {
   PersistedFieldIndexes,
   fieldIndexFingerprint,
@@ -250,6 +250,62 @@ export async function hydrateEagerIndexes<T>(ctx: IndexingContext<T>): Promise<v
   const restored = await store.restore((id) => ctx.cache.has(id))
   rebuildEagerIndexesFromCache(ctx, restored)
   if (restored.size < ctx.indexes.persistableKeys().length) store.markDirty()
+}
+
+/**
+ * The unique-constraint pre-flight every ordinary `put()` runs before its
+ * store write (#1358). One entry point, three outcomes, and NONE of them is a
+ * silent pass:
+ *
+ *  - **CRDT** (`enforcement === 'detect'`) — returns without checking, on
+ *    purpose. A replica cannot refuse a value another offline replica may
+ *    already hold, so it does not pretend to; the collision is reported from
+ *    `UniqueConstraintSet.upsert`/`build` on `unique:violation` instead. See
+ *    that class's module doc.
+ *  - **Lazy** (`prefetch: false`) — a point lookup through the persisted
+ *    `_idx/` mirror, which lazy mode already maintains on every write. The
+ *    mirror is bulk-loaded first (the same hydration a lazy query forces), so
+ *    a record written in a PRIOR session is seen.
+ *  - **Eager** — the in-memory map, unchanged.
+ *
+ * The TIER dimension is orthogonal and is checked separately, by
+ * `checkUniqueAcrossTiers` in `with-audit/tiers/index.ts` — it needs the
+ * keyring to decrypt above-tier records, which this context deliberately
+ * does not carry.
+ */
+export async function checkUniqueOnPut<T>(ctx: IndexingContext<T>, id: string, record: unknown): Promise<void> {
+  const set = ctx.uniqueConstraints
+  if (!set || set.enforcement === 'detect') return
+  if (!ctx.lazy) { set.check(id, record); return }
+
+  const persisted = ctx.persistedIndexes
+  if (!persisted) {
+    // Lazy + unique with indexing switched off entirely. Refuse loudly rather
+    // than accept a constraint nothing can enforce.
+    throw new Error(
+      `Collection "${ctx.name}": a unique index in lazy mode (prefetch: false) needs the indexing ` +
+      `service. Pass \`withIndexing()\` from "@noy-db/hub/indexing" to \`createNoydb({ indexingStrategy })\`.`,
+    )
+  }
+  await ctx.ensurePersistedIndexesLoaded()
+  const rec = record as Record<string, unknown>
+  for (const fields of set.fieldTuples()) {
+    // Null-distinct, and identical to the value the side-car write stores:
+    // a scalar for a one-field constraint, the ordered tuple for a COMPOUND
+    // one (uniqueness over the tuple, never over its components).
+    const values: unknown[] = []
+    for (const f of fields) {
+      const v = readPersistedValue(rec, f)
+      if (v === null || v === undefined) { values.length = 0; break }
+      values.push(v)
+    }
+    if (values.length === 0) continue
+    const holders = persisted.probeEqual(compositeKey(fields), fields.length === 1 ? values[0] : values)
+    if (!holders) continue
+    for (const holder of holders) {
+      if (holder !== id) throw new UniqueConstraintError(ctx.name, id, fields, holder)
+    }
+  }
 }
 
 /**
