@@ -42,4 +42,14 @@ export interface RetrieveHit<T> {
   readonly snippet: string
   readonly locale?: string
   readonly record?: T
+  /**
+   * #1360 — for a semantic hit on a CHUNKED record: the winning chunk's id and
+   * its `[start, end)` character offsets into
+   * `embeddingSourceText(record, descriptor.source)` (the joined source text,
+   * not a single field). `snippet` already carries `sourceText.slice(start,
+   * end)` when the record is in the eager cache; the offsets are returned so a
+   * consumer can highlight in place. Absent for lexical hits and for
+   * unchunked (single-vector) semantic hits.
+   */
+  readonly chunk?: { readonly id: string; readonly start: number; readonly end: number }
 }
