@@ -28,6 +28,14 @@ export interface TiersStrategy {
   listAtTier<T>(ctx: TiersContext<T>): Promise<Array<{ id: string; tier: number; readable: boolean }>>
   elevate<T>(ctx: TiersContext<T>, id: string, toTier: number): Promise<TierMoveResult>
   demote<T>(ctx: TiersContext<T>, id: string, toTier: number): Promise<TierMoveResult>
+  /**
+   * #1358 — unique-constraint scan across every tier whose DEK the writer
+   * holds. Called by the ORDINARY `Collection.put()` on a tiered collection
+   * (`putAtTier` calls the core directly): the tier-0 mirror cannot see an
+   * elevated record, because #709 purges its index entries on elevation.
+   * A tier the writer cannot read is outside the guarantee.
+   */
+  checkUnique<T>(ctx: TiersContext<T>, id: string, record: T): Promise<void>
 }
 
 /**
@@ -41,4 +49,11 @@ export const NO_TIERS: TiersStrategy = {
   async listAtTier() { throw new TiersNotEnabledError() },
   async elevate() { throw new TiersNotEnabledError() },
   async demote() { throw new TiersNotEnabledError() },
+  // NOT a throw, unlike its five siblings: this one is called from the
+  // ORDINARY put path of any collection that declared `tiers` — and a
+  // collection can declare `tiers` without wiring `withTiers()`. Without the
+  // engine no record can ever leave tier 0, so there is nothing above tier 0
+  // to scan and the tier-0 mirror is already the whole truth. Throwing here
+  // would break plain `put()` on such a collection for no gain.
+  async checkUnique() { /* no tier engine ⇒ every record is at tier 0 */ },
 }

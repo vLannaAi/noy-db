@@ -24,7 +24,7 @@ export { withTiers } from './active.js'
 export { NO_TIERS, type TiersStrategy } from './strategy.js'
 export { TiersNotEnabledError } from '../../kernel/errors.js'
 import { recordAadFor, type RecordIdentity, buildRecordAad, buildRecordEnvelope, encrypt, decrypt, unwrapCek, rewrapBodyToDek, applyRewrappedBody, isDeleteMarker, isTombstoneShape, type RecordCodec, type EnclaveKey, type SealedShredSlot } from '../../kernel/enclave/index.js'
-import { TierDemoteDeniedError, UnsupportedTierCompositionError, PersistedIndexCompensationError } from '../../kernel/errors.js'
+import { TierDemoteDeniedError, UnsupportedTierCompositionError, PersistedIndexCompensationError, UniqueConstraintError } from '../../kernel/errors.js'
 import { dekKey, assertTierAccess } from '../../with-party/team/tiers.js'
 import type { UnlockedKeyring } from '../../with-party/team/keyring.js'
 import type { Lru } from '../../kernel/cache/index.js'
@@ -46,6 +46,22 @@ export interface TiersContext<T> {
   readonly vault: string
   /** The ciphertext store. */
   readonly adapter: NoydbStore
+  /**
+   * #1358 — the unique-constraint keys a record occupies, or `[]` when the
+   * record is exempt (null-distinct) . `undefined` when the collection
+   * declares no `unique` index, which is what makes the tier scan free for
+   * every other collection. Deliberately a plain callback rather than the
+   * `UniqueConstraintSet` itself: the tier domain must not import the
+   * indexing domain, and this is the whole of what it needs.
+   */
+  readonly uniqueKeys?: ((record: unknown) => ReadonlyArray<{ readonly fields: readonly string[]; readonly key: string }>) | undefined
+  /**
+   * #1358 — the collection's own tier-0 unique pre-flight (the eager map or
+   * the lazy `_idx/` probe). `putAtTier` runs it before its write because it
+   * bypasses `Collection.put()` entirely; the tier-0 `put()` path calls it
+   * directly and does not need this. `undefined` ⇒ no unique index declared.
+   */
+  readonly checkUniqueLocal?: ((id: string, record: unknown) => Promise<void>) | undefined
   /** The caller's unlocked keyring (tier-DEK holdings + role + userId). */
   readonly keyring: UnlockedKeyring
   /** The record codec — decrypts a tier-0 envelope to T. */
@@ -425,6 +441,14 @@ export async function putAtTier<T>(
   assertDeclaredTier(ctx, tier)
   assertTierAccess(ctx.keyring, ctx.name, tier)
 
+  // #1358: `putAtTier` is the "separate path that bypasses unique
+  // enforcement" the old registration-time refusal named. Both halves run
+  // here, BEFORE any key resolution or write, so a violation leaves nothing
+  // behind: the tier-0 mirror check the collection owns, then the scan of
+  // every above-tier record this writer can decrypt.
+  await ctx.checkUniqueLocal?.(id, record)
+  await checkUniqueAcrossTiers(ctx, id, record)
+
   const key = dekKey(ctx.name, tier)
   const dek = await ctx.getDEK(key)
 
@@ -607,42 +631,7 @@ export async function getAtTier<T>(ctx: TiersContext<T>, id: string): Promise<T 
     return null
   }
 
-  const dek = await ctx.getDEK(key)
-  // A tiered record may carry a per-record CEK (e.g. a CEK record
-  // elevated via `elevate()`): the CEK is wrapped under the TIER DEK, so
-  // unwrap under the tier DEK then decrypt the body under the CEK. Legacy
-  // tiered records decrypt directly under the tier DEK.
-  // This leg decrypts manually rather than through `decryptRecord` (#635), so
-  // it must build the AAD itself — from the address it fetched from plus the
-  // envelope's own `_tier`/`_by`, exactly as `recordAadFor` does everywhere
-  // else (#1041).
-  const aad = recordAadFor({ collection: ctx.name, id }, envelope)
-  let plaintext: string
-  let cek: EnclaveKey | undefined
-  if (envelope._cek !== undefined) {
-    cek = await unwrapCek(envelope._cek, dek)
-    ctx.cekCache?.set(id, cek, 1)
-    plaintext = await decrypt(envelope._iv, envelope._data, cek, aad)
-  } else {
-    plaintext = await decrypt(envelope._iv, envelope._data, dek, aad)
-  }
-  let record = JSON.parse(plaintext) as T
-
-  // #635: this manual-decrypt leg never went through `decryptRecord`, so it
-  // never processed `_sealed` slots — an elevated classified record read
-  // back through here would return the body WITHOUT its sealed fields
-  // (silent omission). `applySealedSlots` is the same post-processing
-  // `decryptRecord`'s tier-0 branch above gets for free, extracted so it can
-  // take OUR already-unwrapped `cek` (unwrapped under the TIER dek above)
-  // instead of resolving one itself under the collection DEK the way
-  // `decryptRecord`/`resolveEnvelopeCek` would — which would be the wrong
-  // key for a `_cek` wrapped under a tier DEK. `sealedAsHandles` is omitted
-  // (default false) to match this function's OWN tier-0 branch above
-  // (`ctx.codec.decryptRecord({ collection: ctx.name, id }, envelope)`, no `sealedAsHandles`) —
-  // both tiers return sealed fields inline-decrypted, not as handles.
-  if (envelope._sealed !== undefined) {
-    record = await ctx.codec.applySealedSlots(record, envelope._sealed, cek, { id })
-  }
+  const record = await decryptElevated<T>(ctx, id, envelope, key)
 
   ctx.emitCrossTierEvent({
     actor: ctx.keyring.userId,
@@ -655,6 +644,113 @@ export async function getAtTier<T>(ctx: TiersContext<T>, id: string): Promise<T 
   })
 
   return record
+}
+
+/**
+ * Decrypt an ABOVE-TIER envelope under `dekKey` — the manual leg
+ * {@link getAtTier} used to inline (#635/#1041). Extracted so the
+ * unique-constraint tier scan (#1358) reuses exactly this key handling
+ * instead of growing a second copy that could drift from it.
+ *
+ * A tiered record may carry a per-record CEK (e.g. a CEK record elevated via
+ * `elevate()`): the CEK is wrapped under the TIER DEK, so unwrap under the
+ * tier DEK then decrypt the body under the CEK. Legacy tiered records decrypt
+ * directly under the tier DEK.
+ *
+ * This leg decrypts manually rather than through `decryptRecord`, so it must
+ * build the AAD itself — from the address it fetched from plus the envelope's
+ * own `_tier`/`_by`, exactly as `recordAadFor` does everywhere else (#1041).
+ *
+ * #635: it never went through `decryptRecord`, so it never processed
+ * `_sealed` slots — an elevated classified record read back through here
+ * would otherwise return the body WITHOUT its sealed fields (silent
+ * omission). `applySealedSlots` takes OUR already-unwrapped `cek` (unwrapped
+ * under the TIER dek) instead of resolving one under the collection DEK the
+ * way `decryptRecord`/`resolveEnvelopeCek` would — which would be the wrong
+ * key for a `_cek` wrapped under a tier DEK. `sealedAsHandles` is omitted
+ * (default false) to match `getAtTier`'s tier-0 branch: both tiers return
+ * sealed fields inline-decrypted, not as handles.
+ *
+ * The caller MUST have established readability first (`keyring.deks.has(key)`
+ * or owner/elevator standing) — this function does not gate.
+ */
+async function decryptElevated<T>(ctx: TiersContext<T>, id: string, envelope: EncryptedEnvelope, key: string): Promise<T> {
+  const dek = await ctx.getDEK(key)
+  const aad = recordAadFor({ collection: ctx.name, id }, envelope)
+  let plaintext: string
+  let cek: EnclaveKey | undefined
+  if (envelope._cek !== undefined) {
+    cek = await unwrapCek(envelope._cek, dek)
+    ctx.cekCache?.set(id, cek, 1)
+    plaintext = await decrypt(envelope._iv, envelope._data, cek, aad)
+  } else {
+    plaintext = await decrypt(envelope._iv, envelope._data, dek, aad)
+  }
+  let record = JSON.parse(plaintext) as T
+  if (envelope._sealed !== undefined) {
+    record = await ctx.codec.applySealedSlots(record, envelope._sealed, cek, { id })
+  }
+  return record
+}
+
+/**
+ * Unique-constraint enforcement across TIERS (#1358).
+ *
+ * The in-memory / persisted mirrors that back ordinary unique enforcement
+ * hold TIER-0 records only — #709 purges an elevated record's index entries
+ * precisely so elevation actually hides its field values. That is correct,
+ * and it is also exactly why a tier-0 `put()` would otherwise be free to
+ * re-take a value an elevated record still holds. This closes that by
+ * scanning the above-tier records the writer can decrypt.
+ *
+ * ## The guarantee, stated exactly
+ *
+ * Uniqueness is enforced across **every tier whose DEK this writer holds**.
+ * A tier the writer cannot read is **outside the guarantee**: those records
+ * are not merely skipped-with-a-warning, they are unreadable, so no local
+ * check of any design can see them. A duplicate against such a record is
+ * accepted, and stays accepted. Do not describe this as "enforced across all
+ * tiers" anywhere.
+ *
+ * ## Cost
+ *
+ * Zero for a collection with no unique index (`ctx.uniqueKeys` is undefined
+ * and this returns immediately) and for one with no elevated records (the
+ * scan reads envelope headers only until it meets a `_tier > 0` row it can
+ * read). On a tiered collection that DOES hold both, it is a list + get per
+ * write — the price of the guarantee, paid only where it was asked for.
+ *
+ * No cross-tier ACCESS event is emitted per scanned record: this is a
+ * constraint pre-flight over material the writer is already cleared for, not
+ * a read the caller asked for. The write it gates emits its own event.
+ */
+export async function checkUniqueAcrossTiers<T>(ctx: TiersContext<T>, id: string, record: T): Promise<void> {
+  const keysOf = ctx.uniqueKeys
+  if (!keysOf || !ctx.tiers) return
+  const mine = keysOf(record)
+  if (mine.length === 0) return // null-distinct exempt, or nothing declared
+
+  for (const otherId of await ctx.adapter.list(ctx.vault, ctx.name)) {
+    if (otherId === id || otherId.startsWith('_')) continue
+    const env = await ctx.adapter.get(ctx.vault, ctx.name, otherId)
+    if (!env) continue
+    const tier = env._tier ?? 0
+    if (tier === 0) continue // already covered by the tier-0 mirror
+    const key = dekKey(ctx.name, tier)
+    if (!ctx.keyring.deks.has(key)) continue // unreadable ⇒ outside the guarantee
+    let other: T
+    try {
+      other = await decryptElevated<T>(ctx, otherId, env, key)
+    } catch {
+      continue // a row this writer cannot open is, for this purpose, unreadable
+    }
+    const theirs = new Map(keysOf(other).map(k => [`${k.fields.join('\u0000')}\u0000${k.key}`, k]))
+    for (const k of mine) {
+      if (theirs.has(`${k.fields.join('\u0000')}\u0000${k.key}`)) {
+        throw new UniqueConstraintError(ctx.name, id, k.fields, otherId)
+      }
+    }
+  }
 }
 
 /**

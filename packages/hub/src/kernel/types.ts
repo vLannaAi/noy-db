@@ -1728,6 +1728,37 @@ export interface NoydbEventMap {
     error: Error
   }
   /**
+   * #1358 — a `unique` index collision that was DETECTED rather than
+   * prevented. Emitted only by a CRDT collection, which is the one mode where
+   * prevention is not available: two replicas that are offline from each
+   * other can both accept the same value, and no local check can see the
+   * other's write. So the write is never refused, BOTH records are kept (as
+   * CRDT convergence requires), and the collision is reported here — when it
+   * is created, and again when a later session first sees the two records
+   * together (the merge point).
+   *
+   * The guarantee a consumer may rely on is therefore: uniqueness within what
+   * this writer could see at write time, plus detection when the replicas
+   * meet. Nothing stronger.
+   *
+   * `error` is a `UniqueConstraintError` (`kernel/errors.ts`) carrying the
+   * same `collection` / `recordId` / `fields` / `conflictingId` as the
+   * duplicate `put()` would have thrown on a non-CRDT collection — so a
+   * handler can treat it with the code it already has for that error.
+   * Eager, lazy and tiered collections PREVENT instead and never emit this.
+   */
+  'unique:violation': {
+    vault: string
+    collection: string
+    /** The record that arrived second (locally — replicas need not agree on order). */
+    id: string
+    /** The constrained field tuple; more than one field means a compound unique. */
+    fields: readonly string[]
+    /** The record already holding the value. Both are still readable. */
+    conflictingId: string
+    error: Error
+  }
+  /**
    * emitted by `Collection.ensurePersistedIndexesLoaded()`
    * once per field on first lazy-mode query when
    * `reconcileOnOpen: 'auto' | 'dry-run'` is configured. `applied` is

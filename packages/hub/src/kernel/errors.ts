@@ -1744,16 +1744,17 @@ export class UniqueConstraintError extends NoydbError {
  * Thrown at collection registration when an index option is declared that
  * is incompatible with the collection's operating mode.
  *
- * Currently covers two cases:
- * - `unique: true` on a lazy-mode (`prefetch: false`) collection — lazy mode
- *   does not pre-load all records, so an in-memory uniqueness map cannot be
- *   maintained reliably.
- * - `unique: true` on a CRDT collection (`crdt: 'lww-map' | 'rga' | 'yjs'`) —
- *   CRDT put() short-circuits the unique-constraint check, so enforcement would
- *   silently not fire.
+ * ⚠️ **Nothing throws this today (#1358).** It used to cover three cases —
+ * `unique: true` on a lazy-mode (`prefetch: false`), CRDT, or tiered
+ * collection — because those write paths bypassed enforcement. Lazy and
+ * tiered now enforce for real, and CRDT reports detected duplicates on the
+ * `unique:violation` event instead of refusing the declaration (see
+ * `with-lookup/indexing/unique-constraints.ts`). The class is retained: it is
+ * part of the published surface, and it is the right shape for the next index
+ * option that a mode genuinely cannot honour.
  *
- * Both cases are caught eagerly at `vault.collection()` time so the developer
- * sees the incompatibility immediately rather than shipping silently-ignored
+ * Any future case belongs at `vault.collection()` time so the developer sees
+ * the incompatibility immediately rather than shipping silently-ignored
  * constraints.
  *
  * The `option` field names the incompatible option (`'unique'`) so catch blocks

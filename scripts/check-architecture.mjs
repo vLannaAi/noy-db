@@ -1111,7 +1111,13 @@ const KERNEL_SURFACE_BUDGET = {
   // src/with-sync/change-broadcast.ts. What lands here is only the re-read seam it cannot
   // reach from outside — Collection._applyRemoteSignal (re-read, derive the verb, emit).
   // There is no bus socket for "invalidate one cached record": that is the kernel's own cache.
-  'packages/hub/src/kernel/collection.ts': 4345,
+  // Bumped 4345→4349 (2026-09-04, #1358 unique constraints in lazy/CRDT/tiered): four
+  // call-site lines, no logic. The put pre-flight became one call into
+  // with-lookup/indexing/collection-facade.ts (`checkUniqueOnPut`) plus the tier scan
+  // through the existing TiersStrategy seam; the other three are the detect-mode
+  // reporter argument and the two TiersContext members that carry the constraint keys
+  // out to the tier domain. All the new logic lives in those two services.
+  'packages/hub/src/kernel/collection.ts': 4349,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

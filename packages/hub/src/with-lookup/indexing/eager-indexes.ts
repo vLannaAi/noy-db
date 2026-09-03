@@ -50,6 +50,33 @@ export type IndexDef =
   | string
   | {
       readonly fields: readonly string[]
+      /**
+       * Enforce that no two records share this field tuple. A MULTI-field
+       * tuple is a COMPOUND unique — uniqueness over the tuple, never over
+       * each component on its own (`['workerId','employerId']` allows one
+       * worker at many employers). Null-distinct: a record with `null` or
+       * `undefined` in any constrained field is exempt.
+       *
+       * ⚠️ **What "unique" means depends on the collection's mode (#1358),
+       * and one of the four cannot promise prevention at all:**
+       *
+       * - eager (default) — prevented, from the in-memory map.
+       * - lazy (`prefetch: false`) — prevented, by a point lookup through the
+       *   persisted `_idx/` mirror. Requires `withIndexing()`.
+       * - tiered (`tiers: [...]`) — prevented across every tier whose DEK the
+       *   writer holds. **A tier the writer cannot read is outside the
+       *   guarantee** — those records are unreadable, so no local check can
+       *   see them, and a duplicate against one is accepted.
+       * - CRDT (`crdt: '...'`) — **NOT prevented.** Uniqueness cannot be
+       *   enforced across concurrent replicas: two replicas that are offline
+       *   from each other can both accept the same value, and no local check
+       *   can prevent that. The write always succeeds and both records are
+       *   kept; the collision is reported on the `unique:violation` event as
+       *   a `UniqueConstraintError`, both when it happens and when a later
+       *   session first sees the two records together. What you get is
+       *   uniqueness within what this writer could see at write time, plus
+       *   detection when the replicas meet.
+       */
       readonly unique?: boolean
       readonly kind?: IndexKind
       /**

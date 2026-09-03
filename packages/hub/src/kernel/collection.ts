@@ -35,7 +35,7 @@ import {
   rebuildEagerIndexesFromCache as rebuildEagerIndexesFromCacheImpl, rebuildUniqueConstraintsFromCache as rebuildUniqueConstraintsFromCacheImpl, rebuildIndexes as rebuildIndexesImpl,
   reconcileIndex as reconcileIndexImpl, maintainPersistedIndexesOnPut as maintainPersistedIndexesOnPutImpl, maintainPersistedIndexesOnDelete as maintainPersistedIndexesOnDeleteImpl,
   purgePersistedIndexes as purgePersistedIndexesImpl, syncTierIndexes as syncTierIndexesImpl, type IndexingContext,
-  createPersistedFieldIndexes as createPersistedFieldIndexesImpl, hydrateEagerIndexes as hydrateEagerIndexesImpl, type PersistedFieldIndexes,
+  createPersistedFieldIndexes as createPersistedFieldIndexesImpl, hydrateEagerIndexes as hydrateEagerIndexesImpl, type PersistedFieldIndexes, checkUniqueOnPut as checkUniqueOnPutImpl,
 } from '../with-lookup/indexing/collection-facade.js'
 import { ReadOnlyError, ClassifiedConfigError, ClassifiedRevealError, ClassifiedVerifyError } from './errors.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
@@ -834,14 +834,15 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     this.indexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #672 review C1: one-time canonicalizer registration; lazy `this.via` read survives late `_setVia` (#666)
     this.persistedIndexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #677: lazy twin of the line above
 
-    // Unique-constraint enforcement (eager mode only; UnsupportedIndexOptionError)
-    // — see buildUniqueConstraintSet. The Arc-7 tiers+blobFields refusal (#724)
+    // Unique-constraint enforcement. Every mode is now wired (#1358) — eager map,
+    // lazy `_idx/` probe, tiered cross-tier scan, CRDT detect. The Arc-7 tiers+blobFields refusal (#724)
     // moved to collection.blob(id)'s runtime read gate (Arc 10 Task 1, blob-set.ts).
+    // #1358: the 4th argument is the DETECT-mode reporter — a CRDT collection cannot refuse a duplicate (another offline replica may already hold it), so it keeps both records and reports the collision here instead.
     this.uniqueConstraints = buildUniqueConstraintSet(this.name, opts.indexes, {
       lazy: this.lazy,
       crdt: this.crdtMode != null,
       tiered: this.tiers != null,
-    })
+    }, err => this.emitter.emit('unique:violation', { vault: this.vault, collection: this.name, id: err.recordId, fields: err.fields, conflictingId: err.conflictingId, error: err }))
   }
   /**
    * Return the Standard Schema validator attached to this collection,
@@ -2064,7 +2065,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // ensureHydrated() (eager path above) so the constraint map already
     // reflects records from prior sessions. No-op when no unique indexes
     // are declared.
-    this.uniqueConstraints?.check(id, record)
+    await checkUniqueOnPutImpl(this.indexingContext(), id, record); if (this.tiers !== null && this.uniqueConstraints !== null) await this.strategies.tiers.checkUnique(this.tiersContext(), id, record) // #1358: eager map / lazy `_idx/` probe / CRDT no-op, then the above-tier scan (#709 purges an elevated record's index entries, so the mirror alone cannot see it)
 
     // Per-record CEK: resolve the record's stable CEK ONCE (insert mints,
     // update reuses the live envelope's CEK), then encrypt BOTH the history
@@ -4314,6 +4315,9 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       getDEK: (key: string) => this.getDEK(key),
       emitCrossTierEvent: (event) => this.emitCrossTierEvent(event),
       addSubjectRef: (id: string, record: T) => this.addSubjectRef?.(id, record) ?? Promise.resolve(),
+      // #1358 — undefined on a collection with no `unique` index, which is what keeps the tier scan free everywhere else.
+      uniqueKeys: this.uniqueConstraints ? (record: unknown) => this.uniqueConstraints!.probe(record) : undefined,
+      checkUniqueLocal: this.uniqueConstraints ? (id: string, record: unknown) => checkUniqueOnPutImpl(this.indexingContext(), id, record) : undefined,
     }
   }
 
