@@ -2774,13 +2774,19 @@ export class JoinTooLargeError extends NoydbError {
   readonly leftRows: number
   readonly rightRows: number
   readonly maxRows: number
-  readonly side: 'left' | 'right'
+  /**
+   * Which count tripped the ceiling. `'output'` is #1339's addition: a
+   * declared non-equi `.joinOn()` is many-to-many, so it can exceed the
+   * ceiling with both SIDES comfortably under it — the produced row count is
+   * the only thing standing between a theta join and a hang.
+   */
+  readonly side: 'left' | 'right' | 'output'
 
   constructor(opts: {
     leftRows: number
     rightRows: number
     maxRows: number
-    side: 'left' | 'right'
+    side: 'left' | 'right' | 'output'
     message: string
   }) {
     super('JOIN_TOO_LARGE', opts.message)

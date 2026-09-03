@@ -549,6 +549,64 @@ describe('#1375 > join dispatch has an executor-side witness too', () => {
     expect(right.reads()).toBeGreaterThan(0)
   })
 
+  it('#1339 — join:composite-hash ⟺ the right snapshot is walked ONCE, not per left row', () => {
+    const right = witnessRight(true)
+    const q = new Query<Invoice>(plainSource(SAMPLE), undefined, joinContextFor(right.source)).joinOn('clients', {
+      as: 'client',
+      on: [['clientId', 'id']],
+    })
+    expect(flatten(q.explain().nodes).find(n => n.op === 'join')!.dispatch).toBe('join:composite-hash')
+    right.reset()
+    q.toArray()
+    // One build pass. 5 left rows × 3 right records would be 15 for a naive
+    // theta join — the witness is the SCALING, not merely "reads > 0", which
+    // every non-nested join path satisfies.
+    expect(right.reads()).toBe(CLIENTS.length)
+  })
+
+  it('#1339 — join:sorted-range ⟺ the right snapshot is sorted once, then binary-searched', () => {
+    const right = witnessRight(true)
+    const q = new Query<Invoice>(plainSource(SAMPLE), undefined, joinContextFor(right.source)).joinOn('clients', {
+      as: 'client',
+      on: { left: 'clientId', op: '<=', right: 'id' },
+    })
+    expect(flatten(q.explain().nodes).find(n => n.op === 'join')!.dispatch).toBe('join:sorted-range')
+    right.reset()
+    q.toArray()
+    expect(right.reads()).toBe(CLIENTS.length)
+  })
+
+  it('the join labels the type publishes all have a witness above', () => {
+    // The join half of the DISPATCH_TABLE coverage assertion: every
+    // `join:*` label on ExplainDispatch is produced by one of the tests in
+    // this block. Adding a join strategy without a witness fails here.
+    const claimed = new Set<string>()
+    const right = witnessRight(true)
+    const base = (): Query<Invoice> =>
+      new Query<Invoice>(plainSource(SAMPLE), undefined, joinContextFor(right.source))
+    const label = (q: Query<unknown>): string =>
+      flatten(q.explain().nodes).find(n => n.op === 'join')!.dispatch
+    claimed.add(label(base().join('clientId', { as: 'client' })))
+    claimed.add(
+      label(
+        new Query<Invoice>(plainSource(SAMPLE), undefined, joinContextFor(witnessRight(false).source)).join(
+          'clientId',
+          { as: 'client' },
+        ),
+      ),
+    )
+    claimed.add(label(base().rightJoin('clientId', { as: 'client' })))
+    claimed.add(label(base().joinOn('clients', { as: 'client', on: [['clientId', 'id']] })))
+    claimed.add(label(base().joinOn('clients', { as: 'client', on: { left: 'clientId', op: '<=', right: 'id' } })))
+    expect([...claimed].sort()).toEqual([
+      'join:composite-hash',
+      'join:hash',
+      'join:nested',
+      'join:reverse-index',
+      'join:sorted-range',
+    ])
+  })
+
   it('#1361 — an inner leg keeps its forward strategy label and says it drops rows', () => {
     const right = witnessRight(true)
     const q = new Query<Invoice>(plainSource(SAMPLE), undefined, joinContextFor(right.source)).join('clientId', {

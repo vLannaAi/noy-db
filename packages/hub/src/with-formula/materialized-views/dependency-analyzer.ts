@@ -107,7 +107,19 @@ export function summarizeQueryPlan(query: Query<any>): string {
     orderBy: plan.orderBy,
     limit: plan.limit ?? null,
     offset: plan.offset,
-    joins: plan.joins.map(j => ({ field: j.field, as: j.as, target: j.target, mode: j.mode })),
+    joins: plan.joins.map(j => ({
+      field: j.field,
+      as: j.as,
+      target: j.target,
+      mode: j.mode,
+      // #1339 — the declared `on` IS the join's identity: two `.joinOn()`
+      // plans differing only here select different rows, and without this key
+      // they would hash identically and neither MV would ever be seen as
+      // stale. `undefined` for every other leg, and `JSON.stringify` drops an
+      // undefined value, so a plan carrying no `joinOn` summarises
+      // byte-identically to its pre-#1339 self and no stored hash moves.
+      on: j.on,
+    })),
   })
 }
 
