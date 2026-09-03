@@ -675,6 +675,7 @@
     "ListPageResult",
     "ListProjectionOptions",
     "ListUsersOptions",
+    "LiveBuildOptions",
     "LiveQuery",
     "LiveUpstream",
     "LiveUserEnvelope",
