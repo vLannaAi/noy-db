@@ -7,6 +7,10 @@ import type { NoydbStore } from '@noy-db/hub'
 declare const channel: PeerChannel
 declare const local: NoydbStore
 declare const inviteToken: string
+declare const aliceChannel: PeerChannel
+declare const bobChannel: PeerChannel
+declare const aliceInvite: string
+declare const bobInvite: string
 -->
 
 WebRTC peer-to-peer transport for [noy-db](https://github.com/vLannaAi/noy-db) — no server in the middle.
@@ -101,6 +105,50 @@ servePeerStore({
 ```
 
 Denied methods surface as a remote `Error` at the client.
+
+## Multiple invites — a star of peers
+
+`serveMultiPeerStore` is one peer accepting **N invites instead of 1**: star
+topology, every invited peer talking to this one, never to each other. Each
+accepted invite is one `servePeerStore` underneath — its own channel, its own
+token, its own `allow` — so everything above holds per peer. **The one thing
+that is not assembly is a token per peer:**
+
+```ts
+import { serveMultiPeerStore } from '@noy-db/by-peer'
+
+const star = serveMultiPeerStore({ store: local })
+
+// One invite → one token → one channel. Returns a revoke for exactly that peer.
+const revokeAlice = star.accept({ channel: aliceChannel, token: aliceInvite })
+star.accept({ channel: bobChannel, token: bobInvite, allow: new Set(['get', 'list', 'loadAll', 'ping']) })
+
+revokeAlice()      // Alice is gone; Bob is untouched
+star.size          // 1
+star.dispose()     // everyone
+```
+
+- **Fail-closed survives the widening.** `accept()` refuses an empty or missing
+  token at runtime as well as by type, so "no token" can never mean "any peer".
+- **A token is bound to the channel it was accepted on.** Alice's token on
+  Bob's channel is refused; a token that is already live is refused at
+  `accept()` — one token, one peer, or revocation stops meaning anything.
+- **A closed channel is a departed peer**: it is dropped and its token may be
+  issued again.
+- **Attribution is a decision, not a default.** With a token per peer "who
+  wrote this" becomes answerable, so this package records nothing — it holds
+  `(channel, token)` pairs and no history. Pass a per-peer decorated `store` in
+  `accept()` if you want attribution, and own what you log.
+- **What the hub peer sees.** Every invited peer's records pass through it as
+  ciphertext; it can open them only with a keyring for that vault (as the
+  vault's owner it normally has one — this is a session share, not an escrow).
+  It can always observe metadata: which channel called which method on which
+  vault/collection/id, and when. It is also the single point of failure: if
+  its tab closes, the invites close with it.
+
+No catalog, no locator, no discovery — those belong to the daemon. And no
+`leaderElection`: an invite is one channel to one remote peer, the opposite
+shape from the many-tabs-one-bus case Web Locks solves below.
 
 ## Leader election (cross-tab coordination)
 
