@@ -479,7 +479,8 @@
     "wrapStore",
     "writeMagicLinkGrant",
     "writePod",
-    "UnsafePatternError"
+    "UnsafePatternError",
+    "TraversalCycleError"
   ],
   "types": [
     "AccessibleVault",
@@ -934,7 +935,11 @@
     "WriteHook",
     "WritePodOptions",
     "WriteQueue",
-    "YjsState"
+    "YjsState",
+    "TraversalRow",
+    "TraverseOptions",
+    "TraverseDirection",
+    "CyclePolicy"
   ],
   "retired": [
     "DeviceSealProvider",

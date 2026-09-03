@@ -30,6 +30,8 @@ import type { ViaPipeline } from '../via/pipeline.js'
 import { decodeCursor, encodeCursor, keysetShape } from './cursor.js'
 import type { QueryExplanation } from './explain.js'
 import { explainPlan } from './explain.js'
+import type { CyclePolicy, TraversalRow, TraverseDirection, TraverseOptions } from './traverse.js'
+import { runTraversal } from './traverse.js'
 
 export interface OrderBy {
   readonly field: string
@@ -792,7 +794,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
           strategy: opts.strategy,
           maxRows: opts.maxRows,
           ...directionField,
-          //  constraint #1 — always 'all' in. Do not remove.
+          // The partition seam — always 'all'. Do not remove, and do not
+          // populate without reading JoinLeg.partitionScope's two
+          // constraints (#1342): this value is inside every stored MV
+          // queryHash. Pinned by __tests__/query-partition-scope.test.ts.
           partitionScope: 'all',
         }
       : {
@@ -2135,6 +2140,168 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    */
   explain(): QueryExplanation {
     return explainPlan(this.source, this.plan, this.joinContext)
+  }
+
+  /**
+   * Recursive traversal over ONE declared, self-referencing `ref()` field
+   * (#1352) — the org-chart / bill-of-materials / parent-client shape that
+   * otherwise forces the consumer to hand-roll recursion.
+   *
+   * ```ts
+   * people.query().where('name', '==', 'Dana')
+   *   .traverse('parentId', { direction: 'up', maxDepth: 10 })
+   * // → [{ id: 'dana', record, depth: 0, path: ['dana'] },
+   * //    { id: 'bea',  record, depth: 1, path: ['dana', 'bea'] }, …]
+   * ```
+   *
+   * **A TERMINAL.** It returns rows, not a `Query`, so it composes with
+   * `where()` / `orderBy()` / `limit()` on the way IN, not on the way out.
+   *
+   * **Seeds are this query's matched records** — the clauses choose the roots
+   * of the walk, not which nodes the walk may pass through. A traversal from
+   * one seed is `ancestorsOf` / `descendantsOf` below.
+   *
+   * **`maxDepth` is required**, with no default: an unbounded walk over a
+   * large collection is a denial of service against your own UI, and a
+   * silent default would truncate a result without saying so.
+   *
+   * **Cycles terminate.** A parent chain can be circular through user error,
+   * and an unguarded BFS hangs the tab. The default `{ onCycle: 'stop' }`
+   * prunes a node the walk is already standing on; `'throw'` raises
+   * `TraversalCycleError` for hierarchies that are supposed to be acyclic.
+   *
+   * **A node is emitted once**, at its shallowest depth — so a diamond (two
+   * seeds converging on one ancestor) yields ONE row for that ancestor,
+   * carrying the path of whichever branch reached it first.
+   *
+   * **Declared refs only.** This is not a general graph engine: the field
+   * must carry a `ref()` whose target is this same collection.
+   *
+   * **Cost.** Every hop reads the vault's already-decrypted in-memory cache
+   * (`query()` is eager-mode only), so a depth-5 traversal costs
+   * `depth × frontier` Map lookups and ZERO additional decrypts — the
+   * AES-GCM work was paid once at `openVault()`. `direction: 'down'` adds one
+   * O(n) pass to build the reverse-FK index; `'up'` adds nothing.
+   *
+   * ⛔ **Not an `explain()` node.** `explain()` describes the plan, and a
+   * traversal is a terminal over the plan's result rather than a clause in
+   * it — the same reason `.window()` and #1336's post-group ops are absent.
+   * `explain()` on the seed query still describes how the SEEDS are found.
+   */
+  traverse(field: QueryField<T, S>, opts: TraverseOptions): TraversalRow<T>[] {
+    this.assertSelfRef(field, 'traverse')
+    return this.runTraverse(field, this.ids(), opts)
+  }
+
+  /**
+   * `.traverse()` sugar: every ancestor of one record, that record included
+   * at `depth: 0`. See {@link traverse} for the full contract.
+   *
+   * Refused on a query that already carries clauses — the seed is named
+   * explicitly here, so a `where()` would silently do nothing. Use
+   * `.traverse()` when the seeds come from a query.
+   */
+  ancestorsOf(
+    id: string,
+    field: QueryField<T, S>,
+    opts: { maxDepth: number; onCycle?: CyclePolicy },
+  ): TraversalRow<T>[] {
+    return this.traverseFromId(id, field, 'up', opts)
+  }
+
+  /**
+   * `.traverse()` sugar: every descendant of one record, that record included
+   * at `depth: 0`. See {@link traverse} for the full contract.
+   */
+  descendantsOf(
+    id: string,
+    field: QueryField<T, S>,
+    opts: { maxDepth: number; onCycle?: CyclePolicy },
+  ): TraversalRow<T>[] {
+    return this.traverseFromId(id, field, 'down', opts)
+  }
+
+  private traverseFromId(
+    id: string,
+    field: QueryField<T, S>,
+    direction: TraverseDirection,
+    opts: { maxDepth: number; onCycle?: CyclePolicy },
+  ): TraversalRow<T>[] {
+    const sugar = direction === 'up' ? 'ancestorsOf' : 'descendantsOf'
+    const plan = this.plan
+    if (
+      plan.clauses.length > 0 ||
+      plan.orderBy.length > 0 ||
+      plan.joins.length > 0 ||
+      plan.limit !== undefined ||
+      plan.offset !== 0
+    ) {
+      throw new Error(
+        `Query.${sugar}("${id}"): this query already carries clauses, but ${sugar}() ` +
+          `seeds from the id you passed — the clauses would silently do nothing. ` +
+          `Use .traverse("${field}", { direction: '${direction}', … }), whose seeds ` +
+          `ARE the query's matched records, or call ${sugar}() on a bare ` +
+          `collection.query().`,
+      )
+    }
+    this.assertSelfRef(field, sugar)
+    return this.runTraverse(field, [id], { ...opts, direction })
+  }
+
+  /**
+   * The one place a traversal runs. Both entry points share it so they cannot
+   * drift on Via decoding or on which source view the walk reads.
+   */
+  private runTraverse(
+    field: string,
+    seeds: readonly string[],
+    opts: TraverseOptions,
+  ): TraversalRow<T>[] {
+    const rows = runTraversal(this.source, field, seeds, opts)
+    // Same result decode `toArray()` applies — a traversal reads the raw
+    // cache records, so without this a money field would serve its stored
+    // scaled integer here and its canonical decimal everywhere else.
+    return rows.map(row => ({ ...row, record: this.decodeVia([row.record])[0] }) as TraversalRow<T>)
+  }
+
+  /**
+   * Plan-time validation shared by `.traverse()` and its sugar: the field must
+   * carry a `ref()`, and that ref must point back at this same collection.
+   *
+   * The second half is what keeps this from becoming a general graph engine.
+   * A ref to ANOTHER collection has no second hop — the target's records do
+   * not carry this field — so a two-collection "traversal" is a `.join()`
+   * wearing the wrong name, and would walk exactly one level before stopping
+   * for reasons the caller could not see.
+   */
+  private assertSelfRef(field: string, caller: string): void {
+    if (!this.joinContext) {
+      throw new Error(
+        `Query.${caller}(): requires a collection-backed query. Use collection.query() ` +
+          `instead of the Query constructor directly (the direct constructor is only ` +
+          `used for tests with plain-object sources).`,
+      )
+    }
+    const descriptor = this.joinContext.resolveRef(field)
+    if (!descriptor) {
+      throw new RefNotDeclaredError({
+        collection: this.joinContext.leftCollection,
+        field,
+        message:
+          `Query.${caller}(): no ref() declared for field "${field}" on collection ` +
+          `"${this.joinContext.leftCollection}". Traversal walks DECLARED refs only — ` +
+          `add refs: { ${field}: ref('${this.joinContext.leftCollection}') } to the ` +
+          `collection options, then retry.`,
+      })
+    }
+    if (descriptor.target !== this.joinContext.leftCollection) {
+      throw new Error(
+        `Query.${caller}(): field "${field}" refs "${descriptor.target}", but traversal ` +
+          `requires a self-referencing ref — one whose target is the collection being ` +
+          `queried ("${this.joinContext.leftCollection}"). A ref across collections has ` +
+          `no second hop; use .join("${field}", { as: … }) for that.`,
+      )
+    }
   }
 }
 
