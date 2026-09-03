@@ -310,9 +310,8 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    * unjoined streaming aggregation should leave `.join()` off the
    * chain — the chain is composable for a reason.
    *
-   *  constraint #1 — every JoinLeg carries `partitionScope:
-   * 'all'` plumbed through but never read by. Same seam as
-   * eager join.
+   * Every JoinLeg carries `partitionScope: 'all'`, plumbed through but never
+   * read. Same seam as the eager join — see {@link JoinLeg.partitionScope}.
    */
   join<As extends string, R = unknown>(
     field: QueryField<T, S>,
@@ -347,10 +346,10 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
       mode: descriptor.mode,
       strategy: undefined,
       maxRows: undefined,
-      //  constraint #1 — always 'all' in, never read by
-      // the streaming executor. partition-aware scan joins
-      // will populate this from where() predicates without
-      // changing the planner shape.
+      // Always 'all', never read by the streaming executor. This is the
+      // path where partition pruning would actually pay (every listPage()
+      // page is decrypted) — and the path blocked on a store-contract
+      // change. See JoinLeg.partitionScope constraint 2 (#1342).
       partitionScope: 'all',
     }
     return new ScanBuilder<T & Record<As, R | null>, S, M>(
