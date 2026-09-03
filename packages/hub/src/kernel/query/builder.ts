@@ -9,7 +9,7 @@ import type { QueryField } from '../types.js'
 import type { DateTruncKey, GroupKey } from './date-trunc.js'
 import { groupKeyName, isDateTruncKey, projectDateTruncKeys } from './date-trunc.js'
 import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
-import { evaluateClause, hasFnClause, normalizeMatches, readPath } from './predicate.js'
+import { evaluateClause, hasFnClause, normalizeMatches, normalizeSubqueryOperand, readPath } from './predicate.js'
 import { distinctKeyOf } from './distinct-key.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinDirection, JoinLeg, JoinStrategy } from './join.js'
@@ -323,6 +323,38 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   }
 
   /**
+   * The ids of the records this query matches (#1351) — the public spelling
+   * of {@link _idArray}, and the eager half of the subquery operand:
+   * `where(f, 'in', inner.ids())` and `where(f, 'in', inner)` build the SAME
+   * clause. Reach for the explicit form when you want to reuse the id set, or
+   * to see it.
+   *
+   * Requires a collection-backed query (`collection.query()`); a `crossJoin`
+   * plan is refused, because it produces new row objects and there is no id
+   * to recover.
+   */
+  ids(): string[] {
+    return this._idArray()
+  }
+
+  /**
+   * @internal — the id-operand contract `normalizeSubqueryOperand()`
+   * (`predicate.ts`) duck-types when this Query is passed as the operand of
+   * `in`/`!in`. Separate from {@link ids} so the failure a subquery hits is
+   * phrased as a subquery failure rather than as a `retrieve({ within })` one.
+   */
+  _asIdOperand(): { readonly ids: readonly string[]; readonly from: string } {
+    if (this.source.snapshotEntries === undefined) {
+      throw new Error(
+        "where(..., 'in', <subquery>): the inner query's source is not " +
+          'collection-backed (no snapshotEntries()). Pass a query obtained from ' +
+          'collection.query(), or pass a literal array of values.',
+      )
+    }
+    return { ids: this._idArray(), from: this.source.identity ?? '(unnamed)' }
+  }
+
+  /**
    * Filter by a registered deterministic predicate. Requires
    * the Query to have been augmented with a predicates map (typically
    * via the materialized-view registry — bare Queries constructed
@@ -388,7 +420,15 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     // site — an anchored literal prefix lowers to `startsWith` (taking the
     // sorted index), anything else serializes to `{ source, flags }` so the
     // pattern folds into an MV's queryHash. Every other operator is identity.
-    const { op: mop, value: mval } = normalizeMatches(op, value)
+    // #1351: a SUBQUERY operand of `in`/`!in` is resolved to its id array
+    // HERE, once, at build time — so everything downstream (the hash-index
+    // dispatch in `candidateRecords`, the queryHash fold, `explain()`) sees a
+    // literal array and needs no subquery awareness at all. The operand is
+    // therefore a SNAPSHOT of the inner result — read
+    // `normalizeSubqueryOperand`'s doc for what that costs a `.live()` query
+    // (an inner-collection change does not re-fire it).
+    const { op: sop, value: sval, subquery } = normalizeSubqueryOperand(op, value)
+    const { op: mop, value: mval } = normalizeMatches(sop, sval)
     const viaClause = via?.buildClause(field, mop, mval)
     const clause: FieldClause = viaClause
       ? {
@@ -396,6 +436,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
           field,
           op: mop,
           value: mval,
+          ...(subquery ? { subquery } : {}),
           via: {
             brand: viaClause.brand,
             payload: viaClause.payload,
@@ -403,7 +444,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
             indexValue: via!.indexProbe(viaClause, mop),
           },
         }
-      : { type: 'field', field, op: mop, value: mval }
+      : { type: 'field', field, op: mop, value: mval, ...(subquery ? { subquery } : {}) }
     return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
