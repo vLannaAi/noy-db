@@ -65,6 +65,11 @@ export interface OpenCollectionOptions<
   embeddings?: EmbeddingDescriptor
   /** — string fields exposed to client-side `retrieve()`. */
   textIndexes?: readonly IndexFieldName<T, S>[]
+  /** — the subset of `textIndexes` that records token positions, enabling phrase
+   *  (`"tax invoice"`) and proximity (`"tax invoice"~3`) clauses in `retrieve()`.
+   *  OPT-IN because positions roughly double the index payload for the fields
+   *  named — declare only the fields a phrase query will actually target. */
+  textIndexPositions?: readonly IndexFieldName<T, S>[]
   /** — pre-build the lexical index on open (eager-only). */
   warmIndexOnOpen?: boolean
   /** — persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */

@@ -37,7 +37,7 @@ import type { IndexStore } from './index-store.js'
 import type { PersistedIndexCallbacks } from './persisted-index-store.js'
 import { extractSnippet } from './snippet.js'
 import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries, buildBlobFieldEntries } from './build-docs.js'
-import type { IndexDoc, IndexHit } from './inverted-index.js'
+import type { IndexDoc, IndexHit, IndexBuildOptions } from './inverted-index.js'
 import type { RetrieveOptions, RetrieveHit } from './retrieve-types.js'
 
 /** Everything the moving search/retrieval methods touched on `this.*`. */
@@ -56,6 +56,8 @@ export interface SearchContext<T> {
   readonly lazy: boolean
   /** Declared text-index fields, or undefined. */
   readonly textIndexes: readonly string[] | undefined
+  /** Subset of `textIndexes` recording token positions for phrase / proximity (#1354). */
+  readonly textIndexPositions: readonly string[] | undefined
   /** Declared i18n fields, or undefined. */
   readonly i18nFields: Record<string, I18nTextDescriptor> | undefined
   /** Declared dictionary-key fields, or undefined. */
@@ -115,6 +117,17 @@ export function buildRetrievalDocs<T>(
     if (fields.length > 0) docs.push({ id, fields })
   }
   return docs
+}
+
+/**
+ * L1 — the positional-postings opt-in for this collection (#1354), or
+ * `undefined` when nothing opted in. Returning `undefined` rather than
+ * `{ positions: [] }` keeps the no-opt-in path byte-identical to a caller that
+ * never heard of positions.
+ */
+export function positionBuildOptions<T>(ctx: SearchContext<T>): IndexBuildOptions | undefined {
+  const fields = ctx.textIndexPositions
+  return fields && fields.length > 0 ? { positions: fields } : undefined
 }
 
 /** L1 — true iff any configured text index is also a blob field (gates ALL slot I/O). */
@@ -184,7 +197,7 @@ export async function flushIndex<T>(ctx: SearchContext<T>): Promise<void> {
   await ctx.ensureHydrated()
   const labelMaps = await resolveDictLabelMaps(ctx)
   const blobFilenames = await resolveBlobFilenames(ctx)
-  await ctx.searchIndexStore.ensureBuilt(() => buildRetrievalDocs(ctx, labelMaps, blobFilenames))
+  await ctx.searchIndexStore.ensureBuilt(() => buildRetrievalDocs(ctx, labelMaps, blobFilenames), positionBuildOptions(ctx))
   await ctx.searchIndexStore.flush?.()
 }
 
@@ -293,7 +306,7 @@ export async function warmIndex<T>(ctx: SearchContext<T>): Promise<void> {
   const built = ctx.searchIndexStore.built
   const labelMaps = built ? new Map() : await resolveDictLabelMaps(ctx)
   const blobFilenames = built ? new Map() : await resolveBlobFilenames(ctx)
-  await ctx.searchIndexStore.ensureBuilt(() => buildRetrievalDocs(ctx, labelMaps, blobFilenames))
+  await ctx.searchIndexStore.ensureBuilt(() => buildRetrievalDocs(ctx, labelMaps, blobFilenames), positionBuildOptions(ctx))
 }
 
 /** Retrieval. mode: 'lexical' (default) | 'semantic' (L2) | 'hybrid' (L3). */
@@ -325,12 +338,13 @@ async function retrieveLexical<T>(ctx: SearchContext<T>, query: string, opts: Re
   const built = ctx.searchIndexStore.built
   const labelMaps = built ? new Map() : await resolveDictLabelMaps(ctx)
   const blobFilenames = built ? new Map() : await resolveBlobFilenames(ctx)
-  const index = await ctx.searchIndexStore.ensureBuilt(() => buildRetrievalDocs(ctx, labelMaps, blobFilenames))
+  const index = await ctx.searchIndexStore.ensureBuilt(() => buildRetrievalDocs(ctx, labelMaps, blobFilenames), positionBuildOptions(ctx))
   const hits = index.query(query, {
     ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
     ...(opts.match ? { match: opts.match } : {}),
     ...(opts.prefix ? { prefix: opts.prefix } : {}),
     ...(opts.fields ? { fields: opts.fields } : {}),
+    ...(opts.boost ? { boost: opts.boost } : {}),
   })
   const window = opts.snippetWindow ?? 80
   return hits.map((h: IndexHit, i: number) => {

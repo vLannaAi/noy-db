@@ -328,6 +328,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
 
   /** The configured string fields exposed to `retrieve()`; `undefined` for ordinary collections (zero-cost). */
   private readonly textIndexes: readonly string[] | undefined
+  /** #1354 — the subset of `textIndexes` carrying positional postings (phrase / proximity). */
+  private readonly textIndexPositions: readonly string[] | undefined
 
   /** Session-scoped lexical index store; `undefined` (zero-cost) unless `textIndexes` is non-empty. */
   private readonly searchIndexStore: IndexStore | undefined
@@ -623,6 +625,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     // Only spin up an index store when text fields are declared, so
     // ordinary collections pay nothing (the dirty poke + retrieve see undefined).
     this.textIndexes = cfg.textIndexes
+    this.textIndexPositions = cfg.textIndexPositions
     // `searchIndexStore` is `this`-dependent: the persisted-store callback thunk
     // closes over `this.searchContext()`. Built BEFORE `this.codec` exists — the
     // thunk is lazy (NOT evaluated here), so the A14 codec-after-this ordering holds.
@@ -2861,6 +2864,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       cache: this.cache,
       lazy: this.lazy,
       textIndexes: this.textIndexes,
+      textIndexPositions: this.textIndexPositions,
       i18nFields: this.i18nFields,
       dictKeyFields: this.dictKeyFields,
       blobFields: this.blobFields,
