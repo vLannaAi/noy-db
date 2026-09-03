@@ -434,7 +434,10 @@ export type IndexFieldName<T, S extends keyof T = never, Q extends keyof T & str
  */
 export type IndexDefFor<F extends string> =
   | F
-  | { readonly fields: readonly F[]; readonly unique?: boolean }
+  // `kind` mirrors `IndexKind` in `indexing/eager-indexes.ts` (#1344).
+  // Spelt out rather than imported: this module is kernel-side and must
+  // not take a type edge into `with-lookup/`.
+  | { readonly fields: readonly F[]; readonly unique?: boolean; readonly kind?: 'hash' | 'sorted' }
   | readonly F[]
 
 /**
