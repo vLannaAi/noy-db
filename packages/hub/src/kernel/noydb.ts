@@ -1646,6 +1646,15 @@ export class Noydb {
     return { dispose: () => this.disableTabCoordination() }
   }
 
+  /** @internal #1362 — `ChangeBroadcastHost`: re-read one broadcast address through THIS
+   *  instance's own keyring. No-op for a vault this instance has not opened. */
+  _applyRemoteSignal(vaultName: string, collectionName: string, id: string): Promise<void> {
+    return this.vaultCache.get(vaultName)?._applyRemoteSignal(collectionName, id) ?? Promise.resolve()
+  }
+
+  /** @internal #1362 — `ChangeBroadcastHost`: store backend name, for the default channel name. */
+  get _storeName(): string | undefined { return this.options.store.name }
+
   #applyRemoteWrite(vaultName: string, collectionName: string, docId: string, action: 'put' | 'delete'): Promise<void> {
     const v = this.vaultCache.get(vaultName)
     if (!v) return Promise.resolve()

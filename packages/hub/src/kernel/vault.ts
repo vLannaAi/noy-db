@@ -1055,6 +1055,11 @@ export class Vault {
     await coll._applyRemoteChange(docId, action)
   }
 
+  /** @internal #1362 — verb-less variant; no-op for a collection this instance never opened. */
+  async _applyRemoteSignal(collectionName: string, docId: string): Promise<void> {
+    await this.collectionCache.get(collectionName)?._applyRemoteSignal(docId)
+  }
+
   /** @internal #598: refresh cache entries a sync-applied write rewrote underneath us. No-op if not loaded this session.
    *  #650 Task 4 (#647): a reserved-lookup collection has no `Collection` instance — instead, refresh
    *  its already-warmed `LookupHandle._syncCache` (membership/altIndex/snapshot reads never see a
