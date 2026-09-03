@@ -381,9 +381,11 @@ jobs:
             --tag '${{ steps.dist_tag.outputs.tag }}' 2>&1 | tee /tmp/npm-publish.log
           EXIT=${PIPESTATUS[0]}
 
-          # #1233 — create-noy-db is on its OWN version line and a
-          # satellite-only release does not bump it, so republishing an
-          # existing version is "nothing to do", not a failure. Classified by a
+          # #1233 — create-noy-db WAS on its own version line (the normaliser
+          # skipped it by name shape; fixed in #1313, it rides the lockstep line
+          # now), so a release could leave it at an already-published version
+          # and republishing that is "nothing to do", not a failure. Kept: it
+          # is still the right reading of that npm reply. Classified by a
           # tested function rather than inline shell: the discrimination is
           # narrow on purpose (npm reports auth failures as 404, and a real
           # permissions E403 must still fail), and inline shell here could only
@@ -398,7 +400,7 @@ jobs:
           if [ "$VERDICT" = "already-published" ]; then
             echo "### create-noy-db: nothing to publish" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "It is on its own version line and this release did not bump it, so the version on npm is already current. Not a failure (#1233)." >> "$GITHUB_STEP_SUMMARY"
+            echo "This release did not move it past the version already on npm. Not a failure (#1233)." >> "$GITHUB_STEP_SUMMARY"
             echo "create-noy-db already at its published version — skipping (#1233)."
             exit 0
           fi

@@ -1,10 +1,13 @@
 /**
- * Classify an `npm publish` outcome for a package on its OWN version line (#1233).
+ * Classify an `npm publish` outcome for `create-noy-db` (#1233).
  *
- * `create-noy-db` is skipped by the lockstep normalizer and only moves when
- * `changeset version` bumps it as a dependent. A satellite-only release — which
- * became possible with #1230 — does not bump it at all, so the publish step
- * tries to republish an already-published version and npm refuses with E403.
+ * Written when `create-noy-db` was skipped by the lockstep normalizer (by name
+ * shape — it is unscoped) and only moved when `changeset version` bumped it as
+ * a dependent. A satellite-only release — which became possible with #1230 —
+ * did not bump it at all, so the publish step tried to republish an
+ * already-published version and npm refused with E403. Since #1313 it rides
+ * the lockstep line, so that path should not recur; the classification is
+ * kept because it is still the right reading of that npm reply.
  * Nothing needed publishing, but the job exits 1 and every later step is
  * SKIPPED, including the docs-bridge payload. The red tick is cosmetic; the
  * skipped step is the damage.
