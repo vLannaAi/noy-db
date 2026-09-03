@@ -35,11 +35,10 @@
  *
  * Partition-awareness seam:
  *
- * Every `JoinLeg` carries a `partitionScope` field that is always
- * `'all'` in. The executor never reads this field.
- * partition-aware joins will start populating it from `where()`
- * predicates on the partition key without changing the planner's
- * external shape — this is the whole reason it exists now.
+ * Every `JoinLeg` carries a `partitionScope` field that is always `'all'`.
+ * The executor never reads it. See {@link JoinLeg.partitionScope} for the
+ * two constraints (#1342) that decide how it may ever be populated — one of
+ * them silently invalidates stored materialized views.
  *
  * Joins stay OUT of the ledger: reads don't touch `_ledger/`,
  * including joined reads.
@@ -84,11 +83,9 @@ const JOIN_WARN_FRACTION = 0.8
 /**
  * Internal representation of a single join leg in the query plan.
  *
- * This is the primary place where  constraint #1 is honored:
- * every leg carries a `partitionScope` field that is always `'all'`
- * in and is never read by the executor. partition-aware
- * joins will start populating it from `where()` predicates on the
- * partition key without changing the planner's external shape.
+ * This is the primary place the partition seam is honored: every leg carries
+ * a `partitionScope` field that is always `'all'` and is never read by the
+ * executor. See {@link JoinLeg.partitionScope}.
  */
 export interface JoinLeg {
   /** Field on the left-side record holding the foreign key value. */
@@ -104,11 +101,47 @@ export interface JoinLeg {
   /** Per-side row ceiling override. `undefined` → DEFAULT_JOIN_MAX_ROWS. */
   readonly maxRows: number | undefined
   /**
-   * Partition scope for future partition-aware joins. Always `'all'`
-   * today — the executor never reads this field. Future versions will
-   * populate it from `where()` predicates without breaking the
-   * planner's external shape. Do not remove even though it looks
-   * unused today — that's the whole point of having it.
+   * Partition scope for future partition-aware joins. Always `'all'` today —
+   * the executor never reads this field. Do not remove even though it looks
+   * unused: it is a plan-shape seam, and (see below) it is already inside
+   * every stored queryHash, so deleting it moves them all.
+   *
+   * ⛔ TWO CONSTRAINTS BEFORE POPULATING THIS (#1342), both measured:
+   *
+   * 1. **It is a `queryHash` input.** `serializePlan()` emits `plan.joins`
+   *    verbatim and `computeQueryHash()` hashes the canonicalized plan whole
+   *    (`with-formula/materialized-views/query-hash.ts`), so a leg's
+   *    `partitionScope` is baked into every joined MV's stored hash. Writing
+   *    a narrowed scope here silently invalidates those rows — a rebuild with
+   *    no error and no warning. #1289 dodged the same trap for `direction` by
+   *    OMITTING the field at its default; that escape is not available here,
+   *    because `'all'` has been emitted all along. An implementation must keep
+   *    emitting `'all'` verbatim for an unnarrowed leg, and must treat the
+   *    one-time invalidation of narrowing MVs as a release note.
+   *    ⭐ Cheaper: derive the scope in the EXECUTOR from clauses the plan
+   *    already carries, and leave this field alone. It is a derived value;
+   *    storing it buys nothing and costs the hash. Pinned by
+   *    `__tests__/query-partition-scope.test.ts`.
+   *
+   * 2. **Pruning only pays on the `scan()` path, and there it is a security
+   *    decision, not an optimisation.** `query()` runs over an in-memory,
+   *    already-decrypted cache, where `candidateRecords()`'s hash / sorted /
+   *    compound index dispatch (#1344, #1345) narrows better than a partition
+   *    ever could. `scan()` decrypts each `listPage()` page, so a partition
+   *    never fetched is real work saved — but `NoydbStore.listPage` takes no
+   *    filter, and it cannot usefully take one while the partition key lives
+   *    inside the ciphertext. Serving "only partition P" requires lifting the
+   *    key out into the storage key or cleartext metadata: a deliberate,
+   *    permanent metadata leak to the backend, and a change to the published
+   *    `@noy-db/hub/to` store contract. Not a planner refactor.
+   *
+   * Whatever populates it must also be sound in one direction only: narrow
+   * ONLY on a whitelist of provable shapes (`==` / `in` on the declared key
+   * at the top level of the AND-ed clause list), and fall back to `'all'` for
+   * everything else — `or` groups, negations, callback clauses, and any
+   * Via-covered clause (its operand is in STORED form, not partition-key
+   * space, which is why `candidateRecords` refuses the index for it too). A
+   * partition wrongly excluded is silently missing data.
    */
   readonly partitionScope: 'all' | readonly string[]
   /**
