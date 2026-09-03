@@ -53,6 +53,22 @@ import { JoinTooLargeError, DanglingReferenceError } from '../errors.js'
 /** Planner strategy for a single join leg. Auto-selected unless overridden. */
 export type JoinStrategy = 'hash' | 'nested'
 
+/**
+ * Which side of a join leg is preserved (#1289).
+ *
+ *   - `'left'`  — every left row survives, `null` under the alias when the
+ *     FK resolves to nothing. This is what `.join()` has always done, and it
+ *     is the default for a leg that names no direction.
+ *   - `'right'` — every RIGHT record survives, including one nothing points
+ *     at; a left row whose FK matches nothing is dropped.
+ *   - `'full'`  — the union of the two.
+ *
+ * `'right'` and `'full'` are the only two that need the reverse index — see
+ * {@link outerJoinFromRight}. A forward leg is driven by the left row's FK
+ * and never has to ask "did anything point at this".
+ */
+export type JoinDirection = 'left' | 'right' | 'full'
+
 /** Default per-side row ceiling before `.join()` throws `JoinTooLargeError`. */
 export const DEFAULT_JOIN_MAX_ROWS = 50_000
 
@@ -94,6 +110,12 @@ export interface JoinLeg {
    * unused today — that's the whole point of having it.
    */
   readonly partitionScope: 'all' | readonly string[]
+  /**
+   * Which side is preserved (#1289). `undefined` reads as `'left'` — the
+   * pre-#1289 behaviour — so every plan built before this field existed, and
+   * every serialized plan that omits it, keeps its meaning exactly.
+   */
+  readonly direction?: JoinDirection
   /**
    * When `true`, this is a dictionary join. The executor
    * resolves the left-field value against the dict snapshot and
@@ -141,6 +163,33 @@ export interface JoinableSource {
    * it just calls this hook.
    */
   readonly presentForJoin?: (record: unknown, locale: string) => unknown
+  /**
+   * The id-paired view of {@link snapshot} (#1289).
+   *
+   * ⚠️ A `Collection` snapshot record does NOT carry its own id — the id is
+   * the cache key, not a field. The forward join never noticed, because it
+   * reads the id off the LEFT row's FK and calls `lookupById`. A right/full
+   * outer join has to ask each RIGHT record "what is your id, and did
+   * anything point at you", and there is no field to read it from.
+   *
+   * Optional so a plain-object test source stays valid; `outerJoinFromRight`
+   * falls back to an `id` FIELD on the record, which is what such sources
+   * carry. A real Collection supplies this and the fallback never runs.
+   */
+  snapshotEntries?(): readonly { readonly id: string; readonly record: unknown }[]
+  /**
+   * Via RESULT decode for this source's own records (#1289) — the same
+   * `via.decodeResults` a top-level `toArray()` applies (money's stored
+   * scaled-int → canonical decimal, etc.).
+   *
+   * It exists because Via dressing keys by BARE FIELD NAME: the moment a
+   * record moves under an alias (`{ client: { amount } }`, or both sides of
+   * `crossJoinWith`) the top-level decode cannot see it, and the row silently
+   * serves raw money. Distinct from `presentForJoin`, which is the LOCALE
+   * half (i18n text + lookup labels) and only runs for a locale-carrying
+   * query — this half is locale-free and always applies.
+   */
+  readonly decodeResults?: (record: unknown) => unknown
   /**
    * Subscribe to mutations on this source. The callback fires
    * AFTER the underlying record set has been updated. Returns an
@@ -440,6 +489,15 @@ function applyOneJoin(
   const strategy: JoinStrategy =
     leg.strategy ?? (source.lookupById ? 'nested' : 'hash')
 
+  // #1289 — a right/full outer join cannot be driven by the left row's FK,
+  // because the rows it must produce are exactly the ones no FK names. It
+  // reverses the index instead: bucket the LEFT rows by their FK value, then
+  // walk the right snapshot asking each record "did anything point at me".
+  const direction = leg.direction ?? 'left'
+  if (direction !== 'left') {
+    return outerJoinFromRight(leftRows, leg, source, direction, presentResolve)
+  }
+
   if (strategy === 'nested' && source.lookupById) {
     // Bind through an arrow so the `this` context of lookupById
     // doesn't drift — same pattern as the existing candidateRecords
@@ -492,6 +550,90 @@ function hashJoin(
     if (presentResolve && right !== undefined) right = presentResolve(right)
     out.push(attachJoin(left, leg, right, rawId))
   }
+  return out
+}
+
+/**
+ * Bucket the left rows by the FK value they carry, so the right side can be
+ * asked "did anything point at this record" in O(1).
+ *
+ * This IS the reverse index #1289 names. It is built per execution and lives
+ * only for the length of the join: nothing is persisted, no store is touched,
+ * and it costs one pass over the left set that the forward path does not pay.
+ * Left rows with a null/uncoercible FK are absent from every bucket — they are
+ * "no reference at all", never a match.
+ */
+function reverseIndex(leftRows: readonly unknown[], field: string): Map<string, unknown[]> {
+  const byRight = new Map<string, unknown[]>()
+  for (const left of leftRows) {
+    const key = coerceRefKey(readPath(left, field))
+    if (key === null) continue
+    const bucket = byRight.get(key)
+    if (bucket) bucket.push(left)
+    else byRight.set(key, [left])
+  }
+  return byRight
+}
+
+/**
+ * Right / full outer join (#1289).
+ *
+ * Walks the RIGHT snapshot as the driving relation. A right record with a
+ * non-empty bucket emits one row per left row in it (identical in shape to
+ * what the forward path would have produced); a right record nothing points
+ * at emits a LEFT-LESS row — `{ [leg.as]: right }` and nothing else, which is
+ * SQL's "the left columns are NULL" rendered in an object language.
+ *
+ * `'full'` then appends the left rows the right side never claimed, in their
+ * original order, with `null` under the alias — i.e. exactly the rows the
+ * forward left-outer path would emit for them, ref-mode behaviour included.
+ * `'right'` drops those rows, but still runs the ref-mode check on them: a
+ * strict dangling ref is a data-integrity finding, and hiding it behind a
+ * change of join direction would make corruption depend on which method the
+ * caller happened to type.
+ */
+function outerJoinFromRight(
+  leftRows: readonly unknown[],
+  leg: JoinLeg,
+  source: JoinableSource,
+  direction: JoinDirection,
+  presentResolve?: (right: unknown) => unknown,
+): unknown[] {
+  const byRight = reverseIndex(leftRows, leg.field)
+  const matchedLeft = new Set<unknown>()
+  const out: unknown[] = []
+
+  // Prefer the id-paired view: a Collection record has no `id` field, so
+  // reading one off the record would leave every bucket unmatched and turn a
+  // right join into "every right record is an orphan" — wrong, and quietly so
+  // in `cascade`/`warn` mode. The field fallback serves plain-object sources.
+  const entries: readonly { id: string | null; record: unknown }[] =
+    source.snapshotEntries?.() ??
+    source.snapshot().map(record => ({ id: coerceRefKey(readPath(record, 'id')), record }))
+
+  for (const { id: rid, record: right } of entries) {
+    const dressed = presentResolve ? presentResolve(right) : right
+    const bucket = rid === null ? undefined : byRight.get(rid)
+    if (bucket === undefined || bucket.length === 0) {
+      // Nothing points at this record — the row that only a right/full outer
+      // join can produce.
+      out.push({ [leg.as]: dressed })
+      continue
+    }
+    for (const left of bucket) {
+      matchedLeft.add(left)
+      out.push(attachJoin(left, leg, dressed, readPath(left, leg.field)))
+    }
+  }
+
+  for (const left of leftRows) {
+    if (matchedLeft.has(left)) continue
+    // Unmatched left row: `attachJoin` with an undefined right applies the
+    // ref mode (strict throws, warn warns once) and attaches null.
+    const row = attachJoin(left, leg, undefined, readPath(left, leg.field))
+    if (direction === 'full') out.push(row)
+  }
+
   return out
 }
 

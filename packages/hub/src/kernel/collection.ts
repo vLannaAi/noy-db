@@ -3153,6 +3153,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     return {
       snapshot: () => [...this.cache.values()].map(e => e.record),
       lookupById: (id: string) => this.cache.get(id)?.record,
+      snapshotEntries: () => [...this.cache.entries()].map(([id, e]) => ({ id, record: e.record })), // #1289 right/full outer join — the id is the cache KEY, not a field on the record; same `this.cache` closure as snapshot(), so the two views cannot disagree
       subscribe: (cb: () => void) => {
         const handler = (event: ChangeEvent): void => {
           if (event.vault === this.vault && event.collection === this.name) {
@@ -3164,6 +3165,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       },
       // Sync join dressing (#650 Task 6, #626 retirement) — i18n-text + lookup-label, from this collection's own bindings.
       ...(this.presentForJoin !== undefined ? { presentForJoin: this.presentForJoin } : {}),
+      decodeResults: (record: unknown): unknown => (this.via && this.via.hasResultDecode ? this.via.decodeResults(record) : record), // #1289 Via result decode for a record served under an ALIAS — contract + rationale on JoinableSource in query/join.ts. Reads `this.via` per call, never a captured value: _applyMoneyFields rebuilds the pipeline after this source is handed out
     }
   }
 

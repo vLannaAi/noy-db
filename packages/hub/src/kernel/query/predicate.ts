@@ -112,6 +112,18 @@ export interface CrossJoinClause {
   /** Alias under which the right-side record is exposed on each result row. */
   readonly as: string
   /**
+   * Alias under which the LEFT row is exposed (#1289, `.crossJoinWith()`).
+   * `undefined` — every clause `.crossJoin()` builds — spreads the left row's
+   * own fields at the top level, which is the pre-#1289 shape.
+   *
+   * Set, the row becomes `{ [leftAs]: left, [as]: right }` and NO field sits
+   * at the top level. That is the whole point (a self-join needs both sides
+   * distinguishable) and also its whole cost: Via dressing keys by bare field
+   * name, so an aliased row is invisible to the top-level decode and must be
+   * dressed per alias instead. See `dressAliases` in `builder.ts`.
+   */
+  readonly leftAs?: string
+  /**
    * Lateral filter callback. `undefined` → full cartesian product.
    * Two call shapes:
    *   - Subset:    `(left) => TTarget[]`            — returns the right rows for this left row
