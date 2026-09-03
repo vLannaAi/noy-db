@@ -18,7 +18,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createNoydb, ref } from '../src/index.js'
-import { sum, withReduce } from '../src/with-lookup/reduce/index.js'
+import { count, sum, withReduce } from '../src/with-lookup/reduce/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'
 
 function toMemory(): NoydbStore {
@@ -245,23 +245,40 @@ describe('#1030 — where() on a join alias', () => {
   })
 })
 
-describe('#1030 — reducing terminals refuse a joined alias instead of reducing undefined', () => {
-  it('groupBy() on a joined alias throws an actionable error', async () => {
+describe('#1030 — reducing terminals over a joined alias (superseded by #1338)', () => {
+  /**
+   * These three shapes THREW until #1338. The refusal was right for what it
+   * knew: the terminals did not apply the legs, so a group key or a reducer
+   * over an alias would have folded `undefined`. #1338 supplies the missing
+   * half — the legs run, and each aliased reducer is wrapped by the RIGHT
+   * collection's pipeline, which carries money's exact rewrite and the
+   * `queryable: 'none'` gate together. `query-join-groupby.test.ts` owns the
+   * behaviour; what is pinned HERE is that the shapes #1030 refused are the
+   * shapes that now work, so nobody re-adds the guard by reading only its doc.
+   */
+  it('groupBy() on a joined alias buckets by the joined value', async () => {
     const { bills } = await seed()
-    expect(() => bills.query().join('clientId', { as: 'client' }).groupBy('client.name'))
-      .toThrow(/addresses the join alias "client"/)
+    const rows = bills.query().join('clientId', { as: 'client' })
+      .groupBy('client.name').aggregate({ n: count() }).run() as Record<string, unknown>[]
+    const by = new Map(rows.map(r => [r['client.name'], r.n]))
+    expect(by.get('Ann')).toBe(1)
+    expect(by.get('Bob')).toBe(1)
+    // b2 (dangling) and b3 (no FK) share the undefined bucket.
+    expect(by.get(undefined)).toBe(2)
   })
 
-  it('aggregate() over a joined alias throws', async () => {
+  it('aggregate() over a joined alias reduces the joined relation', async () => {
     const { bills } = await seed()
-    expect(() => bills.query().join('clientId', { as: 'client' })
-      .aggregate({ n: sum('client.total') }))
-      .toThrow(/addresses the join alias "client"/)
+    const r = bills.query().join('clientId', { as: 'client' })
+      .aggregate({ n: count() }).run() as Record<string, unknown>
+    expect(r.n).toBe(4)
   })
 
-  it('the error names the crossJoin alternative', async () => {
+  it('distinct() over an alias is still refused, and still names crossJoin', async () => {
     const { bills } = await seed()
-    expect(() => bills.query().join('clientId', { as: 'client' }).groupBy('client.name'))
+    expect(() => bills.query().join('clientId', { as: 'client' }).distinct('client.name'))
+      .toThrow(/addresses the join alias "client"/)
+    expect(() => bills.query().join('clientId', { as: 'client' }).distinct('client.name'))
       .toThrow(/crossJoin/)
   })
 

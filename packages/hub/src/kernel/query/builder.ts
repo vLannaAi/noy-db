@@ -13,7 +13,8 @@ import { evaluateClause, hasFnClause, normalizeMatches, normalizeSubqueryOperand
 import { distinctKeyOf } from './distinct-key.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinDirection, JoinLeg, JoinStrategy } from './join.js'
-import { applyJoins, splitAroundJoins } from './join.js'
+import { applyJoins, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
+import { reduceViaFor, refuseAliasReduceVia } from './join-reduce.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError, RefNotDeclaredError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
@@ -92,7 +93,26 @@ export const DEFAULT_CROSS_JOIN_MAX_ROWS = 50_000
  * or aggregating over a joined alias silently bucketed every row under
  * `undefined`, because these terminals never apply join legs at all.
  *
- * Refusing rather than reordering is a DELIBERATE, REVIEWED DECISION
+ * ⭐ **`aggregate()` and `groupBy()` NO LONGER CALL THIS — #1338 supplied the
+ * work the analysis below specifies, and they route instead of refusing.**
+ * The remaining caller is `distinct()`, whose Via question is a different one
+ * (`distinctKeyOf` canonicalises through the LEFT pipeline's index key, so an
+ * aliased value would dedup on the wrong canonicaliser) and which no issue has
+ * asked for. Everything below is the analysis #1338 was built from; it is kept
+ * because it names WHICH properties had to hold, and `join-reduce.ts` is where
+ * each one is now discharged:
+ *
+ *   - the right side's reducer rewrite AND its posture gate, in one call —
+ *     `joinAliasBinding` hands each aliased reducer to the right collection's
+ *     own `wrapReducers` under its bare field name;
+ *   - right-side change streams merged into the live upstreams —
+ *     `Query.rightSideUpstreams()`, shared with `live()`;
+ *   - and the case the analysis could not see, because the grouped terminal
+ *     is one object further along the chain than `Query.aggregate()`: a
+ *     reducer over an alias under a LEFT group key, which returned a confident
+ *     `0`. `refuseAliasBinding` refuses it.
+ *
+ * Refusing rather than reordering was a DELIBERATE, REVIEWED DECISION
  * (2026-08-10), not an oversight. What follows is why, so it is not
  * re-litigated from scratch — and so nobody "fixes" it for the wrong reason.
  *
@@ -130,6 +150,9 @@ export const DEFAULT_CROSS_JOIN_MAX_ROWS = 50_000
  * cautionary tale — a speculative deferral whose premises had drifted out of
  * sync with the code by the time anyone re-read it. Build this when a real
  * query needs it, and design it against that query.
+ * ⭐ It was tracked as one three weeks later (#1338, the accounting-report
+ * shape) and built against that query — which is the paragraph above working,
+ * not failing.
  */
 function assertNoJoinAliasField(
   fields: readonly string[],
@@ -680,7 +703,8 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * left set and one `Map` the size of the distinct FK values; both sides are
    * fully materialized either way, and both row ceilings still apply.
    *
-   * **Ordering.** Like `.join()`, legs run AFTER `orderBy`/`limit`/`offset`,
+   * **Ordering.** Like `.join()`, legs run AFTER `orderBy`/`limit`/`offset`
+   * unless the ordering addresses the alias (#1337),
    * so those narrow the LEFT side. Rows are emitted in right-snapshot order.
    *
    * A left row whose non-null FK resolves to nothing is dropped, but the
@@ -1005,8 +1029,11 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   /**
    * Execute the plan and return the matching records. When the plan
    * carries any join legs, they are applied after `where` / `orderBy`
-   * / `limit` / `offset` narrow the left set. See the `.join()` doc
-   * for the ordering rationale.
+   * / `limit` / `offset` narrow the left set — UNLESS a clause (#1030) or
+   * the ordering (#1337) addresses a join alias, in which case the legs run
+   * first and the sort/page observe the joined relation. See the `.join()`
+   * doc for the ordering rationale, and `.explain()` for which one a given
+   * plan gets.
    *
    * `opts.locale` resolves JOINED right-side i18n fields at the
    * `join` layer to that locale; without it, the owning collection's default
@@ -1019,14 +1046,22 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     if (this.plan.after !== undefined) return this.executeKeyset(opts).rows
 
     const { preJoin, postJoin } = splitAroundJoins(this.plan.clauses, this.plan.joins)
+    // #1337 — an ORDERING that addresses an alias moves the sort/page after
+    // the legs for exactly the reason #1030's predicate did: the field does
+    // not exist yet. The failure was quieter than #1030's, not louder — every
+    // sort key read `undefined`, so the sort was a stable no-op and the page
+    // came back in insertion order looking merely unlucky.
+    const orderPostJoin = orderReferencesJoinAlias(this.plan.orderBy, this.plan.joins)
 
-    if (postJoin.length === 0) {
+    if (postJoin.length === 0 && !orderPostJoin) {
       // Decode Via-covered fields (e.g. money: stored scaled-int → canonical
       // decimal) so query().toArray() matches get()/sum(), which already
       // apply the same decode. Decode the left/base records before joins
       // (right-side aliased fields belong to other collections and are out
       // of this source's Via scope).
-      const base = this.decodeVia(executePlanWithSource(this.source, this.plan, this.joinContext, opts?.locale))
+      const base = this.decodeVia(
+        executePlanWithSource(this.source, this.plan, this.joinContext, opts?.locale, this.aliasVia()),
+      )
       if (this.plan.joins.length === 0) return this.dressAliases(base) as T[]
       return this.dressAliases(
         applyJoins(base, this.plan.joins, this.requireJoinContext('toArray'), opts?.locale),
@@ -1054,7 +1089,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     const joined = applyJoins(narrowed, this.plan.joins, joinContext, opts?.locale)
     const filtered = filterRecords(joined, postJoin, fnViewDecoder(this.source))
     return this.dressAliases(
-      applyOrderAndPage(filtered, this.plan, this.source, joinContext, opts?.locale),
+      applyOrderAndPage(filtered, this.plan, this.source, joinContext, opts?.locale, this.aliasVia()),
     ) as T[]
   }
 
@@ -1118,6 +1153,91 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       }
       return out ?? row
     })
+  }
+
+  /**
+   * Alias → the Via pipeline of the collection whose records sit under it
+   * (#1337). Every alias this plan can produce: a `.join()`/`.rightJoin()`
+   * leg, a `.crossJoin()` right side, and both sides of `.crossJoinWith()`.
+   *
+   * ⭐ **Ordering compares in RAW STORED SPACE, never in dressed space, and
+   * that is what forces this map to exist.** `dressAliases` runs LAST — after
+   * every filter, sort and page — because a `where` operand is built raw. So
+   * the sort sees money as its stored scaled integer, where a generic compare
+   * is lexical and gets `'9882'` vs `'10004'` backwards. The left side has
+   * always avoided that by asking `source.via.compareForOrder`; an aliased
+   * field needs the same question asked of the RIGHT side's pipeline, keyed
+   * by the field name WITHOUT the alias prefix (a pipeline covers bare field
+   * names — that is the whole of #1335's shape).
+   *
+   * Empty when no alias resolves a pipeline, in which case the comparator
+   * falls back to exactly what it did before.
+   */
+  private aliasVia(): ReadonlyMap<string, ViaPipeline> | undefined {
+    const ctx = this.joinContext
+    if (!ctx) return undefined
+    const out = new Map<string, ViaPipeline>()
+    const push = (alias: string, collection: string): void => {
+      const via = ctx.resolveSource(collection)?.via?.()
+      if (via) out.set(alias, via)
+    }
+    for (const clause of this.plan.clauses) {
+      if (clause.type !== 'crossJoin') continue
+      push(clause.as, clause.target)
+      if (clause.leftAs !== undefined) push(clause.leftAs, ctx.leftCollection)
+    }
+    for (const leg of this.plan.joins) {
+      // A dict join attaches `{ key, ...labels }` — no collection pipeline.
+      if (leg.isDictJoin === true) continue
+      push(leg.as, leg.target)
+    }
+    return out.size > 0 ? out : undefined
+  }
+
+  /**
+   * The right-side change streams a joined query has to merge (#1338), deduped
+   * by target the way `live()` does — a chain joining the same collection
+   * twice must not double-fire. Extracted so a joined REDUCTION and a joined
+   * live query cannot disagree on what "the sources of this result" means.
+   */
+  private rightSideUpstreams(): ReductionUpstream[] {
+    const ctx = this.joinContext
+    if (!ctx) return []
+    const out: ReductionUpstream[] = []
+    const seen = new Set<string>()
+    for (const leg of this.plan.joins) {
+      if (seen.has(leg.target)) continue
+      seen.add(leg.target)
+      const right = ctx.resolveSource(leg.target)
+      if (!right?.subscribe) continue
+      const subscribe = right.subscribe.bind(right)
+      out.push({ subscribe: (cb: () => void) => subscribe(cb) })
+    }
+    return out
+  }
+
+  /**
+   * Every alias this plan can produce, pipeline or not (#1338).
+   *
+   * `aliasVia()` above holds only the aliases whose collection compiles a Via
+   * pipeline; refusal has to know about ALL of them, or an aliased reducer
+   * over a plain right-side collection stays silent.
+   */
+  private aliasNames(): ReadonlySet<string> {
+    const out = new Set<string>()
+    for (const clause of this.plan.clauses) {
+      if (clause.type !== 'crossJoin') continue
+      out.add(clause.as)
+      if (clause.leftAs !== undefined) out.add(clause.leftAs)
+    }
+    for (const leg of this.plan.joins) out.add(leg.as)
+    return out
+  }
+
+  /** Is `field` rooted at an alias this plan produces? */
+  private addressesAlias(field: string, aliases: ReadonlySet<string>): boolean {
+    const dot = field.indexOf('.')
+    return dot > 0 && aliases.has(field.slice(0, dot))
   }
 
   /**
@@ -1288,7 +1408,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * apply only when a predicate addresses one (#1030), and orderBy/limit/offset
    * do NOT — those describe a page, and a reduction is not paginated.
    */
-  private matchedRecords(terminal: string): readonly unknown[] {
+  private matchedRecords(terminal: string, forceJoins = false): readonly unknown[] {
     if (this.plan.clauses.some(c => c.type === 'crossJoin')) {
       if (!this.joinContext) {
         throw new Error(
@@ -1313,7 +1433,12 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     // this for count(), and it holds identically for distinct() and exists()
     // now that #1347 made them share this pipeline.
     const reshapes = this.plan.joins.some(leg => leg.direction !== undefined && leg.direction !== 'left')
-    if (postJoin.length === 0 && !reshapes) return narrowed
+    // #1338 — `forceJoins` is the third reason the legs have to run: a group
+    // key or a reducer addresses an alias, so the relation being reduced IS
+    // the joined one. Same pipeline, same order; only the entry condition is
+    // new, which is what keeps "which records does this terminal see" one
+    // definition rather than four.
+    if (postJoin.length === 0 && !reshapes && !forceJoins) return narrowed
     // #1030 — the predicate lives on the joined side, so the legs are part of
     // the count. Same pipeline as toArray(), minus ordering and pagination.
     const joined = applyJoins(narrowed, this.plan.joins, this.requireJoinContext(terminal))
@@ -1454,12 +1579,15 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * value read `.run()`; consumers wiring a reactive UI read
    * `.live()`.
    *
-   * Joins are intentionally NOT applied to aggregations in —
-   * the same logic as `.count()`. Joins in are projection-only
-   * (they attach an aliased field and never filter), so running
-   * them just to throw the aliases away would be wasteful. If you
-   * need a reducer that reads a joined field, open an issue —
-   * aggregations-across-joins is explicitly out of scope for v1.
+   * Joins are NOT applied by default — the same logic as `.count()`. A leg is
+   * projection-only, so running one just to throw the alias away would be
+   * wasteful. ⭐ **The exception is a reducer that ADDRESSES an alias**
+   * (#1338): then the joined relation IS what is being reduced, so the legs
+   * run and the reducer is rewritten by the right collection's own Via
+   * pipeline — money stays exact, and the right side's `queryable: 'none'`
+   * posture refuses a field it would refuse locally. A live joined
+   * aggregation also merges every right-side change stream, so it does not
+   * quietly stop updating when the right side moves.
    *
    * Every reducer factory accepts an optional `{ seed }` parameter
    * that is plumbed through the protocol but unused by the
@@ -1488,20 +1616,23 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     let spec = typeof specOrBuild === 'function'
       ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)((reducerBuilder as unknown) as ReducerBuilder<T, S, M>)
       : specOrBuild
-    // A reducer over a joined alias would silently reduce undefined (#1030) —
-    // the terminals below never apply join legs. Reducers without a field
-    // (e.g. `count()`) have nothing to check.
-    assertNoJoinAliasField(
-      Object.values(spec)
-        .map(r => (r as { field?: unknown }).field)
-        .filter((f): f is string => typeof f === 'string'),
-      this.plan.joins,
-      'aggregate',
-    )
+    // #1338 — a reducer over a joined alias used to be refused here. It now
+    // routes: the legs run (so the reducer sees the joined relation) and the
+    // spec is wrapped by a pipeline that delegates each aliased field to the
+    // RIGHT collection's own — which carries money's exact-BigInt rewrite and
+    // the `queryable: 'none'` posture gate together. Reducers without a field
+    // (e.g. `count()`) address nothing and are unaffected.
+    const aliases = this.aliasNames()
+    const aliasedReducer =
+      this.plan.joins.length > 0 &&
+      Object.values(spec).some(r => {
+        const f = (r as { field?: unknown }).field
+        return typeof f === 'string' && this.addressesAlias(f, aliases)
+      })
     // Rewrite sum/min/max over Via-covered fields (e.g. money) into exact
     // BigInt reducers before the strategy runs (covers static run() and
     // live/MV paths).
-    spec = this.source.via?.wrapReducers(spec) ?? spec
+    spec = (aliasedReducer ? reduceViaFor(this.source.via, this.aliasVia()) : this.source.via)?.wrapReducers(spec) ?? spec
     // #1347 — `countDistinct` needs the SAME canonicalizer the hash index
     // buckets by, and only the source knows it. Bound here, beside the
     // money rewrite, so both spec-wrapping seams stay in one place.
@@ -1515,16 +1646,20 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     const clauses = this.plan.clauses
     const joinCtx = this.joinContext
     const hasCrossJoins = clauses.some(c => c.type === 'crossJoin')
-    const fullScan = (): readonly unknown[] => {
-      if (hasCrossJoins) {
-        if (!joinCtx) throw new Error('Query.aggregate(): crossJoin requires a join context')
-        return executeClausePipeline(source, clauses, joinCtx)
+    const fullScan = aliasedReducer
+      // The reduced relation IS the joined one — same pipeline `count()` uses,
+      // with the legs forced on (#1338).
+      ? (): readonly unknown[] => this.matchedRecords('aggregate', true)
+      : (): readonly unknown[] => {
+        if (hasCrossJoins) {
+          if (!joinCtx) throw new Error('Query.aggregate(): crossJoin requires a join context')
+          return executeClausePipeline(source, clauses, joinCtx)
+        }
+        const { candidates, remainingClauses } = candidateRecords(source, clauses)
+        return remainingClauses.length === 0
+          ? candidates
+          : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
       }
-      const { candidates, remainingClauses } = candidateRecords(source, clauses)
-      return remainingClauses.length === 0
-        ? candidates
-        : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
-    }
 
     // #1341 — when the plan admits it, the match set is MAINTAINED across
     // change events instead of re-scanned, so a live reduction folds over an
@@ -1535,10 +1670,12 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     const maintainer = this.incrementalMaintainer('records')
     const executeRecords = maintainer ? (): readonly unknown[] => maintainer.rows() : fullScan
 
-    // Upstream for live mode — only the left source subscribes.
-    // Joined aggregations are out of scope for (see above), so
-    // there are no right-side change streams to merge in.
+    // Upstream for live mode. The left source always subscribes; a joined
+    // aggregation ALSO merges every right-side change stream (#1338) — the
+    // refusal's own doc named a live joined aggregate that silently stops
+    // updating as half the work, and it is this half.
     const upstreams: ReductionUpstream[] = []
+    if (aliasedReducer) upstreams.push(...this.rightSideUpstreams())
     if (source.subscribe) {
       const subscribe = source.subscribe.bind(source)
       upstreams.push(
@@ -1609,13 +1746,21 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * cases do NOT merge. Consumers who want them merged should
    * coalesce upstream with `.filter()`.
    *
-   * **Joins are not applied** — same rationale as `.count()` and
-   * `.aggregate()`. Joined fields in are projection-only, so
-   * running a join inside a grouping pipeline would be wasteful and
-   * could trigger `DanglingReferenceError` in strict mode for a
-   * call whose intent is purely to bucket-and-reduce. Grouping by
-   * a joined field is explicitly out of scope for — file an
-   * issue if a real consumer needs it.
+   * **Joins are not applied unless the GROUP KEY addresses an alias** (#1338).
+   * For a left-side key the old rationale still holds — a leg is
+   * projection-only, so running one inside a grouping pipeline would be
+   * wasteful and could trigger `DanglingReferenceError` in strict mode for a
+   * call whose intent is purely to bucket-and-reduce. For an aliased key
+   * (`groupBy('client.region')`, the accounting-report shape) the legs run and
+   * the buckets are the joined relation's: the key is stamped under its DOTTED
+   * path (`row['client.region']`), and a left row whose right side is absent
+   * reads `undefined` and lands in the undefined bucket — the same bucket a
+   * missing left-side key gets, and still distinct from an explicit `null`.
+   *
+   * ⚠️ The decision is taken from the KEY, because the reducer spec arrives a
+   * call later. A reducer over an alias under a LEFT key is therefore REFUSED
+   * rather than folded as `undefined` — group by the alias, or aggregate
+   * without grouping.
    *
    * **Filter clauses (`.filter(fn)`):** grouped queries still
    * support filter clauses in the underlying plan — they run in
@@ -1652,7 +1797,18 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     // bucket semantics, live re-grouping — keeps working unchanged.
     const derived = keys.filter(isDateTruncKey)
     const fields: readonly string[] = keys.map(groupKeyName)
-    assertNoJoinAliasField(fields, this.plan.joins, 'groupBy')
+    // #1338 — a group key addressing an alias used to be refused. It now
+    // decides the shape of the whole grouped pipeline: the legs run, and the
+    // reducers are wrapped through the right side's pipeline.
+    //
+    // ⚠️ The decision is made HERE, from the group KEY alone, because the
+    // reducer spec does not exist yet — it arrives one call later, at
+    // `.aggregate()`. That is exactly why the left-key case installs a
+    // REFUSING binding rather than nothing: a reducer over an alias under a
+    // left-side key would otherwise fold undefined into every bucket, and the
+    // grouped terminal is not the one `Query.aggregate()`'s guard sees.
+    const aliases = this.aliasNames()
+    const keyIsAliased = this.plan.joins.length > 0 && fields.some(f => this.addressesAlias(f, aliases))
     // Same record-producing closure as .aggregate() — grouped and
     // non-grouped aggregations execute over the same candidate set.
     // We inline the closure here instead of sharing a helper so the
@@ -1661,16 +1817,18 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     const clauses = this.plan.clauses
     const joinCtx = this.joinContext
     const hasCrossJoins = clauses.some(c => c.type === 'crossJoin')
-    const executeRecords = (): readonly unknown[] => {
-      if (hasCrossJoins) {
-        if (!joinCtx) throw new Error('Query.groupBy(): crossJoin requires a join context')
-        return executeClausePipeline(source, clauses, joinCtx)
+    const executeRecords = keyIsAliased
+      ? (): readonly unknown[] => this.matchedRecords('groupBy', true)
+      : (): readonly unknown[] => {
+        if (hasCrossJoins) {
+          if (!joinCtx) throw new Error('Query.groupBy(): crossJoin requires a join context')
+          return executeClausePipeline(source, clauses, joinCtx)
+        }
+        const { candidates, remainingClauses } = candidateRecords(source, clauses)
+        return remainingClauses.length === 0
+          ? candidates
+          : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
       }
-      const { candidates, remainingClauses } = candidateRecords(source, clauses)
-      return remainingClauses.length === 0
-        ? candidates
-        : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
-    }
     const executeGroupRecords = derived.length === 0
       ? executeRecords
       : (): readonly unknown[] => projectDateTruncKeys(executeRecords(), derived)
@@ -1680,6 +1838,13 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       const subscribe = source.subscribe.bind(source)
       upstreams.push({ subscribe: (cb: () => void) => subscribe(cb) })
     }
+    if (keyIsAliased) upstreams.push(...this.rightSideUpstreams())
+
+    // The pipeline the reducers are wrapped with: the right side's rewrite
+    // when the legs run, the refusal when they do not (#1338).
+    const reduceVia = keyIsAliased
+      ? reduceViaFor(this.source.via, this.aliasVia())
+      : refuseAliasReduceVia(this.source.via, aliases)
 
     // Dict-label resolution is single-field only — the <field>Label
     // projection has no meaningful shape for composite keys. A derived
@@ -1694,14 +1859,14 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
         field,
         upstreams,
         dictLabelResolver,
-        this.source.via,
+        reduceVia,
       )
     }
     return this.reduceStrategy.groupByN<T, readonly string[], S, M>(
       executeGroupRecords,
       fields,
       upstreams,
-      this.source.via,
+      reduceVia,
     )
   }
 
@@ -1934,6 +2099,7 @@ function executePlanWithSource(
   plan: QueryPlan,
   joinContext?: JoinContext,
   locale?: string,
+  aliasVia?: ReadonlyMap<string, ViaPipeline>,
 ): unknown[] {
   const hasCrossJoins = plan.clauses.some(c => c.type === 'crossJoin')
 
@@ -1959,7 +2125,7 @@ function executePlanWithSource(
         : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
   }
 
-  return applyOrderAndPage(result, plan, source, joinContext, locale)
+  return applyOrderAndPage(result, plan, source, joinContext, locale, aliasVia)
 }
 
 /**
@@ -1975,6 +2141,7 @@ function applyOrderAndPage(
   source: InternalSource,
   joinContext?: JoinContext,
   locale?: string,
+  aliasVia?: ReadonlyMap<string, ViaPipeline>,
 ): unknown[] {
   let result = rows
   if (plan.orderBy.length > 0) {
@@ -1983,7 +2150,7 @@ function applyOrderAndPage(
     // labels. `source.via` also feeds the #650 Task 7 matrix-tier fallback
     // (fields `joinContext.resolveDictSource` doesn't bridge).
     const labelMaps = buildOrderLabelMaps(plan.orderBy, joinContext, locale, source.via)
-    result = sortRecords(result, plan.orderBy, source.via, labelMaps)
+    result = sortRecords(result, plan.orderBy, source.via, labelMaps, aliasVia)
   }
   if (plan.offset > 0) {
     result = result.slice(plan.offset)
@@ -2562,22 +2729,36 @@ interface OrderKeyPlan {
     readonly field: string
     readonly direction: 'asc' | 'desc'
     readonly labelResolver: ((code: string) => string | undefined) | undefined
+    /**
+     * The pipeline to ask for this entry's exact ordering, and the name to
+     * ask it about (#1337). For a left-side field that is the source's own
+     * pipeline and the field verbatim; for `client.credit` it is the RIGHT
+     * collection's pipeline and `credit`, because a pipeline covers bare
+     * field names. `undefined` → the generic comparator, as before.
+     */
+    readonly via: ViaPipeline | undefined
+    readonly viaField: string
   }[]
-  readonly via: ViaPipeline | undefined
 }
 
 function buildOrderKeyPlan(
   orderBy: readonly OrderBy[],
   via?: ViaPipeline,
   labelMaps?: Map<string, (code: string) => string | undefined>,
+  aliasVia?: ReadonlyMap<string, ViaPipeline>,
 ): OrderKeyPlan {
   return {
-    entries: orderBy.map(({ field, direction, by }) => ({
-      field,
-      direction,
-      labelResolver: by === 'label' ? labelMaps?.get(field) : undefined,
-    })),
-    via,
+    entries: orderBy.map(({ field, direction, by }) => {
+      const dot = field.indexOf('.')
+      const aliased = dot > 0 ? aliasVia?.get(field.slice(0, dot)) : undefined
+      return {
+        field,
+        direction,
+        labelResolver: by === 'label' ? labelMaps?.get(field) : undefined,
+        via: aliased ?? via,
+        viaField: aliased ? field.slice(dot + 1) : field,
+      }
+    }),
   }
 }
 
@@ -2594,7 +2775,7 @@ function orderKeyOf(plan: OrderKeyPlan, record: unknown): unknown[] {
 
 function compareOrderKeys(plan: OrderKeyPlan, a: readonly unknown[], b: readonly unknown[]): number {
   for (let i = 0; i < plan.entries.length; i++) {
-    const { field, direction, labelResolver } = plan.entries[i]!
+    const { direction, labelResolver, via, viaField } = plan.entries[i]!
     const av = a[i]
     const bv = b[i]
     // A Via-covered field (e.g. money) may store a representation the
@@ -2603,7 +2784,7 @@ function compareOrderKeys(plan: OrderKeyPlan, a: readonly unknown[], b: readonly
     // the pipeline for an exact ordering first; fall back to the
     // generic comparator when no binding covers the field. Label-resolved
     // values are already plain strings, so they skip the pipeline.
-    const viaCmp = labelResolver ? undefined : plan.via?.compareForOrder(field, av, bv)
+    const viaCmp = labelResolver ? undefined : via?.compareForOrder(viaField, av, bv)
     const cmp = viaCmp !== undefined ? viaCmp : compareValues(av, bv)
     if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
   }
@@ -2620,8 +2801,9 @@ function sortRecords(
   orderBy: readonly OrderBy[],
   via?: ViaPipeline,
   labelMaps?: Map<string, (code: string) => string | undefined>,
+  aliasVia?: ReadonlyMap<string, ViaPipeline>,
 ): unknown[] {
-  const plan = buildOrderKeyPlan(orderBy, via, labelMaps)
+  const plan = buildOrderKeyPlan(orderBy, via, labelMaps, aliasVia)
   // Stable sort: Array.prototype.sort is required to be stable since ES2019.
   return [...records].sort((a, b) =>
     compareOrderKeys(plan, orderKeyOf(plan, a), orderKeyOf(plan, b)),

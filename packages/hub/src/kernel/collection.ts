@@ -3171,7 +3171,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       },
       // Sync join dressing (#650 Task 6, #626 retirement) — i18n-text + lookup-label, from this collection's own bindings.
       ...(this.presentForJoin !== undefined ? { presentForJoin: this.presentForJoin } : {}),
-      decodeResults: (record: unknown): unknown => (this.via && this.via.hasResultDecode ? this.via.decodeResults(record) : record), // #1289 Via result decode for a record served under an ALIAS — contract + rationale on JoinableSource in query/join.ts. Reads `this.via` per call, never a captured value: _applyMoneyFields rebuilds the pipeline after this source is handed out
+      decodeResults: (record: unknown): unknown => (this.via && this.via.hasResultDecode ? this.via.decodeResults(record) : record), via: () => this.via, // #1289 Via result decode for a record served under an ALIAS, and #1337/#1338's `via()` — the pipeline ITSELF, for a record ORDERED (compareForOrder) or REDUCED (wrapReducers) under one. Contract + rationale on JoinableSource in query/join.ts. Both read `this.via` per call, never a captured value: _applyMoneyFields rebuilds the pipeline after this source is handed out — which is also why `via` is a thunk and not a property
     }
   }
 
