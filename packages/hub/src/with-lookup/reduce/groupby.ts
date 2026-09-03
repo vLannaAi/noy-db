@@ -422,8 +422,14 @@ const DECIMAL_NUMERAL = /^[+-]?\d+(\.\d+)?$/
  * The divergence is confined to a surface introduced by #1336 — no pre-group
  * ordering changes — and it only reaches values that are numerals end to end,
  * so a group key like `'c1'` still sorts lexically.
+ * ⭐ SHARED, not private: `.window()`'s in-partition ordering (#1349) faces the
+ * identical exposure over the identical values — its rows are decoded, so a
+ * money field is a decimal string there too — and imports this rather than
+ * growing a second rule that could drift from it.
+ *
+ * @internal
  */
-function compareReduced(a: unknown, b: unknown): number {
+export function compareReduced(a: unknown, b: unknown): number {
   // Nullish last in asc order — same convention as the row pipeline.
   if (a === undefined || a === null) return b === undefined || b === null ? 0 : 1
   if (b === undefined || b === null) return -1

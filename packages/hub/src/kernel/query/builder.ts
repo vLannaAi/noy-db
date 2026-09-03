@@ -24,6 +24,7 @@ import type { ReducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import { bindDistinctReducers, reducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/reduce/groupby.js'
 import { NO_REDUCE, type ReduceStrategy } from '../../with-lookup/reduce/strategy.js'
+import type { WindowSpec, WindowedQuery } from '../../with-lookup/reduce/strategy.js'
 import type { ViaPipeline } from '../via/pipeline.js'
 import { decodeCursor, encodeCursor, keysetShape } from './cursor.js'
 import type { QueryExplanation } from './explain.js'
@@ -1659,6 +1660,54 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     return this.reduceStrategy.groupByN<T, readonly string[], S, M>(
       executeGroupRecords,
       fields,
+      upstreams,
+      this.source.via,
+    )
+  }
+
+  /**
+   * SQL window functions over the query's result rows (#1349) — terminate with
+   * `.select(spec)`.
+   *
+   * ```ts
+   * invoices.query()
+   *   .where('status', '==', 'open')
+   *   .window({ partitionBy: 'clientId', orderBy: 'date' })
+   *   .select({ balance: runningSum('amount'), prev: lag('amount', 1), n: rowNumber() })
+   *   .run()
+   * ```
+   *
+   * ⭐ Distinguished from `.groupBy()` by ARITY, not by capability: grouping
+   * emits one row per bucket and drops the source rows; a window keeps EVERY
+   * row and attaches per-row values computed over its partition.
+   *
+   * **The record set is `toArray()`'s** — the full pipeline, including joins,
+   * `orderBy`, `offset`/`limit` and the Via decode. That differs deliberately
+   * from `.groupBy()`, which reads the candidate/filter pipeline only: a
+   * window returns ROWS, so the query's own ordering and paging are exactly
+   * what decides which rows there are and how they are presented. `orderBy`
+   * inside the window decides only how a partition is WALKED.
+   *
+   * **Frame:** `rows unbounded preceding → current row`, and only that in v1.
+   *
+   * `partitionBy` / `orderBy` accept a `dateTrunc()` key (#1350) alongside
+   * plain field names; the derived bucket is used for partitioning and is not
+   * stamped on the output row. A sealed (`sensitive`) field is refused at
+   * compile time, same as `.groupBy()`.
+   *
+   * ⛔ **Not an `explain()` node.** `explain()` is a terminal on `Query`;
+   * `.window()` leaves `Query` for `WindowedQuery`, so there is nothing past
+   * here to add a node to — the same reason #1336's post-group ops are absent.
+   */
+  window(spec: WindowSpec<QueryField<T, S>>): WindowedQuery<T> {
+    const upstreams: ReductionUpstream[] = []
+    if (this.source.subscribe) {
+      const subscribe = this.source.subscribe.bind(this.source)
+      upstreams.push({ subscribe: (cb: () => void) => subscribe(cb) })
+    }
+    return this.reduceStrategy.window<T>(
+      () => this.toArray() as readonly unknown[],
+      spec as WindowSpec,
       upstreams,
       this.source.via,
     )

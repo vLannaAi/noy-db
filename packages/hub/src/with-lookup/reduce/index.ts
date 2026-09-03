@@ -39,6 +39,25 @@ export type { GroupedRow, GroupedRowN } from './groupby.js'
 export { count, countDistinct, sum, avg, min, max, moneySum, moneyMin, moneyMax, reducerBuilder, bindDistinctReducers } from './reducers.js'
 export type { Reducer, ReducerOptions, ReducerBuilder, CountDistinctState } from './reducers.js'
 
+export {
+  rowNumber,
+  rank,
+  lag,
+  lead,
+  runningSum,
+  runningMoneySum,
+  applyWindow,
+  WindowedQuery,
+  WindowSelection,
+} from './window.js'
+export type {
+  WindowSpec,
+  WindowOrderInput,
+  WindowFn,
+  WindowSelectSpec,
+  WindowRow,
+} from './window.js'
+
 /** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
 export { NO_REDUCE } from './strategy.js'
 

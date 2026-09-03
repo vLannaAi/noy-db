@@ -11,12 +11,13 @@
 import { Reduction, reduceRecords } from './reduction.js'
 import type { ReduceSpec, ReduceResult } from './reduction.js'
 import { GroupedQuery, GroupedQueryN } from './groupby.js'
+import { WindowedQuery } from './window.js'
 import type { ReduceStrategy } from './strategy.js'
 
 /**
  * Build the default aggregate strategy. Pass into
  * `createNoydb({ reduceStrategy: withReduce() })` to light up
- * `.aggregate()` and `.groupBy()` on `Query` and `ScanBuilder`.
+ * `.aggregate()`, `.groupBy()` and `.window()` on `Query` and `ScanBuilder`.
  *
  * @example
  * ```ts
@@ -45,6 +46,9 @@ export function withReduce(): ReduceStrategy {
     },
     groupByN(executeRecords, fields, upstreams, via) {
       return new GroupedQueryN(executeRecords, fields, upstreams, undefined, via)
+    },
+    window(executeRecords, spec, upstreams, via) {
+      return new WindowedQuery(executeRecords, spec, upstreams, via)
     },
     async scanAggregate(iter, spec) {
       const collected: unknown[] = []
