@@ -2276,7 +2276,7 @@ function applyOrderAndPage(
 
 const RANGE_OPERATORS: ReadonlySet<string> = new Set(['<', '<=', '>', '>=', 'between', 'startsWith'])
 
-function isRangeOperator(op: string): op is '<' | '<=' | '>' | '>=' | 'between' | 'startsWith' {
+export function isRangeOperator(op: string): op is '<' | '<=' | '>' | '>=' | 'between' | 'startsWith' {
   return RANGE_OPERATORS.has(op)
 }
 
@@ -2327,7 +2327,7 @@ function orderedIndexRows(source: InternalSource, plan: QueryPlan): unknown[] | 
  * no binding covers (money checks its field map first; lookup checks its
  * `sortBy` declaration), and a number for one it does.
  */
-function viaOrdersField(via: ViaPipeline | undefined, field: string): boolean {
+export function viaOrdersField(via: ViaPipeline | undefined, field: string): boolean {
   return via !== undefined && via.compareForOrder(field, '', '') !== undefined
 }
 
@@ -2336,12 +2336,22 @@ function viaOrdersField(via: ViaPipeline | undefined, field: string): boolean {
  * prefix. `op` repeats {@link isRangeOperator}'s union rather than importing
  * `RangeOperator`, keeping this file's import list unchanged.
  */
-interface CompoundRange {
+/**
+ * The only slice of an index store the compound PICKERS read. Declared
+ * structurally (#1375) so `query/explain.ts` can share these pickers rather
+ * than re-implementing them — the mirror this file's `explain()` header warns
+ * about is one function narrower for every picker that moves here.
+ */
+export interface CompoundTupleSource {
+  compoundTuples(): ReadonlyArray<readonly string[]>
+}
+
+export interface CompoundRange {
   readonly op: '<' | '<=' | '>' | '>=' | 'between' | 'startsWith'
   readonly value: unknown
 }
 
-interface CompoundPick {
+export interface CompoundPick {
   readonly fields: readonly string[]
   /** Equality operands for `fields[0..values.length-1]`, in index order. */
   readonly values: readonly unknown[]
@@ -2358,7 +2368,7 @@ interface CompoundPick {
  * one, and this path compares raw operands. A repeated field keeps its FIRST
  * clause; the duplicate stays in `remainingClauses` and is re-evaluated.
  */
-function indexableClauses(clauses: readonly Clause[]): {
+export function indexableClauses(clauses: readonly Clause[]): {
   eq: Map<string, { value: unknown; at: number }>
   ranges: Map<string, { op: CompoundRange['op']; value: unknown; at: number }>
 } {
@@ -2382,7 +2392,7 @@ function indexableClauses(clauses: readonly Clause[]): {
  * after it. A pick answering fewer than two clauses is declined — the
  * single-field hash or sorted index already covers that, at lower cost.
  */
-function pickCompound(indexes: CollectionIndexes, clauses: readonly Clause[]): CompoundPick | null {
+export function pickCompound(indexes: CompoundTupleSource, clauses: readonly Clause[]): CompoundPick | null {
   const { eq, ranges } = indexableClauses(clauses)
   if (eq.size === 0) return null
   let best: CompoundPick | null = null
@@ -2486,8 +2496,8 @@ function compoundOrderedRows(source: InternalSource, plan: QueryPlan): unknown[]
 }
 
 /** The declared tuple that is exactly `eq`'s fields followed by `orderField`. */
-function pickCompoundOrder(
-  indexes: CollectionIndexes,
+export function pickCompoundOrder(
+  indexes: CompoundTupleSource,
   eq: ReadonlyMap<string, { value: unknown; at: number }>,
   orderField: string,
 ): { fields: readonly string[]; values: readonly unknown[] } | null {

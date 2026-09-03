@@ -21,11 +21,32 @@
  * and the suite asserts the two agree. **A new index kind must land in BOTH
  * places** — a branch here and the matching branch in `candidateRecords` —
  * plus a label on {@link ExplainDispatch}.
+ *
+ * ⭐ #1375 — THE MIRROR IS NOW POLICED EXHAUSTIVELY, and that is the durable
+ * half of the fix. `__tests__/query-explain.test.ts` carries a TABLE of query
+ * shapes spanning every dispatch kind and asserts, for each, that the label
+ * `explain()` claims agrees with an executor-side observation. Add a shape to
+ * that table when you add an index kind, and a kind that forgets this file
+ * fails a test instead of silently reporting the previous era's answer — which
+ * is exactly what #1344 and #1345 did to the pre-#1344 `explain()`.
+ *
+ * ⚠️ The observation is "did the executor READ RECORDS OUT OF the snapshot",
+ * not "did it CALL `snapshot()`". #1344's `orderedIndexRows` and #1345's
+ * `compoundCandidates` both call `snapshot()` for their coverage check and
+ * read only its `.length`, so the original call-counter witness would now
+ * report a scan for two paths that never touch a record.
  */
 
 import type { Clause } from './predicate.js'
 import type { QueryPlan } from './builder.js'
-import { DEFAULT_CROSS_JOIN_MAX_ROWS } from './builder.js'
+import {
+  DEFAULT_CROSS_JOIN_MAX_ROWS,
+  indexableClauses,
+  isRangeOperator,
+  pickCompound,
+  pickCompoundOrder,
+  viaOrdersField,
+} from './builder.js'
 import type { JoinContext, JoinLeg } from './join.js'
 import { DEFAULT_JOIN_MAX_ROWS, joinsDropLeftRows, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
 import type { ViaPipeline } from '../via/pipeline.js'
@@ -33,15 +54,23 @@ import type { ViaPipeline } from '../via/pipeline.js'
 /**
  * How a node is executed. An OPEN label set on purpose — a consumer reads
  * these as strings, so a build that knows a dispatch this one does not still
- * type-checks. Only `index:hash` and `scan` exist on this base; a new index
- * kind (a sorted/range index serving `<`/`>`/`between`, or an ordered-index
- * scan that satisfies `orderBy(...).limit(n)` without sorting) adds its label
- * here and its branch in {@link indexDispatchFor} — an ordered scan
- * additionally replaces the `sort` node's dispatch. No consumer shape moves.
+ * type-checks. A new index kind adds its label here, its branch in
+ * {@link indexDispatchFor} (or {@link orderedIndexPick} when it replaces the
+ * `sort` node's dispatch), AND a row in the witness table named in this file's
+ * header. No consumer shape moves.
  */
 export type ExplainDispatch =
   | 'source'
   | 'index:hash'
+  /** #1344 — a sorted index served `<` `<=` `>` `>=` `between` `startsWith`. */
+  | 'index:range'
+  /** #1345 — a compound tuple served an equality prefix (+ an optional range). */
+  | 'index:compound'
+  /**
+   * #1344 / #1345 — an ordered index walk answered `orderBy(f).limit(n)`
+   * outright: no sort runs, and only the page's worth of records is read.
+   */
+  | 'index:ordered'
   | 'scan'
   | 'join:nested'
   | 'join:hash'
@@ -124,42 +153,169 @@ export interface ExplainIndexProbe {
   fields(): string[]
   lookupEqual(field: string, value: unknown): ReadonlySet<string> | null
   lookupIn(field: string, values: readonly unknown[]): ReadonlySet<string> | null
+  // ── #1375: the dispatch surface #1344 and #1345 added ──────────────────
+  // OPTIONAL, every one of them. A probe that predates a kind simply cannot
+  // serve it, which is the honest answer and the one this file already gives
+  // for a source with no index store at all — never a crash on a build whose
+  // index store is older than this module.
+  /** #1344 — does a SORTED index cover this field? */
+  hasSorted?(field: string): boolean
+  /** #1344 — entry count of the sorted index; compare against the snapshot. */
+  sortedSize?(field: string): number
+  /** #1344 — ids satisfying a range operator, or `null` when unserved. */
+  lookupRange?(field: string, op: string, value: unknown): ReadonlySet<string> | null
+  /** #1344 — every indexed id in field order, or `null` when unserved. */
+  orderedIds?(field: string, direction: 'asc' | 'desc'): readonly string[] | null
+  /** #1345 — declared field tuples, in declaration order. */
+  compoundTuples?(): ReadonlyArray<readonly string[]>
+  /** #1345 — records the tuple's index holds; compare against the snapshot. */
+  compoundSize?(fields: readonly string[]): number
+  /** #1345 — ids for an equality prefix, optionally narrowed by a range. */
+  lookupCompound?(
+    fields: readonly string[],
+    prefixValues: readonly unknown[],
+    range?: { readonly op: string; readonly value: unknown },
+  ): ReadonlySet<string> | null
+  /** #1345 — an equality prefix ordered by the remaining component. */
+  compoundOrderedIds?(
+    fields: readonly string[],
+    prefixValues: readonly unknown[],
+    direction: 'asc' | 'desc',
+  ): readonly string[] | null
 }
 
 /** Mirrors join.ts's `JOIN_WARN_FRACTION`. */
 const WARN_FRACTION = 0.8
 
+/** Which clauses an index consumed, and the label each of their nodes carries. */
+interface ClauseDispatchPick {
+  readonly consumed: ReadonlyMap<number, ExplainDispatch>
+  /** Cardinality of the candidate set the index produced. */
+  readonly rows: number
+}
+
+/** A `CompoundTupleSource` view of a probe whose compound half may be absent. */
+function tupleSourceOf(indexes: ExplainIndexProbe): { compoundTuples(): ReadonlyArray<readonly string[]> } {
+  return { compoundTuples: () => indexes.compoundTuples?.() ?? [] }
+}
+
 /**
- * Which clause (if any) the index serves, and under which dispatch label.
+ * Which clauses (if any) the index serves, and under which dispatch labels.
  *
- * Mirrors `candidateRecords()` in `builder.ts` — including its Via caveat
- * (a covered clause with no `indexValue` probe is not index-eligible) and
- * its "first eligible clause wins" rule. See this file's header for why it
- * is a mirror and how the mirror is policed.
+ * Mirrors `candidateRecords()` in `builder.ts` — its compound-first ordering
+ * (#1345), its range arm (#1344), its Via caveat (a covered clause with no
+ * `indexValue` probe is not index-eligible, and a Via-covered RANGE is never
+ * index-served because `indexProbe` yields an equality operand only), and its
+ * "first eligible clause wins" rule. See this file's header for why it is a
+ * mirror and how the mirror is policed.
  */
-function indexDispatchFor(
-  source: ExplainSource,
-  clauses: readonly Clause[],
-): { readonly clauseIndex: number; readonly dispatch: ExplainDispatch; readonly rows: number } | null {
+function indexDispatchFor(source: ExplainSource, clauses: readonly Clause[]): ClauseDispatchPick | null {
   const indexes = source.getIndexes?.()
   if (!indexes || !source.lookupById || clauses.length === 0) return null
+
+  // #1345 — `candidateRecords()` tries the compound arm FIRST, because an
+  // equality prefix removes more clauses from the plan than any single-clause
+  // choice below. Reporting the single-clause answer here would name a path
+  // the executor did not take even though both are index paths.
+  const compound = compoundDispatchFor(source, indexes, clauses)
+  if (compound) return compound
 
   for (let i = 0; i < clauses.length; i++) {
     const clause = clauses[i]!
     if (clause.type !== 'field') continue
-    if (!indexes.has(clause.field)) continue
+    if (!indexes.has(clause.field) && indexes.hasSorted?.(clause.field) !== true) continue
     if (clause.via && clause.via.indexValue === undefined) continue
     const probeValue = clause.via ? clause.via.indexValue : clause.value
 
     let ids: ReadonlySet<string> | null = null
+    let dispatch: ExplainDispatch = 'index:hash'
     if (clause.op === '==') {
       ids = indexes.lookupEqual(clause.field, probeValue)
     } else if (clause.op === 'in' && Array.isArray(probeValue)) {
       ids = indexes.lookupIn(clause.field, probeValue)
+    } else if (clause.via === undefined && isRangeOperator(clause.op)) {
+      // #1344 — `null` both when no sorted index covers the field and when
+      // this build's probe predates the method.
+      ids = indexes.lookupRange?.(clause.field, clause.op, clause.value) ?? null
+      dispatch = 'index:range'
     }
-    if (ids !== null) return { clauseIndex: i, dispatch: 'index:hash', rows: ids.size }
+    if (ids !== null) return { consumed: new Map([[i, dispatch]]), rows: ids.size }
   }
   return null
+}
+
+/** #1345 — mirrors `compoundCandidates()`, coverage guard included. */
+function compoundDispatchFor(
+  source: ExplainSource,
+  indexes: ExplainIndexProbe,
+  clauses: readonly Clause[],
+): ClauseDispatchPick | null {
+  const pick = pickCompound(tupleSourceOf(indexes), clauses)
+  if (!pick) return null
+  // An under-covering tuple index would silently drop matching records, so the
+  // executor declines it — and so must this.
+  if (indexes.compoundSize?.(pick.fields) !== source.snapshot().length) return null
+  const ids = indexes.lookupCompound?.(pick.fields, pick.values, pick.range) ?? null
+  if (!ids) return null
+  const consumed = new Map<number, ExplainDispatch>()
+  for (const at of pick.consumed) consumed.set(at, 'index:compound')
+  return { consumed, rows: ids.size }
+}
+
+/** An ordered-index walk that answers `orderBy(f).limit(n)` outright. */
+interface OrderedPick {
+  readonly rows: number
+  /** Label for the clause nodes the compound walk also consumed; `null` when there are none. */
+  readonly clauseDispatch: ExplainDispatch | null
+  /** Which of the two walks ran, for the node's note. */
+  readonly detail: string
+}
+
+/**
+ * #1344 / #1345 — mirrors `orderedIndexRows() ?? compoundOrderedRows()`, the
+ * pair `executePlanWithSource` tries BEFORE `candidateRecords()`. Both return
+ * the page directly: no sort runs, and `offset`/`limit` are consumed by the
+ * index walk rather than by a slice.
+ *
+ * Every guard the executor carries is repeated here, because each one is a
+ * case where the two answers would otherwise disagree — the coverage checks in
+ * particular (`sortedSize` / `compoundSize` against the snapshot size), which
+ * is the whole reason a partial index does not take these paths.
+ */
+function orderedIndexPick(source: ExplainSource, plan: QueryPlan): OrderedPick | null {
+  const limit = plan.limit
+  if (limit === undefined || plan.orderBy.length !== 1) return null
+  const [order] = plan.orderBy
+  if (!order || order.by === 'label') return null
+  const indexes = source.getIndexes?.()
+  if (!indexes || !source.lookupById) return null
+  if (viaOrdersField(source.via, order.field)) return null
+  const snapshotRows = source.snapshot().length
+
+  if (plan.clauses.length === 0) {
+    if (indexes.hasSorted?.(order.field) !== true) return null
+    if (indexes.sortedSize?.(order.field) !== snapshotRows) return null
+    const ids = indexes.orderedIds?.(order.field, order.direction) ?? null
+    if (!ids) return null
+    return { rows: pageOf(ids.length, plan.offset, limit), clauseDispatch: null, detail: `sorted index on "${order.field}"` }
+  }
+
+  const { eq } = indexableClauses(plan.clauses)
+  if (eq.size !== plan.clauses.length) return null
+  const match = pickCompoundOrder(tupleSourceOf(indexes), eq, order.field)
+  if (!match) return null
+  if (indexes.compoundSize?.(match.fields) !== snapshotRows) return null
+  const ids = indexes.compoundOrderedIds?.(match.fields, match.values, order.direction) ?? null
+  if (!ids) return null
+  return {
+    rows: pageOf(ids.length, plan.offset, limit),
+    clauseDispatch: 'index:compound',
+    detail: `compound index on (${match.fields.join(', ')})`,
+  }
+}
+
+function pageOf(total: number, offset: number, limit: number): number {
+  return Math.min(Math.max(0, total - offset), limit)
 }
 
 /** `op`-free one-line description of a clause. */
@@ -261,6 +417,19 @@ export function explainPlan(
   const hasCrossJoin = plan.clauses.some(c => c.type === 'crossJoin')
   const { preJoin, postJoin } = splitAroundJoins(plan.clauses, plan.joins)
 
+  // #1337 — an ordering that addresses an alias moves the sort/page after the
+  // legs, exactly as a post-join predicate does. #1361 — an inner leg moves
+  // only the page. Both decisions are read from the same helpers
+  // `Query.toArray()` routes on, so `explain()` cannot report a placement the
+  // executor does not use. They are computed HERE, ahead of the clause nodes,
+  // because they also decide whether the ordered-index walk is reachable at
+  // all: on either reordered path `toArray()` hands the executor a plan with
+  // `orderBy: []` / `limit: undefined`, and #1344's fast path declines it.
+  const orderPostJoin = orderReferencesJoinAlias(plan.orderBy, plan.joins)
+  const runsPostJoin = postJoin.length > 0 || orderPostJoin
+  const innerSplit = !runsPostJoin && plan.joins.length > 0 && joinsDropLeftRows(plan.joins)
+  let ordered: OrderedPick | null = null
+
   if (hasCrossJoin) {
     // A crossJoin plan runs through `executeClausePipeline`, which starts from
     // the full snapshot — the index fast path is not on that road at all.
@@ -285,12 +454,15 @@ export function explainPlan(
       }
     }
   } else {
-    const pick = indexDispatchFor(source, preJoin)
+    ordered = runsPostJoin || innerSplit ? null : orderedIndexPick(source, plan)
+    const pick = ordered ? null : indexDispatchFor(source, preJoin)
+    if (ordered) rows = ordered.rows
     preJoin.forEach((clause, i) => {
-      if (pick && pick.clauseIndex === i) {
+      const dispatch = ordered ? ordered.clauseDispatch : (pick?.consumed.get(i) ?? null)
+      if (dispatch !== null) {
         const { op, detail } = describeClause(clause)
-        rows = pick.rows
-        nodes.push({ op, dispatch: pick.dispatch, detail, estimatedRows: rows, notes: [], children: [] })
+        if (pick) rows = pick.rows
+        nodes.push({ op, dispatch, detail, estimatedRows: rows, notes: [], children: [] })
         return
       }
       nodes.push(scanNode(clause, rows, scanReason(clause, indexes, pick !== null)))
@@ -306,18 +478,6 @@ export function explainPlan(
     }
   }
 
-  // #1337 — an ordering that addresses an alias moves the sort/page after the
-  // legs, exactly as a post-join predicate does. The decision is read from the
-  // same two helpers `Query.toArray()` routes on, so `explain()` cannot report
-  // a placement the executor does not use.
-  const orderPostJoin = orderReferencesJoinAlias(plan.orderBy, plan.joins)
-  const runsPostJoin = postJoin.length > 0 || orderPostJoin
-  // #1361 — an inner leg splits the placement: the SORT stays pre-join (the
-  // drop cannot reorder a left-side key) but the PAGE moves behind the legs,
-  // because a limit must observe the rows that were dropped. Reported as two
-  // words rather than one, because `toArray()` runs it as two steps.
-  const innerSplit = !runsPostJoin && plan.joins.length > 0 && joinsDropLeftRows(plan.joins)
-
   if (runsPostJoin) {
     emitJoins()
     for (const clause of postJoin) {
@@ -328,12 +488,17 @@ export function explainPlan(
   const placement = plan.joins.length === 0 ? undefined : runsPostJoin ? 'post-join' : 'pre-join'
 
   if (plan.orderBy.length > 0) {
+    // #1375 — when an ordered index answers the plan there is no sort at all:
+    // the walk emits the page in index order. Labelling it `sort` is the
+    // sentence a consumer would act on by adding the index they already have.
+    const orderNotes = placement ? [placement] : []
+    if (ordered) orderNotes.push(`ordered index page off the ${ordered.detail}: no sort runs`)
     nodes.push({
       op: 'orderBy',
-      dispatch: 'sort',
+      dispatch: ordered ? 'index:ordered' : 'sort',
       detail: plan.orderBy.map(o => `${o.field} ${o.direction}${o.by === 'label' ? ' by label' : ''}`).join(', '),
       estimatedRows: rows,
-      notes: placement ? [placement] : [],
+      notes: orderNotes,
       children: [],
     })
   }
@@ -349,7 +514,10 @@ export function explainPlan(
       dispatch: 'page',
       detail: `offset=${plan.offset} limit=${plan.limit ?? 'none'}`,
       estimatedRows: paged,
-      notes: innerSplit ? ['post-join'] : placement ? [placement] : [],
+      notes: [
+        ...(innerSplit ? ['post-join'] : placement ? [placement] : []),
+        ...(ordered ? ['consumed by the ordered index walk; no rows are materialized past the page'] : []),
+      ],
       children: [],
     })
     rows = paged
@@ -372,9 +540,26 @@ function scanReason(clause: Clause, indexes: ExplainIndexProbe | null, indexAlre
   }
   if (clause.type !== 'field') return [`${clause.type} clauses are never index-served`]
   if (!indexes) return ['linear scan: no index store on this source']
-  if (!indexes.has(clause.field)) return [`linear scan: no index on "${clause.field}"`]
+  const sorted = indexes.hasSorted?.(clause.field) === true
+  if (!indexes.has(clause.field) && !sorted) return [`linear scan: no index on "${clause.field}"`]
   if (clause.op !== '==' && clause.op !== 'in') {
-    return [`linear scan: the hash index on "${clause.field}" serves == and in only, not ${clause.op}`]
+    // #1375 — a range operator IS index-servable now, but only off a SORTED
+    // index. Naming which kind is missing is the sentence a consumer acts on;
+    // the pre-#1344 wording said "== and in only" even where the fix is to
+    // declare `kind: 'sorted'`.
+    if (!isRangeOperator(clause.op)) {
+      return [`linear scan: no index serves ${clause.op} on "${clause.field}"`]
+    }
+    if (!sorted) {
+      return [
+        `linear scan: the hash index on "${clause.field}" serves == and in only — ` +
+          `declare a sorted index on it to serve ${clause.op}`,
+      ]
+    }
+    if (clause.via !== undefined) {
+      return [`linear scan: "${clause.field}" is Via-covered, and a Via range operand is evaluated per record`]
+    }
+    return [`linear scan: the sorted index on "${clause.field}" could not order this operand`]
   }
   return [`linear scan: the index on "${clause.field}" could not serve this operand`]
 }
