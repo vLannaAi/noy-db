@@ -12,7 +12,7 @@ import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, O
 import { evaluateClause, hasFnClause, normalizeMatches, readPath } from './predicate.js'
 import { distinctKeyOf } from './distinct-key.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
-import type { JoinableSource, JoinContext, JoinLeg, JoinStrategy } from './join.js'
+import type { JoinableSource, JoinContext, JoinDirection, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins, splitAroundJoins } from './join.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError, RefNotDeclaredError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
@@ -612,9 +612,86 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     field: QueryField<T, S>,
     opts: { as: As; strategy?: JoinStrategy; maxRows?: number },
   ): Query<T & Record<As, R | null>, S, Q, M> {
+    return this.withJoinLeg(field, opts, 'left') as unknown as Query<T & Record<As, R | null>, S, Q, M>
+  }
+
+  /**
+   * RIGHT outer join (#1289): every record of the TARGET collection appears,
+   * including one no left row points at. The mirror of `.join()`, which is
+   * and always was the left outer join.
+   *
+   * ```ts
+   * invoices.query().rightJoin<'client', Client>('clientId', { as: 'client' })
+   * // → one row per invoice/client match, PLUS { client } for every client
+   * //   no invoice references. An invoice whose clientId matches nothing is
+   * //   dropped — that is what makes it a right join.
+   * ```
+   *
+   * **The row shape is not `T`.** A right-only row carries the alias and
+   * nothing else, so the left fields are typed `Partial<T>` — SQL's "the left
+   * columns are NULL" in an object language. Read them defensively; a row
+   * where `amount` is `undefined` is a real, correct result, not a bug.
+   *
+   * **Cost.** A forward leg follows the left row's FK and is O(1) per row. A
+   * right leg cannot: the rows it must produce are exactly the ones no FK
+   * names. It builds a reverse index — the left rows bucketed by FK value —
+   * and walks the right snapshot against it. That is one extra pass over the
+   * left set and one `Map` the size of the distinct FK values; both sides are
+   * fully materialized either way, and both row ceilings still apply.
+   *
+   * **Ordering.** Like `.join()`, legs run AFTER `orderBy`/`limit`/`offset`,
+   * so those narrow the LEFT side. Rows are emitted in right-snapshot order.
+   *
+   * A left row whose non-null FK resolves to nothing is dropped, but the
+   * ref-mode check still runs on it: `strict` still throws
+   * `DanglingReferenceError`. Corruption should not become invisible because
+   * the caller changed join direction.
+   */
+  rightJoin<As extends string, R = unknown>(
+    field: QueryField<T, S>,
+    opts: { as: As; strategy?: JoinStrategy; maxRows?: number },
+  ): Query<Partial<T> & Record<As, R>, S, Q, M> {
+    return this.withJoinLeg(field, opts, 'right') as unknown as Query<Partial<T> & Record<As, R>, S, Q, M>
+  }
+
+  /**
+   * FULL outer join (#1289): the union of `.join()` and `.rightJoin()` —
+   * every left row, every right record, matched where they meet.
+   *
+   * ```ts
+   * invoices.query().fullOuterJoin<'client', Client>('clientId', { as: 'client' })
+   * // → matched rows, plus { client: null, ...invoice } for an unreferenced
+   * //   invoice, plus { client } for a client no invoice points at.
+   * ```
+   *
+   * The alias is `R | null` and the left fields are `Partial<T>`, because a
+   * row can be missing either side — never both. Same reverse index, same
+   * ordering and same ref-mode semantics as {@link rightJoin}; the only
+   * difference is that the unmatched LEFT rows are emitted (after the
+   * right-driven ones) instead of dropped.
+   */
+  fullOuterJoin<As extends string, R = unknown>(
+    field: QueryField<T, S>,
+    opts: { as: As; strategy?: JoinStrategy; maxRows?: number },
+  ): Query<Partial<T> & Record<As, R | null>, S, Q, M> {
+    return this.withJoinLeg(field, opts, 'full') as unknown as Query<Partial<T> & Record<As, R | null>, S, Q, M>
+  }
+
+  /**
+   * The one place a `JoinLeg` is built. `.join()`, `.rightJoin()` and
+   * `.fullOuterJoin()` differ ONLY in `direction` and in the type they
+   * publish — keeping the plan-time validation (ref declared? dict join?
+   * join context?) in a single body is what stops the three from drifting on
+   * which errors they raise.
+   */
+  private withJoinLeg(
+    field: string,
+    opts: { as: string; strategy?: JoinStrategy; maxRows?: number },
+    direction: JoinDirection,
+  ): Query<T, S, Q, M> {
     if (!this.joinContext) {
       throw new Error(
-        `Query.join() requires a join context. Use collection.query() ` +
+        `Query.join() requires a join context (same for .rightJoin() and .fullOuterJoin()). Use collection.query() ` +
           `to construct a join-capable Query instead of the Query constructor ` +
           `directly (the direct constructor is only used for tests with ` +
           `plain-object sources).`,
@@ -636,6 +713,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
           `options, then retry. See the ref() docs for the full list of modes.`,
       })
     }
+    // `direction: 'left'` is left OFF the leg rather than written as the
+    // default: a plan built by `.join()` must serialize byte-identically to
+    // the one it built before #1289, or every stored queryHash moves.
+    const directionField = direction === 'left' ? {} : { direction }
     const leg: JoinLeg = descriptor
       ? {
           field,
@@ -644,6 +725,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
           mode: descriptor.mode,
           strategy: opts.strategy,
           maxRows: opts.maxRows,
+          ...directionField,
           //  constraint #1 — always 'all' in. Do not remove.
           partitionScope: 'all',
         }
@@ -656,10 +738,11 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
           strategy: opts.strategy,
           maxRows: opts.maxRows,
           partitionScope: 'all',
+          ...directionField,
           isDictJoin: true,
         }
-    return new Query<T & Record<As, R | null>, S, Q, M>(
-      this.source as unknown as QuerySource<T & Record<As, R | null>>,
+    return new Query<T, S, Q, M>(
+      this.source as QuerySource<T>,
       { ...this.plan, joins: [...this.plan.joins, leg] },
       this.joinContext,
       this.reduceStrategy,
@@ -800,6 +883,85 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   }
 
   /**
+   * Self cross-join with BOTH sides aliased (#1289).
+   *
+   * ```ts
+   * const pairs = trades.query()
+   *   .crossJoinWith({ leftAs: 'a', rightAs: 'b', on: (t) => laterThan(t) })
+   *   .toArray()
+   * // → [{ a: Trade, b: Trade }, ...]  — no field at the top level
+   * ```
+   *
+   * `.crossJoin('trades', { as: 'other' })` can already pair a collection
+   * with itself, but only ASYMMETRICALLY: the left row's fields stay at the
+   * top level and only the right side gets a name. Every comparison then
+   * reads `r.amount` against `r.other.amount`, which is exactly the shape
+   * that makes an accidentally-transposed pair invisible.
+   *
+   * ⚠️ **The cost is not the join, it is the Via dressing.** Aliasing the
+   * left row moves every field off the top level, and the money / i18n /
+   * lookup pipeline keys by BARE FIELD NAME — so the plain top-level decode
+   * `toArray()` applies cannot see either side. Both aliases are therefore
+   * dressed explicitly, through the source's own Via result decode, before
+   * the rows are returned. Silently serving raw money under an alias is the
+   * failure this method exists to not have; `dressAliases` is where it is
+   * prevented and `__tests__/query-outer-join.test.ts` is what proves it.
+   *
+   * `on:` takes the same subset / predicate shapes as `.crossJoin()`, and the
+   * same `maxRows` ceiling applies to the product. The target is always this
+   * query's own collection — a cross-join against a DIFFERENT collection is
+   * `.crossJoin()`, which needs no left alias to stay unambiguous.
+   *
+   * The returned `Query` drops this query's schema / queryable / money field
+   * parameters. That is not laziness: those parameters name TOP-LEVEL fields,
+   * and after `crossJoinWith` there are no top-level fields — only the two
+   * aliases. Carrying them would let `where('amount', ...)` type-check on a
+   * row where `amount` does not exist.
+   */
+  crossJoinWith<LeftAs extends string, RightAs extends string>(
+    opts: {
+      leftAs: LeftAs
+      rightAs: RightAs
+      on?: ((left: T) => unknown[] | ((right: T) => boolean)) | { readonly predicate: string }
+      maxRows?: number
+    },
+  ): Query<{ [K in LeftAs]: T } & { [K in RightAs]: T }> {
+    if (!this.joinContext) {
+      throw new Error(
+        `Query.crossJoinWith(): requires a join context. ` +
+          `Use collection.query() to construct a cross-join-capable Query instead of ` +
+          `the Query constructor directly.`,
+      )
+    }
+    if ((opts.leftAs as string) === (opts.rightAs as string)) {
+      throw new Error(
+        `Query.crossJoinWith({ leftAs: "${opts.leftAs}", rightAs: "${opts.rightAs}" }): ` +
+          `the two aliases must differ — a self cross-join whose sides share a name ` +
+          `would emit the right row under both and silently lose the left one.`,
+      )
+    }
+    // Built through `.crossJoin()` so the `on:`-shape validation, the
+    // predicate-map lookup and the queryHash-drift warning have exactly one
+    // implementation; `leftAs` is then folded into the clause it produced.
+    const built = this.crossJoin<T, RightAs, false>(this.joinContext.leftCollection, {
+      as: opts.rightAs,
+      ...(opts.on !== undefined && { on: opts.on }),
+      ...(opts.maxRows !== undefined && { maxRows: opts.maxRows }),
+    })
+    const plan = built._plan()
+    const last = plan.clauses[plan.clauses.length - 1] as CrossJoinClause
+    const clauses = [...plan.clauses.slice(0, -1), { ...last, leftAs: opts.leftAs }]
+    type Row = { [K in LeftAs]: T } & { [K in RightAs]: T }
+    return new Query<T, S, Q, M>(
+      this.source as QuerySource<T>,
+      { ...plan, clauses },
+      this.joinContext,
+      this.reduceStrategy,
+      this.predicates,
+    ) as unknown as Query<Row>
+  }
+
+  /**
    * Execute the plan and return the matching records. When the plan
    * carries any join legs, they are applied after `where` / `orderBy`
    * / `limit` / `offset` narrow the left set. See the `.join()` doc
@@ -824,8 +986,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       // (right-side aliased fields belong to other collections and are out
       // of this source's Via scope).
       const base = this.decodeVia(executePlanWithSource(this.source, this.plan, this.joinContext, opts?.locale))
-      if (this.plan.joins.length === 0) return base as T[]
-      return applyJoins(base, this.plan.joins, this.requireJoinContext('toArray'), opts?.locale) as T[]
+      if (this.plan.joins.length === 0) return this.dressAliases(base) as T[]
+      return this.dressAliases(
+        applyJoins(base, this.plan.joins, this.requireJoinContext('toArray'), opts?.locale),
+      ) as T[]
     }
 
     // #1030 — at least one predicate addresses a join alias, so it cannot be
@@ -848,7 +1012,71 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     )
     const joined = applyJoins(narrowed, this.plan.joins, joinContext, opts?.locale)
     const filtered = filterRecords(joined, postJoin, fnViewDecoder(this.source))
-    return applyOrderAndPage(filtered, this.plan, this.source, joinContext, opts?.locale) as T[]
+    return this.dressAliases(
+      applyOrderAndPage(filtered, this.plan, this.source, joinContext, opts?.locale),
+    ) as T[]
+  }
+
+  /**
+   * Apply each aliased side's OWN Via result decode, in place of the
+   * top-level decode that cannot reach it (#1289, and the fix for #1335).
+   *
+   * `decodeVia` keys by bare field name, so it dresses exactly the fields
+   * sitting at the top of the row. Everything a join puts under an alias —
+   * a `.join()`/`.rightJoin()` right record, a `.crossJoin()` right record,
+   * and BOTH sides of a `.crossJoinWith()` pair — is therefore invisible to
+   * it, and was served raw: a self cross-join returned `"10.00"` on the left
+   * and `"1000"` on the right of the same field (#1335).
+   *
+   * Runs LAST, after every filter, sort and page. That is deliberate: a
+   * `where()` operand is built in raw stored space, so dressing earlier would
+   * make a post-join predicate compare a decoded string against a raw one.
+   * Dressing is presentation; it belongs after the plan has finished.
+   *
+   * Each alias is decoded by the Via pipeline of the collection the record
+   * came FROM — money on the right side is the right side's declaration, not
+   * this collection's. A source that declares no result decode returns the
+   * record unchanged, so the whole pass is a no-op for the common query and
+   * is skipped entirely when the plan has no aliases.
+   */
+  private dressAliases(rows: readonly unknown[]): unknown[] {
+    if (rows.length === 0) return rows as unknown[]
+    const ctx = this.joinContext
+    if (!ctx) return rows as unknown[]
+
+    const targets: { path: string; decode: (r: unknown) => unknown }[] = []
+    const push = (path: string, collection: string): void => {
+      const decode = ctx.resolveSource(collection)?.decodeResults
+      if (decode) targets.push({ path, decode })
+    }
+    for (const clause of this.plan.clauses) {
+      if (clause.type !== 'crossJoin') continue
+      push(clause.as, clause.target)
+      // The left half of a `crossJoinWith` pair is THIS collection's record,
+      // moved under an alias — its decode is this source's own.
+      if (clause.leftAs !== undefined) push(clause.leftAs, ctx.leftCollection)
+    }
+    for (const leg of this.plan.joins) {
+      // A dict join attaches `{ key, ...labels }`, not a collection record —
+      // there is no Via pipeline behind it to decode.
+      if (leg.isDictJoin === true) continue
+      push(leg.as, leg.target)
+    }
+    if (targets.length === 0) return rows as unknown[]
+
+    return rows.map(row => {
+      if (row === null || typeof row !== 'object') return row
+      let out: Record<string, unknown> | undefined
+      for (const { path, decode } of targets) {
+        const value = (row as Record<string, unknown>)[path]
+        if (value === null || value === undefined || typeof value !== 'object') continue
+        const dressed = decode(value)
+        if (dressed === value) continue
+        out ??= { ...(row as Record<string, unknown>) }
+        out[path] = dressed
+      }
+      return out ?? row
+    })
   }
 
   /**
@@ -1037,7 +1265,14 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       remainingClauses.length === 0
         ? candidates
         : filterRecords(candidates, remainingClauses, fnViewDecoder(this.source))
-    if (postJoin.length === 0) return narrowed
+    // #1289 — a left leg is projection-only, so the left match set IS the
+    // answer. A right/full leg is not: it adds a row per unreferenced right
+    // record and (for 'right') drops the unmatched left ones. Those legs have
+    // to run or every reduce-shaped terminal is simply wrong — #1289 found
+    // this for count(), and it holds identically for distinct() and exists()
+    // now that #1347 made them share this pipeline.
+    const reshapes = this.plan.joins.some(leg => leg.direction !== undefined && leg.direction !== 'left')
+    if (postJoin.length === 0 && !reshapes) return narrowed
     // #1030 — the predicate lives on the joined side, so the legs are part of
     // the count. Same pipeline as toArray(), minus ordering and pagination.
     const joined = applyJoins(narrowed, this.plan.joins, this.requireJoinContext(terminal))
@@ -2219,6 +2454,14 @@ function applyCrossJoin(
   // row, and it counts toward the ceiling like any other.
   const outer = clause.outer === true
 
+  // #1289 — `leftAs` set means BOTH sides are aliased (`.crossJoinWith()`),
+  // so the row is a pair rather than a left row wearing one extra field.
+  const { leftAs } = clause
+  const emit =
+    leftAs === undefined
+      ? (left: Record<string, unknown>, right: unknown): unknown => ({ ...left, [as]: right })
+      : (left: Record<string, unknown>, right: unknown): unknown => ({ [leftAs]: left, [as]: right })
+
   if (!clause.on) {
     const rightSide = outer && rightRows.length === 0 ? [null] : rightRows
     const product = leftRel.length * rightSide.length
@@ -2229,7 +2472,7 @@ function applyCrossJoin(
     for (const left of leftRel) {
       const leftObj = left as Record<string, unknown>
       for (const right of rightSide) {
-        expanded.push({ ...leftObj, [as]: right })
+        expanded.push(emit(leftObj, right))
       }
     }
     return expanded
@@ -2259,7 +2502,7 @@ function applyCrossJoin(
     }
     const leftObj = left as Record<string, unknown>
     for (const right of filteredRight) {
-      expanded.push({ ...leftObj, [as]: right })
+      expanded.push(emit(leftObj, right))
     }
   }
   return expanded
@@ -2467,6 +2710,11 @@ function serializeClause(clause: Clause): unknown {
       type: 'crossJoin',
       target: clause.target,
       as: clause.as,
+      // Identity, not decoration: `leftAs` changes the SHAPE of every row
+      // (#1289), so two plans differing only in it are different queries.
+      // Omitted when unset so a `.crossJoin()` plan serializes exactly as it
+      // did before #1289 and no stored queryHash moves.
+      ...(clause.leftAs !== undefined && { leftAs: clause.leftAs }),
       on: clause.on ? '[function]' : undefined,
       onPredicateName: clause.onPredicateName,
       maxRows: clause.maxRows,

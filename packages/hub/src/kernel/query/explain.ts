@@ -45,6 +45,7 @@ export type ExplainDispatch =
   | 'scan'
   | 'join:nested'
   | 'join:hash'
+  | 'join:reverse-index'
   | 'crossJoin'
   | 'sort'
   | 'page'
@@ -173,7 +174,17 @@ function describeClause(clause: Clause): { op: string; detail: string } {
     case 'wherePredicate':
       return { op: 'wherePredicate', detail: clause.name }
     case 'crossJoin':
-      return { op: 'crossJoin', detail: `${clause.as} x ${clause.target}${clause.on ? ' on fn' : ''}${clause.outer === true ? ' outer' : ''}` }
+      // #1289 — a `crossJoinWith` clause names BOTH sides, because the row it
+      // emits has no top level to fall back on. `leftAs x rightAs` is the
+      // shape the caller reads back; `as x target` is the asymmetric one.
+      return {
+        op: clause.leftAs === undefined ? 'crossJoin' : 'crossJoinWith',
+        detail:
+          (clause.leftAs === undefined
+            ? `${clause.as} x ${clause.target}`
+            : `${clause.leftAs} x ${clause.as} (self ${clause.target})`) +
+          `${clause.on ? ' on fn' : ''}${clause.outer === true ? ' outer' : ''}`,
+      }
   }
 }
 
@@ -370,11 +381,19 @@ function joinNode(
   const strategy = leg.strategy ?? (right?.lookupById ? 'nested' : 'hash')
   const limit = leg.maxRows ?? DEFAULT_JOIN_MAX_ROWS
 
+  // #1289 — a right/full leg does not run the forward strategy at all: it
+  // builds a reverse index over the left rows and drives off the right
+  // snapshot. Reporting `join:nested` for it would name a path that never
+  // executes, so the dispatch and the detail both say which join this is.
+  const direction = leg.direction ?? 'left'
   const notes: string[] = [
     rightRows === undefined ? 'right side unresolved' : `right side ${rightRows} rows`,
     `cap ${limit}`,
     `ref mode ${leg.mode}`,
   ]
+  if (direction !== 'left') {
+    notes.push('reverse index over the left rows; right snapshot drives')
+  }
   if (leg.strategy !== undefined) notes.push('strategy overridden by the caller')
 
   if (leftRows !== undefined) {
@@ -384,13 +403,28 @@ function joinNode(
     caps.push({ name: `join:${leg.as}:right`, limit, observed: rightRows, status: capStatus(rightRows, limit) })
   }
 
+  // The direction is appended ONLY for a right/full leg. A left leg's detail
+  // stays byte-identical to what it rendered before #1289: `.join()` is the
+  // left outer join and always was, so labelling it now would churn every
+  // consumer's `explain().text` to say nothing new.
+  const label = direction === 'left' ? '' : direction === 'right' ? ' right outer' : ' full outer'
+  // Row estimate: a LEFT leg is projection-only — it attaches an alias and
+  // never filters, so the count passes through. A right/full leg reshapes the
+  // relation (a row per unreferenced right record; for 'right', the unmatched
+  // left rows drop), so the left count is no longer the answer and the only
+  // honest bound without executing is left + right.
+  const estimatedRows =
+    direction === 'left'
+      ? leftRows
+      : leftRows === undefined || rightRows === undefined
+        ? undefined
+        : leftRows + rightRows
+
   return {
     op: 'join',
-    dispatch: `join:${strategy}`,
-    // Projection-only: a leg attaches an alias, it never filters, so the row
-    // estimate passes through unchanged.
-    detail: `${leg.as} <- ${leg.field} (${leg.target})`,
-    estimatedRows: leftRows,
+    dispatch: direction === 'left' ? `join:${strategy}` : 'join:reverse-index',
+    detail: `${leg.as} <- ${leg.field} (${leg.target})${label}`,
+    estimatedRows,
     notes,
     children: [],
   }

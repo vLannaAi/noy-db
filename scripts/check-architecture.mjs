@@ -1074,7 +1074,16 @@ const KERNEL_SURFACE_BUDGET = {
   // silently mis-paged. Cannot move onto the ServiceBus: only the kernel knows which
   // vault/collection a Query's source is. The pagination LOGIC is entirely in
   // kernel/query/{builder,cursor}.ts; only the name it needs is here.
-  'packages/hub/src/kernel/collection.ts': 4320,
+  // Bumped 4320→4322 (2026-09-03, #1289 right/full outer join): TWO properties on the
+  // JoinableSource `querySourceForJoin()` hands out, one line each, comments folded onto
+  // them. `snapshotEntries` — a right/full outer join drives off the RIGHT snapshot and
+  // needs each record's id, which is the cache KEY and not a field on the record.
+  // `decodeResults` — Via dressing keys by BARE FIELD NAME, so a record served under an
+  // alias is invisible to the top-level decode and served RAW money (#1335). Neither can
+  // move onto the ServiceBus: both are views of `this.cache` / `this.via`, which only the
+  // kernel holds. All the join LOGIC is in kernel/query/{join,builder}.ts; only the two
+  // accessors it reads through are here.
+  'packages/hub/src/kernel/collection.ts': 4322,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

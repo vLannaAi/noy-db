@@ -1214,6 +1214,7 @@ export type {
   JoinContext,
   JoinableSource,
   JoinStrategy,
+  JoinDirection,
   QueryExplanation,
   ExplainNode,
   ExplainCap,
