@@ -62,8 +62,12 @@ export function assertCanonicalAdvanced(before, after) {
       `  publish nothing. The usual cause is that NO pending changeset targets @noy-db/hub — the\n` +
       `  canonical version is read from hub, so a satellite-only release leaves it unchanged and\n` +
       `  every satellite is then normalized back down to it (#1230).\n` +
-      `  Nothing has been published. Restore .changeset/pre.json (it is gitignored, so git will\n` +
-      `  NOT restore it) and revert any CHANGELOG.md edits before retrying.`,
+      `  Nothing has been published, and the pending changesets have already been consumed\n` +
+      `  (\`changeset version\` deleted them; .changeset/ is gitignored, so there is nothing for\n` +
+      `  git to restore). Do NOT re-run release:version from scratch. Add a changeset for\n` +
+      `  @noy-db/hub describing this release, then re-run with --resume — it skips\n` +
+      `  \`changeset version\` and reads its baseline from git HEAD (#1312). If this WAS a\n` +
+      `  --resume run, HEAD already holds ${after}: there is nothing pending to release.`,
     )
   }
 }

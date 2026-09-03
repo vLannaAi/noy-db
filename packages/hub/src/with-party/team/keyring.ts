@@ -18,8 +18,9 @@ import {
   base64ToBuffer,
   type EnclaveKey,
   type EchoSecretParts,
+  hasSealedBody,
 } from '../../kernel/enclave/index.js'
-import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, KeyringTamperedError, InvalidKeyError, ValidationError, DirectoryDisabledError, EchoCeremonyRequiredError } from '../../kernel/errors.js'
+import { NoAccessError, PermissionDeniedError, PrivilegeEscalationError, KeyringExpiredError, KeyringCorruptError, KeyringTamperedError, TamperedError, InvalidKeyError, ValidationError, DirectoryDisabledError, EchoCeremonyRequiredError } from '../../kernel/errors.js'
 import type { KeyringTamperedReason } from '../../kernel/errors.js'
 import { mintRosterTag, assertRosterAuthenticated, assertRosterTagValid } from './roster-tag.js'
 import { readDirectoryConfig } from '../directory/storage.js'
@@ -2385,6 +2386,29 @@ async function collectionHasRecords(
 }
 
 /**
+ * Does this reserved collection hold at least one SEALED envelope (#1288)?
+ *
+ * Existence of records is not evidence of a missing key for a `_`-collection:
+ * `_meta` carries plaintext machinery docs (keyring files, recovery entries —
+ * `_data` is JSON, `_iv` empty) beside anything sealed, and a vault's own owner
+ * legitimately touches it before any DEK for it exists. Only a body that was
+ * sealed under this collection's DEK says "someone held a key you do not".
+ * Reads one envelope at a time and stops at the first sealed one; on the miss
+ * path only.
+ */
+async function reservedCollectionHasSealedRecords(
+  store: NoydbStore,
+  vault: string,
+  collectionName: string,
+): Promise<boolean> {
+  for (const id of await store.list(vault, collectionName)) {
+    const env = await store.get(vault, collectionName, id)
+    if (env && hasSealedBody(env)) return true
+  }
+  return false
+}
+
+/**
  * Re-read this principal's persisted keyring and adopt the DEK for one
  * collection if it has appeared there since this handle unlocked (#1010).
  *
@@ -2493,6 +2517,33 @@ export async function ensureCollectionDEK(
               'the user to give them the key.',
           )
         }
+      } else if (await reservedCollectionHasSealedRecords(store, vault, collectionName)) {
+        // #1288 — the reserved-collection half of #1010. `_periods`, `_meta`,
+        // the sidecars: exempt from the entitlement check above (they are
+        // propagated to every role at grant time and are never addressable by
+        // user code), but the SAME gap applies — a grant wraps only the DEKs
+        // that exist at grant time, so a member granted before the owner's
+        // first closePeriod() holds no `_periods` key, and it cannot be
+        // back-filled. Minting here fabricated a key that decrypts none of
+        // the stored envelopes, so the gate's read failed AEAD and the member
+        // was told "record may have been tampered with" on every write.
+        //
+        // The evidence is a SEALED body, not a record: `_meta` holds plaintext
+        // docs the owner writes before any `_meta` DEK exists, and the first
+        // cut of this check refused the owner over those (11 tests). Same
+        // stale-snapshot check as #1010 first; then refuse WITH the evidence.
+        // TamperedError is the class the periods gate already propagates;
+        // `reason: 'key-absent'` is what tells a consumer this is a missing
+        // grant and not a breach (lanna-db #4).
+        const refreshed = await reloadPersistedDEK(store, vault, keyring, collectionName)
+        if (refreshed) return refreshed
+        throw new TamperedError(
+          `User "${keyring.userId}" holds no key for reserved collection "${collectionName}", ` +
+            'which already holds sealed records — the collection was created AFTER their grant and a ' +
+            'DEK cannot be back-filled (wrapping needs the grantee\'s secret, which the vault ' +
+            'never stores). Re-grant the user to give them the key. Not a tamper: no decrypt was attempted.',
+          'key-absent',
+        )
       }
       const dek = await generateDEK()
       keyring.deks.set(collectionName, dek)

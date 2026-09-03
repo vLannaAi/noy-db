@@ -54,9 +54,16 @@ import { join } from 'node:path'
 /**
  * Packages on their own version line, which the lockstep normalizer skips.
  * Excluded BY NAME rather than left to the version check below, so that a day
- * when its version coincidentally matches does not silently enrol it.
+ * when a version coincidentally matches does not silently enrol it.
+ *
+ * EMPTY since #1313: `create-noy-db` was never MEANT to have its own line — the
+ * normaliser skipped it by name shape (unscoped), and the drift broke every
+ * scaffolded install. It rides the lockstep line now, so the lockstep pass
+ * aligns its `next` with everyone else's. The own-line pass below (#1305) is
+ * kept as machinery for a package that genuinely declares its own line; add
+ * one here only together with a written reason in its README.
  */
-export const OWN_VERSION_LINE = ['create-noy-db']
+export const OWN_VERSION_LINE = []
 
 /** A prerelease sorts below its own release — the entire reason this exists. */
 const isPrerelease = (v) => v.includes('-')

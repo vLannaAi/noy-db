@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'vitest'
 import { mintWrappedDeksBlob, unwrapDeksFromBlob, type WrappedDeksBlob } from '../src/with-party/team/wrapped-deks.js'
 import { generateDEK, type EnclaveKey } from '../src/kernel/enclave/index.js'
+import { InvalidKeyError, TamperedError } from '../src/kernel/errors.js'
 
 const subtle = globalThis.crypto.subtle
 
@@ -163,5 +164,19 @@ describe('WrappedDeksBlob — byte-compatible with the pre-milestone-59 wire for
     const fromLive = await mintWrappedDeksBlob(deks, CREDENTIAL)
     await expect(unwrapDeksFromBlob(fromOracle, 'wrong credential')).rejects.toThrow()
     await expect(oracleUnwrap(fromLive, 'wrong credential')).rejects.toThrow()
+  })
+
+  it('a wrong credential surfaces InvalidKeyError, never TamperedError (#1318, lanna-db #4 rule 3)', async () => {
+    // TamperedError means exactly "AEAD failed under THIS key" and is the
+    // enclave's to throw. A recovery code / password / share set that does
+    // not match the blob is a wrong KEY, and reporting it as tampering is the
+    // misdiagnosis #1288 reported from a consumer. The barrel's decryptBytes
+    // does throw TamperedError on auth failure; wrapped-deks catches it and
+    // rethrows the class whose own docstring already says "wrong secret or
+    // corrupted keyring" — as on-password does one layer up.
+    const blob = await mintWrappedDeksBlob(await freshDekSet(), CREDENTIAL)
+    const err = await unwrapDeksFromBlob(blob, 'wrong credential').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(InvalidKeyError)
+    expect(err).not.toBeInstanceOf(TamperedError)
   })
 })

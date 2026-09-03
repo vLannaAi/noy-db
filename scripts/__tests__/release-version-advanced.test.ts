@@ -36,6 +36,19 @@ describe('assertCanonicalAdvanced (#1230)', () => {
       .toThrow(/hub/i)
   })
 
+  it('points at --resume and never at a restore that cannot be followed (#1312)', () => {
+    // By the time this throws, `changeset version` has consumed and deleted
+    // every changeset file, and `.changeset/` is gitignored — so "restore
+    // pre.json" instructs a restore and states in the same breath that it is
+    // impossible. `--resume` is the recovery path; the message must name it.
+    // Asserted as a property of the message, not of one wording, so a future
+    // rewrite cannot quietly drop the pointer or bring the restore back.
+    let message = ''
+    try { assertCanonicalAdvanced('0.7.0-pre.6', '0.7.0-pre.6') } catch (e) { message = (e as Error).message }
+    expect(message).toMatch(/--resume/)
+    expect(message).not.toMatch(/restore .*pre\.json/i)
+  })
+
   it('REFUSES a version that went backwards', () => {
     expect(() => assertCanonicalAdvanced('0.7.0-pre.6', '0.7.0-pre.5')).toThrow(/did not advance/i)
   })

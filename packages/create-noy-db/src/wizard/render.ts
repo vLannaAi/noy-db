@@ -39,8 +39,15 @@ export interface RenderTokens {
    * `create-noy-db` devDep) is pinned to, written as `^{{NOYDB_VERSION}}`
    * in template `package.json`s. Filled from this package's own version
    * (see `ownVersion()`), so scaffolded apps always depend on the family
-   * line the wizard itself shipped with — template pins can never drift
-   * from published reality again (#703).
+   * line the wizard itself shipped with (#703).
+   *
+   * ⚠️ That is correct ONLY while this package shares the family's lockstep
+   * line. It stopped sharing it once — the release normaliser filtered
+   * members by the `@noy-db/` prefix and this is the one unscoped package —
+   * and every scaffolded app then pinned `^0.3.4` against a `0.7.x` line
+   * (#1313). The normaliser now tests workspace membership, and
+   * `__tests__/pins-resolve.test.ts` asserts the REAL token value equals the
+   * workspace version of every package the templates pin.
    */
   NOYDB_VERSION: string
 }
