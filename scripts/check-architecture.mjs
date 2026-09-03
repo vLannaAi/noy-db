@@ -1083,11 +1083,24 @@ const KERNEL_SURFACE_BUDGET = {
   // move onto the ServiceBus: both are views of `this.cache` / `this.via`, which only the
   // kernel holds. All the join LOGIC is in kernel/query/{join,builder}.ts; only the two
   // accessors it reads through are here.
-  // Bumped 4322→4335 (2026-09-04, #1362 cross-tab/process change signals): the relay
-  // itself is ~250 LOC in src/with-sync/change-broadcast.ts. What lands here is only the
-  // re-read seam it cannot reach from outside — Collection._applyRemoteSignal (re-read, derive the verb, emit). There is no bus
-  // socket for "invalidate one cached record": that is the kernel's own cache.
-  'packages/hub/src/kernel/collection.ts': 4335,
+  // Bumped 4322->4345 (2026-09-04). TWO independent bumps landed in the same batch and
+  // this value is the MEASURED count after both, not either branch's figure — #1362 raised
+  // it to 4335 and #1359 to 4332, each correct alone and both wrong together.
+  //
+  // #1359 (persisted field indexes), ten lines: one nullable field + its doc (the sidecar
+  // coordinator), one constructor line building it from the indexing facade, one line
+  // binding it into `indexingContext()`, one `_flushFieldIndexes` delegator, one import
+  // name. The two write-path pokes fold onto the existing `searchIndexStore?.markDirty()`
+  // lines. Everything else — snapshot format, freshness stamp, debounce, encrypt/decrypt
+  // bridge, hydrate-time restore — lives in `with-lookup/indexing/`, reached through the
+  // already-grandfathered `collection-facade.js` specifier, so the spine never names a
+  // with-* class.
+  //
+  // #1362 (cross-tab/process change signals): the relay itself is ~250 LOC in
+  // src/with-sync/change-broadcast.ts. What lands here is only the re-read seam it cannot
+  // reach from outside — Collection._applyRemoteSignal (re-read, derive the verb, emit).
+  // There is no bus socket for "invalidate one cached record": that is the kernel's own cache.
+  'packages/hub/src/kernel/collection.ts': 4345,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

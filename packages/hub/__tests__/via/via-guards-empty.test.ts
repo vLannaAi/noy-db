@@ -118,10 +118,22 @@ describe('via-layering allowlist ends EMPTY (#650 Task 6, #626 retirement)', () 
     expect(body).toBe('')
   })
 
-  it('join.ts no longer imports via/i18n (or any via/) directly', () => {
+  it('join.ts no longer imports the via/ FEATURE layer directly', () => {
     const joinSrc = readFileSync(JOIN_TS, 'utf8')
     expect(joinSrc).not.toMatch(/via\/i18n/)
-    expect(joinSrc).not.toMatch(/from ['"].*\/via\//)
+    // ⚠️ The bar is `src/via/**`, the FEATURE layer — NOT `kernel/via/**`, which
+    // IS the port and is the sanctioned route the guard's own failure message
+    // points at ("Route through the Via port (kernel/via/index.ts) instead").
+    // From `kernel/query/`, those two are `'../../via/…'` and `'../via/…'`, one
+    // segment apart, and the original `/from ['"].*\/via\//` could not tell
+    // them apart: it matched the port too. That was invisible while join.ts
+    // imported neither, and it made the FIRST port import into join.ts (#1337's
+    // `ViaPipeline`) look like a layering breach — while builder.ts,
+    // scan-builder.ts and explain.ts, three files in the same directory, had
+    // been importing that exact specifier all along. `checkViaLayering` itself
+    // resolves the specifier before testing it, so the SCRIPT was always right;
+    // only this mirror of it was blunt.
+    expect(joinSrc).not.toMatch(/from ['"](?:\.\.\/){2,}via\//)
   })
 
   it('check-architecture.mjs passes clean at HEAD (via-layering included)', () => {
