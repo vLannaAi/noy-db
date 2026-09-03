@@ -592,6 +592,8 @@
     "EchoRevealChoice",
     "EchoSecretParts",
     "EchoSecretPolicy",
+    "EmbeddingChunk",
+    "EmbeddingChunkSpan",
     "EmbeddingDescriptor",
     "EnclaveKey",
     "EncryptResult",

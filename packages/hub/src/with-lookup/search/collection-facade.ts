@@ -28,7 +28,7 @@ import { isStaticDictDescriptor, type DictKeyDescriptor, type StaticDictDescript
 import type { BlobSet } from '../../with-shape/blobs/blob-set.js'
 import type { BlobFieldsConfig } from '../../with-shape/blobs/blob-compaction.js'
 import type { Query } from '../../kernel/query/index.js'
-import { embeddingSourceText, type VectorSet, type EmbeddingDescriptor, type StoredVector } from '../embeddings/index.js'
+import { embeddingSourceText, deriveChunkVectors, type VectorSet, type EmbeddingDescriptor, type StoredVector, type StoredChunk } from '../embeddings/index.js'
 import { encodeVecId, decodeVecId, isVecIdFor } from '../embeddings/vec-id.js'
 import { EmbeddingDimMismatchError } from '../../kernel/errors.js'
 import { liveRecordIsElevated } from '../../kernel/tier-visibility.js'
@@ -218,8 +218,17 @@ function buildVectorLoad<T>(ctx: SearchContext<T>): () => Promise<StoredVector[]
         continue
       }
       if (body === null) continue
-      const parsed = JSON.parse(body) as { vec: number[]; model: string }
-      out.push({ id, vec: new Float32Array(parsed.vec), model: parsed.model })
+      // #1360: a body carries EITHER `vec` (whole-record, the original shape,
+      // still written whenever no `chunk` hook is declared) or `chunks`
+      // (sub-document). Reading both shapes is what makes chunking adoptable
+      // without a rewrite: existing `_vec` rows keep loading unchanged.
+      const parsed = JSON.parse(body) as { vec?: number[]; chunks?: { id: string; start: number; end: number; vec: number[] }[]; model: string }
+      if (parsed.chunks && parsed.chunks.length > 0) {
+        const chunks: StoredChunk[] = parsed.chunks.map((c) => ({ id: c.id, start: c.start, end: c.end, vec: new Float32Array(c.vec) }))
+        out.push({ id, model: parsed.model, chunks })
+      } else if (parsed.vec) {
+        out.push({ id, vec: new Float32Array(parsed.vec), model: parsed.model })
+      }
     }
     return out
   }
@@ -388,8 +397,18 @@ export async function similarTo<T>(ctx: SearchContext<T>, vector: Float32Array, 
     expectModel: ctx.embeddings.model,
   })
   return hits.map((h, i) => {
-    const base: RetrieveHit<T> = { id: h.id, score: h.score, rank: i + 1, field: '(vector)', snippet: '' }
-    if (opts.includeRecord) { const e = ctx.cache.get(h.id); if (e) (base as { record?: T }).record = stripI18nFilled(e.record as Record<string, unknown>) as T }
+    const e = ctx.cache.get(h.id)
+    // #1360: for a chunk hit the snippet IS the matched span — resolved by
+    // re-deriving the record's joined source text and slicing it at the same
+    // offsets the writer used, so the returned span and the returned snippet
+    // cannot disagree. Unchunked hits keep snippet '' (a whole-record vector
+    // match is not span-located).
+    let snippet = ''
+    if (h.chunk && e && ctx.embeddings) {
+      snippet = embeddingSourceText(e.record as Record<string, unknown>, ctx.embeddings.source).slice(h.chunk.start, h.chunk.end)
+    }
+    const base: RetrieveHit<T> = { id: h.id, score: h.score, rank: i + 1, field: '(vector)', snippet, ...(h.chunk ? { chunk: h.chunk } : {}) }
+    if (opts.includeRecord && e) (base as { record?: T }).record = stripI18nFilled(e.record as Record<string, unknown>) as T
     return base
   })
 }
@@ -405,9 +424,30 @@ export async function similarTo<T>(ctx: SearchContext<T>, vector: Float32Array, 
 export async function embedOnWrite<T>(ctx: SearchContext<T>, id: string, record: T, version: number): Promise<void> {
   if (!ctx.embeddings) return
   const text = embeddingSourceText(record as Record<string, unknown>, ctx.embeddings.source)
-  const vec = await ctx.embeddings.encode(text)
-  if (vec.length !== ctx.embeddings.dim) throw new EmbeddingDimMismatchError('embeddings', ctx.embeddings.dim, vec.length)
-  const body = JSON.stringify({ vec: Array.from(vec), model: ctx.embeddings.model, dim: ctx.embeddings.dim })
+  // #1360 — sub-document chunking. When a `chunk` hook is declared and yields
+  // usable spans, the sidecar holds ONE VECTOR PER CHUNK and no whole-record
+  // vector: the whole-record encode is the thing chunking exists to avoid (it
+  // averages a long document's topics away, and can exceed the model's context
+  // window — the very case that motivates chunking). No chunk hook, or no
+  // usable span, and the body is byte-for-byte the pre-#1360 single-vector
+  // shape. Both live in the SAME encrypted `_vec` sidecar: no new store
+  // collection, no new plaintext surface.
+  const chunks = await deriveChunkVectors(text, ctx.embeddings)
+  let body: string
+  if (chunks.length > 0) {
+    for (const c of chunks) {
+      if (c.vec.length !== ctx.embeddings.dim) throw new EmbeddingDimMismatchError('embeddings', ctx.embeddings.dim, c.vec.length)
+    }
+    body = JSON.stringify({
+      chunks: chunks.map((c) => ({ id: c.id, start: c.start, end: c.end, vec: Array.from(c.vec) })),
+      model: ctx.embeddings.model,
+      dim: ctx.embeddings.dim,
+    })
+  } else {
+    const vec = await ctx.embeddings.encode(text)
+    if (vec.length !== ctx.embeddings.dim) throw new EmbeddingDimMismatchError('embeddings', ctx.embeddings.dim, vec.length)
+    body = JSON.stringify({ vec: Array.from(vec), model: ctx.embeddings.model, dim: ctx.embeddings.dim })
+  }
   const vecEnv = await ctx.codec.encryptJsonString({ collection: '_vec', id: encodeVecId(ctx.name, id) }, body, version)
   await ctx.adapter.put(ctx.vault, '_vec', encodeVecId(ctx.name, id), vecEnv)
   ctx.vectorSet?.markDirty()

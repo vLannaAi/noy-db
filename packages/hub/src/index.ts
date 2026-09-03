@@ -1092,6 +1092,8 @@ export { UniqueConstraintError, UnsupportedIndexOptionError } from './kernel/err
 // embeddings / semantic-retrieval (L2)
 export { EmbeddingDimMismatchError, EmbeddingModelMismatchError } from './kernel/errors.js'
 export type { EmbeddingDescriptor } from './with-lookup/embeddings/index.js'
+// #1360 sub-document chunking — span types for `descriptor.chunk` and `hit.chunk`
+export type { EmbeddingChunk, EmbeddingChunkSpan } from './with-lookup/embeddings/index.js'
 
 // magic-link-bridged cross-user KEK delegation
 export type {
