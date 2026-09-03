@@ -476,6 +476,17 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
       warnedKeys: Set<string>
     }> = []
     for (const leg of this.joins) {
+      // #1339 — unreachable today (`ScanBuilder` builds its own ref legs and
+      // has no `.joinOn()`), and loud rather than silent if that ever
+      // changes: a declared `on` is many-to-many, so it emits one row per
+      // match, which the one-record-in/one-record-out streaming contract
+      // below cannot express.
+      if (leg.on !== undefined) {
+        throw new Error(
+          `ScanBuilder: the declared \`on\` join leg "${leg.as}" cannot stream — it emits one row ` +
+            `per match, while scan() yields one row per stored record. Use collection.query().joinOn().`,
+        )
+      }
       const source = this.joinContext.resolveSource(leg.target)
       if (!source) {
         throw new Error(

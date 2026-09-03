@@ -23,6 +23,7 @@ export { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 export type { IndexDef, HashIndex } from '../../with-lookup/indexing/eager-indexes.js'
 export { applyJoins, DEFAULT_JOIN_MAX_ROWS, resetJoinWarnings } from './join.js'
 export type { JoinLeg, JoinContext, JoinableSource, JoinStrategy, JoinDirection } from './join.js'
+export type { JoinOnSpec, JoinOnPlan, JoinOnOp } from './join-on.js'
 // Recursive traversal over a declared self-ref (#1352).
 export { runTraversal } from './traverse.js'
 export type { TraversalRow, TraverseOptions, TraverseDirection, TraverseSource, CyclePolicy } from './traverse.js'

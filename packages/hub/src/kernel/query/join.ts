@@ -48,6 +48,7 @@ import type { RefDescriptor, RefMode } from '../refs.js'
 import type { Clause } from './predicate.js'
 import type { ViaPipeline } from '../via/pipeline.js'
 import { readPath } from './predicate.js'
+import { matchDeclaredJoin, type JoinOnPlan } from './join-on.js'
 import { JoinTooLargeError, DanglingReferenceError } from '../errors.js'
 
 /** Planner strategy for a single join leg. Auto-selected unless overridden. */
@@ -161,6 +162,21 @@ export interface JoinLeg {
    * stored `queryHash` moves.
    */
   readonly inner?: true
+  /**
+   * A DECLARED, deterministic join predicate (#1339) — composite equality or
+   * a range — instead of the `ref()`-declared FK the rest of this file
+   * resolves. Set only by `.joinOn()`, always through
+   * {@link normalizeJoinOn}, and OMITTED on every other leg: a plan built by
+   * `.join()` must serialize byte-identically to a pre-#1339 one, or every
+   * stored `queryHash` moves (the same discipline `direction` and `inner`
+   * follow above).
+   *
+   * ⭐ This is the field that separates `.joinOn()` from `.crossJoin({ on })`.
+   * It is plain JSON, so it survives `serializePlan()` and
+   * `summarizeQueryPlan()` and a materialized view can therefore DEPEND on
+   * it. A closure cannot. See `join-on.ts`.
+   */
+  readonly on?: JoinOnPlan
   /**
    * When `true`, this is a dictionary join. The executor
    * resolves the left-field value against the dict snapshot and
@@ -615,6 +631,15 @@ function applyOneJoinRaw(
             : right
       : undefined
 
+  // #1339 — a declared `on` replaces the FK lookup entirely: there is no
+  // ref, so neither `lookupById` nor the id-keyed hash means anything. It
+  // runs BEFORE the strategy/direction selection below because it answers
+  // both questions itself (see `join-on.ts` for which strategy serves which
+  // shape, and at what cost).
+  if (leg.on !== undefined) {
+    return declaredJoin(leftRows, leg, leg.on, rightSnapshot, maxRows, presentResolve)
+  }
+
   // Strategy selection: explicit override wins; otherwise prefer
   // nested-loop when the source exposes lookupById (O(1) per row),
   // falling back to hash join when it doesn't.
@@ -638,6 +663,52 @@ function applyOneJoinRaw(
     return nestedLoopJoin(leftRows, leg, lookup, presentResolve)
   }
   return hashJoin(leftRows, leg, rightSnapshot, presentResolve)
+}
+
+/**
+ * Execute a declared-`on` leg (#1339).
+ *
+ * The match set comes from `join-on.ts`; this function is only the part that
+ * has to agree with the rest of `.join()` — the alias attachment, the
+ * present/decode dressing, and the OUTPUT ceiling.
+ *
+ * ⚠️ The output ceiling is not redundant with the two side ceilings above. A
+ * ref join is one-to-one, so `output === leftRows`; a declared join is
+ * many-to-many, so 1,000 × 1,000 rows both comfortably under a 50,000-row
+ * side ceiling can produce a million rows. Checking as rows are produced is
+ * what makes an unbounded theta join an error rather than a hang.
+ */
+function declaredJoin(
+  leftRows: readonly unknown[],
+  leg: JoinLeg,
+  on: JoinOnPlan,
+  rightSnapshot: readonly unknown[],
+  maxRows: number,
+  presentResolve?: (right: unknown) => unknown,
+): unknown[] {
+  const matches = matchDeclaredJoin(leftRows, on, rightSnapshot, maxRows, produced => {
+    throw new JoinTooLargeError({
+      leftRows: leftRows.length,
+      rightRows: rightSnapshot.length,
+      maxRows,
+      side: 'output',
+      message:
+        `.joinOn("${leg.target}") produced more than ${maxRows} rows (${produced} and counting) from ` +
+        `${leftRows.length} left x ${rightSnapshot.length} right. A declared \`on\` is many-to-many, so ` +
+        `the per-side ceilings do not bound the result. Narrow the predicate, filter the left side ` +
+        `with where()/limit() before joining, or raise the ceiling via { maxRows }.`,
+    })
+  })
+  const out: unknown[] = []
+  for (const { left, right } of matches) {
+    const dressed = presentResolve && right !== undefined ? presentResolve(right) : right
+    // `rawId` is `undefined` on purpose: a declared join has no ref, so
+    // "matched nothing" is never a DANGLING ref — `attachJoin` reads a null
+    // key as "no reference at all" and attaches null without consulting the
+    // ref mode. An unmatched row is data, not corruption.
+    out.push(attachJoin(left, leg, dressed, undefined))
+  }
+  return out
 }
 
 function nestedLoopJoin(

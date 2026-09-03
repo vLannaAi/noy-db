@@ -49,6 +49,7 @@ import {
 } from './builder.js'
 import type { JoinContext, JoinLeg } from './join.js'
 import { DEFAULT_JOIN_MAX_ROWS, joinsDropLeftRows, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
+import { describeJoinOn, joinOnDispatch } from './join-on.js'
 import type { ViaPipeline } from '../via/pipeline.js'
 
 /**
@@ -75,6 +76,10 @@ export type ExplainDispatch =
   | 'join:nested'
   | 'join:hash'
   | 'join:reverse-index'
+  /** #1339 — a declared composite `on`, hashed over a tuple key. */
+  | 'join:composite-hash'
+  /** #1339 — a declared range `on`, nested-loop over a sorted right side. */
+  | 'join:sorted-range'
   | 'crossJoin'
   | 'sort'
   | 'page'
@@ -613,6 +618,31 @@ function joinNode(
   }
   if (rightRows !== undefined) {
     caps.push({ name: `join:${leg.as}:right`, limit, observed: rightRows, status: capStatus(rightRows, limit) })
+  }
+
+  // #1339 — a declared `on` runs neither forward strategy nor the reverse
+  // index, and it is the only join here that can EXPAND the relation, so both
+  // the dispatch and the estimate have to say so rather than passing the left
+  // count through as `.join()` legitimately does.
+  if (leg.on !== undefined) {
+    // `ref mode` is meaningless here and actively misleading: a declared join
+    // has no ref(), so the leg's `'cascade'` is a placeholder that satisfies
+    // the shared `JoinLeg` type, not a policy anything applies.
+    notes.splice(notes.findIndex(n => n.startsWith('ref mode')), 1)
+    notes.push(
+      leg.on.kind === 'composite'
+        ? 'declared composite `on`: one hash pass over the right snapshot, keyed on the field tuple'
+        : 'declared range `on`: the right snapshot is sorted once, then binary-searched per left row',
+    )
+    notes.push('many-to-many: one row per match, so the estimate is a lower bound and the output ceiling applies')
+    return {
+      op: 'join',
+      dispatch: joinOnDispatch(leg.on),
+      detail: `${leg.as} <- ${describeJoinOn(leg.on)} (${leg.target})`,
+      estimatedRows: leftRows,
+      notes,
+      children: [],
+    }
   }
 
   // The direction is appended ONLY for a right/full leg. A left leg's detail
