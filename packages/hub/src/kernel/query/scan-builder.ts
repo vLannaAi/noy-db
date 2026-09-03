@@ -62,7 +62,7 @@ import type { QueryField } from '../types.js'
 import type { ReducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import { reducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import type { Clause, FieldClause, Operator } from './predicate.js'
-import { evaluateClause, hasFnClause, normalizeMatches, readPath } from './predicate.js'
+import { evaluateClause, hasFnClause, normalizeMatches, normalizeSubqueryOperand, readPath } from './predicate.js'
 import type {
   ReduceSpec,
   ReduceResult,
@@ -185,7 +185,11 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
     // site — an anchored literal prefix lowers to `startsWith` (taking the
     // sorted index), anything else serializes to `{ source, flags }` so the
     // pattern folds into an MV's queryHash. Every other operator is identity.
-    const { op: mop, value: mval } = normalizeMatches(op, value)
+    // #1351: a SUBQUERY operand of `in`/`!in` resolves to its id array here,
+    // at build time — same normalization order as `Query.where()`, so all
+    // three builders turn the same call into the same clause.
+    const { op: sop, value: sval, subquery } = normalizeSubqueryOperand(op, value)
+    const { op: mop, value: mval } = normalizeMatches(sop, sval)
     const viaClause = via?.buildClause(field as string, mop, mval)
     const clause: FieldClause = viaClause
       ? {
@@ -193,13 +197,14 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
           field: field as string,
           op: mop,
           value: mval,
+          ...(subquery ? { subquery } : {}),
           via: {
             brand: viaClause.brand,
             payload: viaClause.payload,
             evaluate: (actual: unknown, evalOp: string) => via!.evaluateClause(viaClause, actual, evalOp),
           },
         }
-      : { type: 'field', field: field as string, op: mop, value: mval }
+      : { type: 'field', field: field as string, op: mop, value: mval, ...(subquery ? { subquery } : {}) }
     return new ScanBuilder<T, S, M>(
       this.pageProvider,
       this.pageSize,
