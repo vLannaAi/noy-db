@@ -68,7 +68,7 @@ import type {
 } from './reduction.js'
 import { buildLiveReduction } from './reduction.js'
 import type { ReducerBuilder } from './reducers.js'
-import { reducerBuilder } from './reducers.js'
+import { bindDistinctReducers, reducerBuilder } from './reducers.js'
 import { canonicalGroupKey } from './canonical-key.js'
 import { GroupCardinalityError } from '../../kernel/errors.js'
 import type { MoneyDescriptor } from '../../via/money/descriptor.js'
@@ -191,7 +191,10 @@ abstract class GroupedQueryBase {
 
   /** Apply Via-aware reducer rewriting (e.g. money) when the source declares one. */
   protected wrapSpec<Spec extends ReduceSpec>(spec: Spec): Spec {
-    return this.via ? this.via.wrapReducers(spec) : spec
+    // #1347 — `countDistinct` is rebound to the collection's index-key
+    // canonicalizer here too, so a grouped distinct count agrees with an
+    // ungrouped one over the same Via-covered field.
+    return bindDistinctReducers(this.via ? this.via.wrapReducers(spec) : spec, this.via)
   }
 }
 
@@ -298,7 +301,14 @@ export function groupAndReduce<R>(
   // kernel's Via port rather than a Query-attached pipeline — `moneyFields`
   // here is the MV spec's OWN descriptor map, not a collection's.
   if (moneyFields) {
-    spec = viaBinder('money')({ moneyFields }).wrapReducers!(spec) as ReduceSpec
+    const binding = viaBinder('money')({ moneyFields })
+    spec = binding.wrapReducers!(spec) as ReduceSpec
+    // #1347 — same binding, the other half: `countDistinct` over a declared
+    // money field must dedup on the BigInt-normalized scaled int, or a UNION
+    // MV counts `'0100'` and `'100'` as two values of one amount.
+    spec = bindDistinctReducers(spec, {
+      canonicalizeIndexKey: (f, v) => binding.canonicalizeIndexKey?.(f, v),
+    })
   }
 
   // Bucket value is { keyValues, records } so the output row can stamp
