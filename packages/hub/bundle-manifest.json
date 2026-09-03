@@ -1,41 +1,41 @@
 {
   "scenarios": {
     "floor": {
-      "minifiedBytes": 1718,
-      "gzippedBytes": 526
+      "minifiedBytes": 1746,
+      "gzippedBytes": 532
     },
     "lazy": {
-      "minifiedBytes": 1806,
-      "gzippedBytes": 600
+      "minifiedBytes": 1834,
+      "gzippedBytes": 609
     },
     "team": {
-      "minifiedBytes": 2075,
-      "gzippedBytes": 708
+      "minifiedBytes": 2103,
+      "gzippedBytes": 711
     },
     "broker": {
-      "minifiedBytes": 2802,
-      "gzippedBytes": 1148
+      "minifiedBytes": 2830,
+      "gzippedBytes": 1156
     },
     "history": {
-      "minifiedBytes": 5414,
-      "gzippedBytes": 1999
+      "minifiedBytes": 5442,
+      "gzippedBytes": 2007
     },
     "classified": {
-      "minifiedBytes": 3068,
-      "gzippedBytes": 1089
+      "minifiedBytes": 3096,
+      "gzippedBytes": 1097
     },
     "blobs": {
-      "minifiedBytes": 1889,
-      "gzippedBytes": 670
+      "minifiedBytes": 1917,
+      "gzippedBytes": 671
     },
     "analytics": {
-      "minifiedBytes": 2603,
-      "gzippedBytes": 960
+      "minifiedBytes": 2947,
+      "gzippedBytes": 1135
     },
     "all-on": {
-      "minifiedBytes": 34446,
-      "gzippedBytes": 10862
+      "minifiedBytes": 34787,
+      "gzippedBytes": 11007
     }
   },
-  "updatedAt": "2026-08-29T11:55:07.757Z"
+  "updatedAt": "2026-09-03T20:29:47.838Z"
 }
