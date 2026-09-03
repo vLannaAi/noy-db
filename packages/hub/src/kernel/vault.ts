@@ -185,7 +185,7 @@ const COLLECTION_PASSTHROUGH_KEYS = [
   'indexes', 'reconcileOnOpen', 'prefetch', 'cache', 'schema', 'conflictPolicy', 'crdt',
   'deterministicFields', 'acknowledgeDeterministicRisk', 'acknowledgeEquatableRisk',
   'sensitive', 'perRecordKeys', 'provenance', 'ramCiphertext', 'tiers', 'tierMode',
-  'blobTierPolicy', 'i18nFields', 'embeddings', 'textIndexes', 'warmIndexOnOpen',
+  'blobTierPolicy', 'i18nFields', 'embeddings', 'textIndexes', 'textIndexPositions', 'warmIndexOnOpen',
   'textIndexPersist', 'moneyFields', 'viaFields', 'computed', 'classifiedFields',
   'fieldMeta', 'meta',
 ] as const

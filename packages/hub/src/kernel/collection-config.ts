@@ -234,6 +234,8 @@ export interface CollectionOpts<T> {
   embeddings?: EmbeddingDescriptor | undefined
   /** — string fields exposed to client-side `retrieve()`. */
   textIndexes?: readonly string[] | undefined
+  /** — subset of `textIndexes` recording token positions (phrase / proximity, #1354). */
+  textIndexPositions?: readonly string[] | undefined
   /** — pre-build the lexical index on open (eager-only). */
   warmIndexOnOpen?: boolean | undefined
   /** — persist the lexical index as an opaque encrypted blob at `_ftindex/<name>`. */
@@ -1283,6 +1285,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     joinResolver: opts.joinResolver,
     i18nFields: effectiveViaFields.i18nFields,
     textIndexes: opts.textIndexes,
+    textIndexPositions: opts.textIndexPositions,
     embeddings: opts.embeddings,
     vectorSet: opts.embeddings ? new VectorSet() : undefined,
     dictKeyFields: effectiveViaFields.dictKeyFields,
