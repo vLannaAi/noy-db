@@ -596,6 +596,7 @@
     "ExplainCap",
     "ExplainDispatch",
     "ExplainNode",
+    "ExplainSource",
     "ExportAccessibleOptions",
     "ExportCapability",
     "ExportChunk",

@@ -1217,6 +1217,7 @@ export type {
   ExplainNode,
   ExplainCap,
   ExplainDispatch,
+  ExplainSource,
   LiveQuery,
   LiveUpstream,
   ScanPageProvider,
