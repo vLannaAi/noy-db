@@ -375,7 +375,7 @@ export function orderReferencesJoinAlias(
  * bucket key. This matches the lint rule guidance and keeps
  * bizarre FK values from producing silently-wrong lookups.
  */
-function coerceRefKey(value: unknown): string | null {
+export function coerceRefKey(value: unknown): string | null {
   if (value === null || value === undefined) return null
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'bigint') return String(value)
@@ -645,15 +645,37 @@ function hashJoin(
  * "no reference at all", never a match.
  */
 function reverseIndex(leftRows: readonly unknown[], field: string): Map<string, unknown[]> {
-  const byRight = new Map<string, unknown[]>()
-  for (const left of leftRows) {
-    const key = coerceRefKey(readPath(left, field))
+  return bucketByRefKey(leftRows, left => readPath(left, field))
+}
+
+/**
+ * The reverse-FK index, generalised over what sits in the bucket (#1352).
+ *
+ * `outerJoinFromRight` buckets bare left ROWS by their FK; `traverse()`
+ * buckets id-paired ENTRIES, because a child row alone cannot say what its
+ * own id is (a Collection snapshot record carries no `id` field — the id is
+ * the cache key). Same question — "who points at this?" — same coercion
+ * rules, so it is deliberately one implementation rather than two that can
+ * drift on what counts as a usable FK value.
+ *
+ * `readKey` extracts the raw FK from an item; `coerceRefKey` then decides
+ * whether it is a key at all. An item whose FK is nullish, or is neither a
+ * string nor a number, is dropped — "no reference", not "a reference to
+ * `[object Object]`".
+ */
+export function bucketByRefKey<V>(
+  items: readonly V[],
+  readKey: (item: V) => unknown,
+): Map<string, V[]> {
+  const buckets = new Map<string, V[]>()
+  for (const item of items) {
+    const key = coerceRefKey(readKey(item))
     if (key === null) continue
-    const bucket = byRight.get(key)
-    if (bucket) bucket.push(left)
-    else byRight.set(key, [left])
+    const bucket = buckets.get(key)
+    if (bucket) bucket.push(item)
+    else buckets.set(key, [item])
   }
-  return byRight
+  return buckets
 }
 
 /**
