@@ -5,7 +5,8 @@
   "description": "Performance benchmarks",
   "type": "module",
   "scripts": {
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "bench:vectors": "vitest run --config vitest.bench.config.ts"
   },
   "devDependencies": {
     "@noy-db/hub": "workspace:*"
