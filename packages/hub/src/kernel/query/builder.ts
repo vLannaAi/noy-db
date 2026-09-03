@@ -20,6 +20,8 @@ import { reducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/reduce/groupby.js'
 import { NO_REDUCE, type ReduceStrategy } from '../../with-lookup/reduce/strategy.js'
 import type { ViaPipeline } from '../via/pipeline.js'
+import type { QueryExplanation } from './explain.js'
+import { explainPlan } from './explain.js'
 
 export interface OrderBy {
   readonly field: string
@@ -1198,6 +1200,22 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    */
   toPlan(): unknown {
     return serializePlan(this.plan)
+  }
+
+  /**
+   * Describe how this plan WOULD run (#1348): the dispatch per clause
+   * (`index:hash` vs `scan`, and why), row estimates taken from real index
+   * cardinalities, join strategy and side sizes against the row ceiling,
+   * whether ordering/pagination lands pre- or post-join, and which
+   * cardinality caps are close to tripping. `.text` renders one line per
+   * node.
+   *
+   * ⛔ Purely observational — it probes index buckets and reads snapshot
+   * sizes, never executes the plan. A terminal returns the same thing
+   * whether or not `explain()` was called. See `query/explain.ts`.
+   */
+  explain(): QueryExplanation {
+    return explainPlan(this.source, this.plan, this.joinContext)
   }
 }
 

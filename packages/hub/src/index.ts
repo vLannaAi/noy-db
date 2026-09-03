@@ -1195,6 +1195,7 @@ export {
   DEFAULT_JOIN_MAX_ROWS,
   DEFAULT_CROSS_JOIN_MAX_ROWS,
   buildLiveQuery,
+  explainPlan,
   ScanBuilder,
 } from './kernel/query/index.js'
 export type {
@@ -1212,6 +1213,10 @@ export type {
   JoinContext,
   JoinableSource,
   JoinStrategy,
+  QueryExplanation,
+  ExplainNode,
+  ExplainCap,
+  ExplainDispatch,
   LiveQuery,
   LiveUpstream,
   ScanPageProvider,
