@@ -16,7 +16,16 @@
  */
 
 import { readPath } from '../../kernel/query/predicate.js'
+import { stringifyBucketKey } from '../../kernel/query/distinct-key.js'
 import { SortedIndex, buildSortedIndex, type RangeOperator } from './sorted-indexes.js'
+import {
+  CompoundIndex,
+  buildCompoundIndex,
+  compoundKey,
+  probeKeysOf,
+  tupleKeyOf,
+  type CompoundRangeProbe,
+} from './compound-indexes.js'
 
 /**
  * Index declaration accepted by `Collection`'s constructor.
@@ -100,6 +109,14 @@ export class CollectionIndexes {
   private readonly sorted = new Map<string, SortedIndex>()
 
   /**
+   * Compound (tuple-keyed) sorted indexes, keyed by the joined field
+   * tuple — the #1345 half. Third parallel map, maintained at the SAME
+   * mutation sites through the SAME `canonicalize` closure as the other
+   * two, so no field can end up in disagreeing key spaces.
+   */
+  private readonly compound = new Map<string, CompoundIndex>()
+
+  /**
    * Per-field bucket-key canonicalizer (#672 review C1), registered ONCE
    * via {@link setCanonicalizer} when the collection wires indexing up
    * (money-aware via `ViaPipeline.canonicalizeIndexKey`). Consulted by
@@ -174,6 +191,68 @@ export class CollectionIndexes {
     return this.sorted.get(field)?.orderedIds(direction) ?? null
   }
 
+  /**
+   * Declare a compound (multi-field) sorted index over an ordered field
+   * tuple. A tuple shorter than two fields is a single-field sorted index
+   * and is ignored here. Idempotent.
+   */
+  declareCompound(fields: readonly string[]): void {
+    if (fields.length < 2) return
+    const key = compoundKey(fields)
+    if (this.compound.has(key)) return
+    this.compound.set(key, new CompoundIndex([...fields]))
+  }
+
+  /** Every declared field tuple, in declaration order. */
+  compoundTuples(): ReadonlyArray<readonly string[]> {
+    return [...this.compound.values()].map(idx => idx.fields)
+  }
+
+  /**
+   * Number of records the tuple's index holds (0 when undeclared). A
+   * record with a nullish or non-orderable component is absent, so a
+   * caller that removes clauses from the plan MUST compare this against
+   * the snapshot size before trusting the result.
+   */
+  compoundSize(fields: readonly string[]): number {
+    return this.compound.get(compoundKey(fields))?.size ?? 0
+  }
+
+  /**
+   * Compound lookup: ids whose leading components equal `prefixValues`,
+   * optionally narrowed by a range on the component just past them.
+   * `null` when no compound index covers the tuple, or when an operand
+   * has no order-defined type — the caller falls back to a linear scan.
+   */
+  lookupCompound(
+    fields: readonly string[],
+    prefixValues: readonly unknown[],
+    range?: CompoundRangeProbe,
+  ): ReadonlySet<string> | null {
+    const idx = this.compound.get(compoundKey(fields))
+    if (!idx) return null
+    const prefix = probeKeysOf(prefixValues)
+    if (!prefix) return null
+    return idx.lookup(prefix, range)
+  }
+
+  /**
+   * Ids matching an equality prefix, ordered by the remaining components.
+   * `null` when no compound index covers the tuple or an operand has no
+   * order-defined type. See {@link compoundSize} for the coverage caveat.
+   */
+  compoundOrderedIds(
+    fields: readonly string[],
+    prefixValues: readonly unknown[],
+    direction: 'asc' | 'desc',
+  ): readonly string[] | null {
+    const idx = this.compound.get(compoundKey(fields))
+    if (!idx) return null
+    const prefix = probeKeysOf(prefixValues)
+    if (!prefix) return null
+    return idx.orderedIds(prefix, direction)
+  }
+
   /** True if the given field has a declared index. */
   has(field: string): boolean {
     return this.indexes.has(field)
@@ -199,6 +278,9 @@ export class CollectionIndexes {
     for (const idx of this.sorted.values()) {
       buildSortedIndex(idx, records, this.canonicalize)
     }
+    for (const idx of this.compound.values()) {
+      buildCompoundIndex(idx, records, this.canonicalize)
+    }
   }
 
   /**
@@ -209,8 +291,18 @@ export class CollectionIndexes {
    * buckets first — this is the update path. Pass `null` for fresh adds.
    */
   upsert<T>(id: string, newRecord: T, previousRecord: T | null): void {
-    if (this.indexes.size === 0 && this.sorted.size === 0) return
+    if (this.indexes.size === 0 && this.sorted.size === 0 && this.compound.size === 0) return
+    // Detach the compound entries FIRST, holding the rank each one had. An
+    // in-place `put` does not move a record within `snapshot()`, so it must
+    // not move it within a tie run either — otherwise an index-served
+    // `orderBy(...).limit(n)` page disagrees with the stable scan-and-sort
+    // it is required to reproduce exactly (#1345). The `this.remove()` below
+    // re-runs the compound removal, which is then a no-op.
+    const ranks = new Map<string, number | undefined>()
     if (previousRecord !== null) {
+      for (const [key, idx] of this.compound) {
+        ranks.set(key, idx.remove(id, tupleKeyOf(idx.fields, previousRecord, this.canonicalize)))
+      }
       this.remove(id, previousRecord)
     }
     for (const idx of this.indexes.values()) {
@@ -221,6 +313,9 @@ export class CollectionIndexes {
       if (value === null || value === undefined) continue
       idx.add(id, value, this.canonicalize?.(idx.field, value))
     }
+    for (const [key, idx] of this.compound) {
+      idx.add(id, tupleKeyOf(idx.fields, newRecord, this.canonicalize), ranks.get(key))
+    }
   }
 
   /**
@@ -228,7 +323,7 @@ export class CollectionIndexes {
    * (and as the first half of `upsert` for the update path).
    */
   remove<T>(id: string, record: T): void {
-    if (this.indexes.size === 0 && this.sorted.size === 0) return
+    if (this.indexes.size === 0 && this.sorted.size === 0 && this.compound.size === 0) return
     for (const idx of this.indexes.values()) {
       removeFromIndex(idx, id, record, this.canonicalize)
     }
@@ -236,6 +331,9 @@ export class CollectionIndexes {
       const value = readPath(record, idx.field)
       if (value === null || value === undefined) continue
       idx.remove(id, value, this.canonicalize?.(idx.field, value))
+    }
+    for (const idx of this.compound.values()) {
+      idx.remove(id, tupleKeyOf(idx.fields, record, this.canonicalize))
     }
   }
 
@@ -245,6 +343,9 @@ export class CollectionIndexes {
       idx.buckets.clear()
     }
     for (const idx of this.sorted.values()) {
+      idx.clear()
+    }
+    for (const idx of this.compound.values()) {
       idx.clear()
     }
   }
@@ -281,6 +382,36 @@ export class CollectionIndexes {
     }
     return out
   }
+
+  /**
+   * One record id per NON-EMPTY bucket of `field`'s hash index, in bucket
+   * order — the index-backed spine of `Query.distinct()` (#1347). `null` when
+   * no hash index covers the field, so the caller scans instead.
+   *
+   * The bucket set IS the distinct key set, so this costs O(buckets) rather
+   * than O(records). It returns REPRESENTATIVE IDS rather than the keys
+   * themselves on purpose: a bucket key is a canonical string (money's
+   * BigInt-normalized scaled int, say), and `distinct()` owes its caller the
+   * field's real value, which only the record carries.
+   *
+   * Bucket insertion order is first-seen record order — `build()` walks the
+   * snapshot in order and `upsert()` appends — which is why an index-backed
+   * `distinct()` and a scanned one agree on ORDER too, not merely on the set.
+   * Empty buckets are skipped defensively; `removeFromIndex` already deletes
+   * them, so this is belt-and-braces against a future partial removal path.
+   */
+  bucketRepresentatives(field: string): readonly string[] | null {
+    const idx = this.indexes.get(field)
+    if (!idx) return null
+    const out: string[] = []
+    for (const bucket of idx.buckets.values()) {
+      for (const id of bucket) {
+        out.push(id)
+        break
+      }
+    }
+    return out
+  }
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set()
@@ -288,19 +419,13 @@ const EMPTY_SET: ReadonlySet<string> = new Set()
 /**
  * Stringify a value into a stable bucket key.
  *
- * `null`/`undefined` produce a sentinel that records will never match
- * (so we never index nullish values — `where('x', '==', null)` falls back
- * to a linear scan). Numbers, booleans, strings, and Date objects are
- * coerced via `String()`. Objects produce a sentinel that no real record
- * will match — querying with object values is a code smell.
+ * ⚠️ The DEFINITION moved to `kernel/query/distinct-key.ts` (#1347) and is
+ * only aliased here. `distinct()` / `countDistinct()` recompute this key on
+ * the scan path, and an index-backed `distinct()` reads the buckets it made —
+ * one definition is what stops those two answers from drifting apart. Change
+ * the shared function, not a copy.
  */
-function stringifyKey(value: unknown): string {
-  if (value === null || value === undefined) return '\0NULL\0'
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (value instanceof Date) return value.toISOString()
-  return '\0OBJECT\0'
-}
+const stringifyKey = stringifyBucketKey
 
 function addToIndex<T>(
   idx: HashIndex,

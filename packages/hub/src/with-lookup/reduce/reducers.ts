@@ -25,6 +25,7 @@
  */
 
 import { readPath } from '../../kernel/query/predicate.js'
+import { distinctKeyOf, type BucketKeyCanonicalizer } from '../../kernel/query/distinct-key.js'
 import type { MoneyString } from '../../via/money/branded.js'
 import type { QueryField } from '../../kernel/types.js'
 
@@ -75,7 +76,7 @@ export interface Reducer<R, S = R> {
    * render human-readable aggregate descriptors in `dumpSchema()`.
    * Optional so third-party custom reducers are unaffected.
    */
-  readonly op?: 'count' | 'sum' | 'avg' | 'min' | 'max'
+  readonly op?: 'count' | 'countDistinct' | 'sum' | 'avg' | 'min' | 'max'
   /**
    * Field name for field-based reducers (`sum`, `avg`, `min`, `max`).
    * Absent on `count` which aggregates over record count, not a field.
@@ -141,6 +142,99 @@ export function count(opts?: ReducerOptions<number>): Reducer<number> {
     finalize: (state) => state,
     merge: (a, b) => a + b,
   }
+}
+
+/**
+ * Multiset state behind {@link countDistinct}: canonical distinct key →
+ * how many records currently contribute it. The COUNT, not a bare Set, is
+ * what makes `remove()` correct — dropping one of three records holding
+ * `'c1'` must not drop `'c1'` from the distinct set.
+ */
+export interface CountDistinctState {
+  readonly counts: ReadonlyMap<string, number>
+}
+
+/**
+ * Number of DISTINCT non-nullish values of `field` across matching records
+ * (#1347) — `COUNT(DISTINCT field)`.
+ *
+ * Distinctness is decided on the canonical index key, not on the stored
+ * string and not on any formatted rendering, so a money field's `'0100'` and
+ * `'100'` count once; see `kernel/query/distinct-key.ts` for why, and for why
+ * nullish values are excluded rather than counted as a value of their own.
+ *
+ * The canonicalizer is bound LATE, by {@link bindDistinctReducers}, at the
+ * same two points `wrapReducers` runs — a bare `countDistinct('amount')` in a
+ * spec has no way to know which collection it will be reduced against, so a
+ * constructor argument would be a footgun. Unbound, it falls back to the raw
+ * stringified key, which is exactly what a non-Via field wants.
+ *
+ * Incremental complexity: O(1) `step` and `remove`, O(1) `finalize`.
+ */
+export function countDistinct(
+  field: string,
+  opts?: ReducerOptions<number> & { readonly canonicalize?: BucketKeyCanonicalizer },
+): Reducer<number, CountDistinctState> {
+  const _seed = opts?.seed
+  void _seed
+  const via = opts?.canonicalize
+  const keyOf = (record: unknown): string | undefined =>
+    distinctKeyOf(field, readPath(record, field), via)
+  return {
+    op: 'countDistinct',
+    field,
+    init: () => ({ counts: new Map() }),
+    step: (state, record) => {
+      const key = keyOf(record)
+      if (key === undefined) return state
+      const counts = new Map(state.counts)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+      return { counts }
+    },
+    remove: (state, record) => {
+      const key = keyOf(record)
+      if (key === undefined) return state
+      const current = state.counts.get(key)
+      if (current === undefined) return state
+      const counts = new Map(state.counts)
+      if (current <= 1) counts.delete(key)
+      else counts.set(key, current - 1)
+      return { counts }
+    },
+    finalize: (state) => state.counts.size,
+    merge: (a, b) => {
+      const counts = new Map(a.counts)
+      for (const [k, n] of b.counts) counts.set(k, (counts.get(k) ?? 0) + n)
+      return { counts }
+    },
+  }
+}
+
+/**
+ * Rebind every `countDistinct` reducer in a spec to a Via canonicalizer.
+ *
+ * Called wherever `ViaPipeline.wrapReducers` is called — the two are the same
+ * seam, kept separate only because `wrapReducers` folds over BINDINGS (money
+ * rewriting its own `sum`) while this one is brand-agnostic: any binding that
+ * canonicalizes an index key canonicalizes a distinct key, by definition.
+ *
+ * Returns the spec unchanged when there is nothing to bind, so the common
+ * path allocates nothing.
+ */
+export function bindDistinctReducers<Spec>(spec: Spec, via: BucketKeyCanonicalizer | undefined): Spec {
+  if (!via) return spec
+  const entries = Object.entries(spec as Record<string, Reducer<unknown, unknown>>)
+  let changed = false
+  const out: Record<string, unknown> = {}
+  for (const [key, reducer] of entries) {
+    if (reducer?.op === 'countDistinct' && typeof reducer.field === 'string') {
+      out[key] = countDistinct(reducer.field, { canonicalize: via })
+      changed = true
+    } else {
+      out[key] = reducer
+    }
+  }
+  return changed ? (out as Spec) : spec
 }
 
 /**
@@ -376,6 +470,7 @@ export function moneyMax(field: string, opts?: ReducerOptions<number>): Reducer<
  */
 export interface ReducerBuilder<T, S extends keyof T = never, M extends keyof T & string = never> {
   count(opts?: ReducerOptions<number>): Reducer<number>
+  countDistinct(field: QueryField<T, S>, opts?: ReducerOptions<number>): Reducer<number, CountDistinctState>
   sum<F extends QueryField<T, S>>(field: F, opts?: ReducerOptions<number>): [F] extends [M] ? Reducer<MoneyString> : Reducer<number>
   avg(field: QueryField<T, S>, opts?: ReducerOptions<{ sum: number; count: number }>): ReturnType<typeof avg>
   min<F extends QueryField<T, S>>(field: F, opts?: ReducerOptions<number>): [F] extends [M] ? Reducer<MoneyString | null> : ReturnType<typeof min>
@@ -395,6 +490,7 @@ export interface ReducerBuilder<T, S extends keyof T = never, M extends keyof T 
  */
 export const reducerBuilder: ReducerBuilder<Record<string, unknown>> = {
   count,
+  countDistinct,
   // The generic F parameter on sum/min/max in the interface is type-only; the
   // standalone factories are plain `(field: string)` functions. With M=never the
   // conditional return collapses to the numeric branch, matching the factories'

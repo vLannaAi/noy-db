@@ -9,7 +9,8 @@ import type { QueryField } from '../types.js'
 import type { DateTruncKey, GroupKey } from './date-trunc.js'
 import { groupKeyName, isDateTruncKey, projectDateTruncKeys } from './date-trunc.js'
 import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
-import { evaluateClause, hasFnClause } from './predicate.js'
+import { evaluateClause, hasFnClause, normalizeMatches, readPath } from './predicate.js'
+import { distinctKeyOf } from './distinct-key.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinDirection, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins, splitAroundJoins } from './join.js'
@@ -20,7 +21,7 @@ import type { SourceChange } from './incremental.js'
 import { LiveMaintainer, canMaintainIncrementally } from './incremental.js'
 import type { ReduceSpec, ReduceResult, ReductionUpstream, Reduction } from '../../with-lookup/reduce/reduction.js'
 import type { ReducerBuilder } from '../../with-lookup/reduce/reducers.js'
-import { reducerBuilder } from '../../with-lookup/reduce/reducers.js'
+import { bindDistinctReducers, reducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/reduce/groupby.js'
 import { NO_REDUCE, type ReduceStrategy } from '../../with-lookup/reduce/strategy.js'
 import type { ViaPipeline } from '../via/pipeline.js'
@@ -383,21 +384,26 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   where(field: QueryField<T, S, Q>, op: Operator, value: unknown): Query<T, S, Q, M> {
     const via = this.source.via
     if (via?.postureFor(field)?.queryable === 'none') throw new FieldNotQueryableError(field)
-    const viaClause = via?.buildClause(field, op, value)
+    // #1357: a 'matches' operand is refused-or-normalized HERE, at the call
+    // site — an anchored literal prefix lowers to `startsWith` (taking the
+    // sorted index), anything else serializes to `{ source, flags }` so the
+    // pattern folds into an MV's queryHash. Every other operator is identity.
+    const { op: mop, value: mval } = normalizeMatches(op, value)
+    const viaClause = via?.buildClause(field, mop, mval)
     const clause: FieldClause = viaClause
       ? {
           type: 'field',
           field,
-          op,
-          value,
+          op: mop,
+          value: mval,
           via: {
             brand: viaClause.brand,
             payload: viaClause.payload,
             evaluate: (actual: unknown, evalOp: string) => via!.evaluateClause(viaClause, actual, evalOp),
-            indexValue: via!.indexProbe(viaClause, op),
+            indexValue: via!.indexProbe(viaClause, mop),
           },
         }
-      : { type: 'field', field, op, value }
+      : { type: 'field', field, op: mop, value: mval }
     return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
@@ -1227,13 +1233,28 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * the joined side, so they asked for the join.
    */
   count(): number {
+    return this.matchedRecords('count').length
+  }
+
+  /**
+   * The match set every reduce-shaped terminal reports over: `count()`,
+   * `distinct()`, and `exists()`'s non-short-circuit fallbacks.
+   *
+   * Extracted (#1347) rather than copied a third time, because "which records
+   * does this terminal see" is an INVARIANT across them — `distinct()`
+   * returning values `count()` never counted would be a bug nobody would look
+   * for. It is deliberately the `count()` pipeline: where/filter apply, joins
+   * apply only when a predicate addresses one (#1030), and orderBy/limit/offset
+   * do NOT — those describe a page, and a reduction is not paginated.
+   */
+  private matchedRecords(terminal: string): readonly unknown[] {
     if (this.plan.clauses.some(c => c.type === 'crossJoin')) {
       if (!this.joinContext) {
         throw new Error(
-          `Query.count(): plan contains crossJoin clauses but no JoinContext is attached.`,
+          `Query.${terminal}(): plan contains crossJoin clauses but no JoinContext is attached.`,
         )
       }
-      return executeClausePipeline(this.source, this.plan.clauses, this.joinContext).length
+      return executeClausePipeline(this.source, this.plan.clauses, this.joinContext)
     }
     // Use the same index-aware candidate machinery as toArray(); skip the
     // index-driving clause from re-evaluation. The length BEFORE limit/offset
@@ -1244,16 +1265,125 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       remainingClauses.length === 0
         ? candidates
         : filterRecords(candidates, remainingClauses, fnViewDecoder(this.source))
-    // #1289 — a left leg is projection-only, so the left cardinality IS the
-    // count. A right/full leg is not: it adds a row per unreferenced right
+    // #1289 — a left leg is projection-only, so the left match set IS the
+    // answer. A right/full leg is not: it adds a row per unreferenced right
     // record and (for 'right') drops the unmatched left ones. Those legs have
-    // to run or the number is simply wrong.
+    // to run or every reduce-shaped terminal is simply wrong — #1289 found
+    // this for count(), and it holds identically for distinct() and exists()
+    // now that #1347 made them share this pipeline.
     const reshapes = this.plan.joins.some(leg => leg.direction !== undefined && leg.direction !== 'left')
-    if (postJoin.length === 0 && !reshapes) return narrowed.length
+    if (postJoin.length === 0 && !reshapes) return narrowed
     // #1030 — the predicate lives on the joined side, so the legs are part of
     // the count. Same pipeline as toArray(), minus ordering and pagination.
-    const joined = applyJoins(narrowed, this.plan.joins, this.requireJoinContext('count'))
-    return filterRecords(joined, postJoin, fnViewDecoder(this.source)).length
+    const joined = applyJoins(narrowed, this.plan.joins, this.requireJoinContext(terminal))
+    return filterRecords(joined, postJoin, fnViewDecoder(this.source))
+  }
+
+  /**
+   * The distinct values of `field` across the match set (#1347) — the
+   * declarative form of `new Set(q.toArray().map(r => r[field]))`, which is
+   * what consumers write today and which is wrong in two ways this is not.
+   *
+   * **Distinctness is decided on the canonical index key, not on the value
+   * you get back.** For a Via-covered field that is the difference between a
+   * right answer and a plausible one: money stores a scaled integer, and a
+   * row written before the field was declared can spell it non-canonically
+   * (`'0100'` for `'100'`). Deduping the stored strings reports two values
+   * where there is one; deduping the FORMATTED strings makes the answer
+   * depend on a locale this layer does not have (`'10.00'` vs `'10,00'`).
+   * See `distinct-key.ts`. The values RETURNED are the decoded ones, so they
+   * match what `toArray()` hands back for the same field.
+   *
+   * **Nullish values are excluded** — `null`/`undefined`/missing is the
+   * absence of a value, not a distinct one. That is also the only choice
+   * under which the index-backed and scanned paths can agree, since the hash
+   * index does not hold nullish keys; see `distinctKeyOf`.
+   *
+   * Same match set as `count()`: where/filter apply, orderBy/limit/offset do
+   * not. Values come back in first-encountered order.
+   *
+   * ⭐ INDEX-BACKED when the field carries a hash index AND the plan narrows
+   * nothing — the buckets ARE the distinct key set, so the answer costs
+   * O(distinct values) instead of O(records) and never decrypts a snapshot.
+   * The guard is deliberately all-or-nothing: with a where clause the whole
+   * collection's buckets are not the answer, and intersecting a candidate id
+   * set with every bucket would cost more than the scan it replaced.
+   *
+   * ⛔ THE RETURN TYPE IS `(T & Record<F, unknown>)[F][]`, NOT
+   * `F extends keyof T ? T[F][] : unknown[]` — and it must stay that way. The
+   * conditional form reads better and type-checks at every call site, but a
+   * DEFERRED conditional over `T` makes TypeScript give up relating
+   * `Query<T>` to `Query<unknown>`, which makes `Collection<T>` invariant in
+   * `T`, which breaks `vault.ts`'s `Map<string, Collection<unknown>>` cache
+   * with four errors that name neither this method nor this file. The
+   * intersection form resolves to the same thing (`T[F]` for a literal key,
+   * `unknown` for a `string`-typed one) and stays covariant.
+   */
+  distinct<F extends QueryField<T, S>>(field: F): (T & Record<F, unknown>)[F][] {
+    const name = field as string
+    assertNoJoinAliasField([name], this.plan.joins, 'distinct')
+    const via = this.source.via
+    // Same posture gate `.where()` / `.orderBy()` apply: a `queryable: 'none'`
+    // field (a blob handle) must not have its value set enumerated either.
+    if (via?.postureFor(name)?.queryable === 'none') throw new FieldNotQueryableError(name)
+    const decode = via?.hasResultDecode ? (r: unknown) => via.decodeResults(r) : (r: unknown) => r
+
+    const indexes =
+      this.plan.clauses.length === 0 && this.plan.joins.length === 0
+        ? this.source.getIndexes?.()
+        : undefined
+    if (indexes && this.source.lookupById) {
+      const lookupById = (id: string): unknown => this.source.lookupById?.(id)
+      const reps = indexes.bucketRepresentatives(name)
+      if (reps) {
+        const fromIndex: unknown[] = []
+        for (const id of reps) {
+          const record = lookupById(id)
+          if (record === undefined) continue
+          fromIndex.push(readPath(decode(record), name))
+        }
+        return fromIndex as (T & Record<F, unknown>)[F][]
+      }
+    }
+
+    const seen = new Set<string>()
+    const out: unknown[] = []
+    for (const record of this.matchedRecords('distinct')) {
+      const key = distinctKeyOf(name, readPath(record, name), via)
+      if (key === undefined || seen.has(key)) continue
+      seen.add(key)
+      out.push(readPath(decode(record), name))
+    }
+    return out as (T & Record<F, unknown>)[F][]
+  }
+
+  /**
+   * Whether ANY record matches (#1347) — `count() > 0` without paying for the
+   * records after the first.
+   *
+   * The saving is real rather than cosmetic: `count()` evaluates every
+   * remaining clause against every candidate, so a `.filter(fn)` over 10_000
+   * records calls `fn` 10_000 times to answer a yes/no question. This returns
+   * at the first hit, and `__tests__/query-distinct-exists.test.ts` witnesses
+   * that by COUNTING the predicate's invocations — a boolean assertion cannot
+   * tell a short-circuit from a full scan.
+   *
+   * Same match set as `count()`. Two shapes do NOT short-circuit and fall
+   * back to it, because both must materialize the relation before anything
+   * can be tested: a `crossJoin` expansion, and a `where` clause addressing a
+   * join alias (#1030). Both still answer correctly.
+   */
+  exists(): boolean {
+    if (this.plan.clauses.some(c => c.type === 'crossJoin')) {
+      return this.matchedRecords('exists').length > 0
+    }
+    const { preJoin, postJoin } = splitAroundJoins(this.plan.clauses, this.plan.joins)
+    if (postJoin.length > 0) return this.matchedRecords('exists').length > 0
+    const { candidates, remainingClauses } = candidateRecords(this.source, preJoin)
+    // The index answered the whole predicate — its candidate set IS the match
+    // set, so emptiness is the answer and nothing needs evaluating.
+    if (remainingClauses.length === 0) return candidates.length > 0
+    return anyMatches(candidates, remainingClauses, fnViewDecoder(this.source))
   }
 
   /**
@@ -1331,6 +1461,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     // BigInt reducers before the strategy runs (covers static run() and
     // live/MV paths).
     spec = this.source.via?.wrapReducers(spec) ?? spec
+    // #1347 — `countDistinct` needs the SAME canonicalizer the hash index
+    // buckets by, and only the source knows it. Bound here, beside the
+    // money rewrite, so both spec-wrapping seams stay in one place.
+    spec = bindDistinctReducers(spec, this.source.via)
     // Closure over the current query. Produces the record set that
     // the aggregation reduces — same pipeline as `count()`, skipping
     // limit/offset because aggregation is over the full match set,
@@ -1772,7 +1906,7 @@ function executePlanWithSource(
     }
     result = executeClausePipeline(source, plan.clauses, joinContext)
   } else {
-    const ordered = orderedIndexRows(source, plan)
+    const ordered = orderedIndexRows(source, plan) ?? compoundOrderedRows(source, plan)
     if (ordered) return ordered
     // Index-aware fast path: only the clauses NOT consumed by the index need
     // re-evaluation. For a single-clause query against an indexed field,
@@ -1876,6 +2010,180 @@ function viaOrdersField(via: ViaPipeline | undefined, field: string): boolean {
   return via !== undefined && via.compareForOrder(field, '', '') !== undefined
 }
 
+/**
+ * A range operand for the component just past a compound index's equality
+ * prefix. `op` repeats {@link isRangeOperator}'s union rather than importing
+ * `RangeOperator`, keeping this file's import list unchanged.
+ */
+interface CompoundRange {
+  readonly op: '<' | '<=' | '>' | '>=' | 'between' | 'startsWith'
+  readonly value: unknown
+}
+
+interface CompoundPick {
+  readonly fields: readonly string[]
+  /** Equality operands for `fields[0..values.length-1]`, in index order. */
+  readonly values: readonly unknown[]
+  readonly range?: CompoundRange
+  /** Indices into the plan's clause list that this pick answers. */
+  readonly consumed: ReadonlySet<number>
+}
+
+/**
+ * Split the top-level clauses into the `==` and range clauses a compound
+ * index could answer. Via-covered clauses are excluded for the same reason
+ * `candidateRecords` excludes them from the sorted path — a binding's
+ * `indexProbe` yields an equality operand in STORED form, never an ordered
+ * one, and this path compares raw operands. A repeated field keeps its FIRST
+ * clause; the duplicate stays in `remainingClauses` and is re-evaluated.
+ */
+function indexableClauses(clauses: readonly Clause[]): {
+  eq: Map<string, { value: unknown; at: number }>
+  ranges: Map<string, { op: CompoundRange['op']; value: unknown; at: number }>
+} {
+  const eq = new Map<string, { value: unknown; at: number }>()
+  const ranges = new Map<string, { op: CompoundRange['op']; value: unknown; at: number }>()
+  for (let i = 0; i < clauses.length; i++) {
+    const clause = clauses[i]!
+    if (clause.type !== 'field' || clause.via !== undefined) continue
+    if (clause.op === '==') {
+      if (!eq.has(clause.field)) eq.set(clause.field, { value: clause.value, at: i })
+    } else if (isRangeOperator(clause.op)) {
+      if (!ranges.has(clause.field)) ranges.set(clause.field, { op: clause.op, value: clause.value, at: i })
+    }
+  }
+  return { eq, ranges }
+}
+
+/**
+ * Choose the declared field tuple that answers the most clauses: the longest
+ * equality PREFIX of the tuple, plus a range on the component immediately
+ * after it. A pick answering fewer than two clauses is declined — the
+ * single-field hash or sorted index already covers that, at lower cost.
+ */
+function pickCompound(indexes: CollectionIndexes, clauses: readonly Clause[]): CompoundPick | null {
+  const { eq, ranges } = indexableClauses(clauses)
+  if (eq.size === 0) return null
+  let best: CompoundPick | null = null
+  for (const fields of indexes.compoundTuples()) {
+    const values: unknown[] = []
+    const consumed = new Set<number>()
+    let depth = 0
+    while (depth < fields.length) {
+      const hit = eq.get(fields[depth]!)
+      if (!hit) break
+      values.push(hit.value)
+      consumed.add(hit.at)
+      depth++
+    }
+    if (depth === 0) continue
+    let range: CompoundRange | undefined
+    if (depth < fields.length) {
+      const hit = ranges.get(fields[depth]!)
+      if (hit) {
+        range = { op: hit.op, value: hit.value }
+        consumed.add(hit.at)
+      }
+    }
+    if (consumed.size < 2) continue
+    if (!best || consumed.size > best.consumed.size) {
+      best = { fields, values, consumed, ...(range ? { range } : {}) }
+    }
+  }
+  return best
+}
+
+/**
+ * #1345 candidate fast path: narrow through a compound index instead of
+ * scanning, for `where(a, '==', x).where(b, '==', y)` and for
+ * `where(a, '==', x).where(b, '>=', d)`.
+ *
+ * Returns `null` — fall back — unless the index COVERS THE SNAPSHOT. A record
+ * whose value for any component is nullish or has no order-defined runtime
+ * type is absent from the tuple index, and the consumed clauses leave the
+ * plan, so an under-covering index would silently drop matching records.
+ */
+function compoundCandidates(
+  source: InternalSource,
+  indexes: CollectionIndexes,
+  lookupById: (id: string) => unknown,
+  clauses: readonly Clause[],
+): CandidateResult | null {
+  const pick = pickCompound(indexes, clauses)
+  if (!pick) return null
+  if (indexes.compoundSize(pick.fields) !== source.snapshot().length) return null
+  const ids = indexes.lookupCompound(pick.fields, pick.values, pick.range)
+  if (!ids) return null
+  const remaining: Clause[] = []
+  for (let j = 0; j < clauses.length; j++) {
+    if (!pick.consumed.has(j)) remaining.push(clauses[j]!)
+  }
+  return { candidates: materializeIds(ids, lookupById), remainingClauses: remaining }
+}
+
+/**
+ * #1345 ordered fast path: answer the headline shape
+ * `where(a, '==', x).orderBy(b).limit(n)` from a `[a, b]` compound index —
+ * the equality prefix is a contiguous run already sorted by `b`, so neither
+ * the filter nor the sort has to touch the rest of the snapshot.
+ *
+ * Guards, on top of the ones {@link orderedIndexRows} carries for the
+ * single-field case:
+ *
+ *  - EVERY clause must be a via-free `==` on a distinct field, because
+ *    nothing re-filters the rows this returns,
+ *  - the tuple must be exactly those fields followed by the order field.
+ *    A LONGER tuple would break tie order: entries equal on the order
+ *    component are then ranked by the components after it, whereas
+ *    `sortRecords()` leaves them in insertion order,
+ *  - the index must cover the snapshot, same reason as above.
+ */
+function compoundOrderedRows(source: InternalSource, plan: QueryPlan): unknown[] | null {
+  const limit = plan.limit
+  if (limit === undefined || plan.clauses.length === 0 || plan.orderBy.length !== 1) return null
+  const [order] = plan.orderBy
+  if (!order || order.by === 'label') return null
+  const indexes = source.getIndexes?.()
+  if (!indexes || !source.lookupById) return null
+  if (viaOrdersField(source.via, order.field)) return null
+  const { eq } = indexableClauses(plan.clauses)
+  if (eq.size !== plan.clauses.length) return null
+  const match = pickCompoundOrder(indexes, eq, order.field)
+  if (!match) return null
+  const snapshot = source.snapshot()
+  if (indexes.compoundSize(match.fields) !== snapshot.length) return null
+  const ids = indexes.compoundOrderedIds(match.fields, match.values, order.direction)
+  if (!ids) return null
+  // Arrow-bound so `this` can't drift (same discipline as `candidateRecords`).
+  const lookupById = (id: string): unknown => source.lookupById?.(id)
+  const out: unknown[] = []
+  for (let i = plan.offset; i < ids.length && out.length < limit; i++) {
+    const record = lookupById(ids[i]!)
+    if (record !== undefined) out.push(record)
+  }
+  return out
+}
+
+/** The declared tuple that is exactly `eq`'s fields followed by `orderField`. */
+function pickCompoundOrder(
+  indexes: CollectionIndexes,
+  eq: ReadonlyMap<string, { value: unknown; at: number }>,
+  orderField: string,
+): { fields: readonly string[]; values: readonly unknown[] } | null {
+  for (const fields of indexes.compoundTuples()) {
+    if (fields.length !== eq.size + 1) continue
+    if (fields[fields.length - 1] !== orderField) continue
+    const values: unknown[] = []
+    for (let i = 0; i < fields.length - 1; i++) {
+      const hit = eq.get(fields[i]!)
+      if (!hit) break
+      values.push(hit.value)
+    }
+    if (values.length === fields.length - 1) return { fields, values }
+  }
+  return null
+}
+
 interface CandidateResult {
   /** The reduced candidate set, materialized to record objects. */
   readonly candidates: readonly unknown[]
@@ -1904,6 +2212,12 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
   // Bind the lookup method through an arrow so it doesn't drift from
   // its `this` context — keeps the unbound-method lint rule happy.
   const lookupById = (id: string): unknown => source.lookupById?.(id)
+
+  // #1345: a compound index consuming an equality PREFIX (plus an optional
+  // range on the next component) removes MORE clauses from the plan than any
+  // single-clause choice below, so it is tried first.
+  const compound = compoundCandidates(source, indexes, lookupById, clauses)
+  if (compound) return compound
 
   for (let i = 0; i < clauses.length; i++) {
     const clause = clauses[i]!
@@ -2048,6 +2362,35 @@ function filterRecords(
     if (matches) out.push(r)
   }
   return out
+}
+
+/**
+ * `filterRecords(...).length > 0`, without building the array or looking past
+ * the first match — the engine behind `Query.exists()` (#1347).
+ *
+ * Kept as a separate loop rather than a `limit`-aware `filterRecords`: the
+ * hot read path should not grow a branch it never takes, and the two loops
+ * are three lines each.
+ */
+function anyMatches(
+  records: readonly unknown[],
+  clauses: readonly Clause[],
+  decodeForFns?: (r: unknown) => unknown,
+): boolean {
+  if (clauses.length === 0) return records.length > 0
+  const needsFnView = decodeForFns !== undefined && hasFnClause(clauses)
+  for (const r of records) {
+    const fnView = needsFnView ? decodeForFns(r) : undefined
+    let matches = true
+    for (const clause of clauses) {
+      if (!evaluateClause(r, clause, fnView)) {
+        matches = false
+        break
+      }
+    }
+    if (matches) return true
+  }
+  return false
 }
 
 /**

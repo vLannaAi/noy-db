@@ -41,12 +41,12 @@ export type RangeOperator = '<' | '<=' | '>' | '>=' | 'between' | 'startsWith'
  * of different kinds never interleave and a probe only ever compares
  * against its own kind.
  */
-type KeyKind = 0 | 1 | 2
+export type KeyKind = 0 | 1 | 2
 const KIND_NUMBER: KeyKind = 0
-const KIND_STRING: KeyKind = 1
+export const KIND_STRING: KeyKind = 1
 const KIND_DATE: KeyKind = 2
 
-interface SortKey {
+export interface SortKey {
   readonly kind: KeyKind
   /** `number` for {@link KIND_NUMBER} and {@link KIND_DATE}, `string` otherwise. */
   readonly key: number | string
@@ -237,7 +237,7 @@ export function buildSortedIndex<T>(
   }
 }
 
-function compareKeys(a: SortKey, b: SortKey): number {
+export function compareKeys(a: SortKey, b: SortKey): number {
   if (a.kind !== b.kind) return a.kind - b.kind
   if (typeof a.key === 'number' && typeof b.key === 'number') return a.key - b.key
   return a.key < b.key ? -1 : a.key > b.key ? 1 : 0
@@ -249,7 +249,7 @@ function compareKeys(a: SortKey, b: SortKey): number {
  * `predicate.ts`'s `isComparable`, which refuses to order booleans,
  * objects and arrays.
  */
-function toSortKey(value: unknown, canonicalKey: string | undefined): SortKey | undefined {
+export function toSortKey(value: unknown, canonicalKey: string | undefined): SortKey | undefined {
   // A canonicalized key is a string by contract (`canonicalizeIndexKey`)
   // and shares the hash index's key space, so it sorts as a string.
   if (canonicalKey !== undefined) return { kind: KIND_STRING, key: canonicalKey }

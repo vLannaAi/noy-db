@@ -474,7 +474,8 @@
     "wrapPodStore",
     "wrapStore",
     "writeMagicLinkGrant",
-    "writePod"
+    "writePod",
+    "UnsafePatternError"
   ],
   "types": [
     "AccessibleVault",
