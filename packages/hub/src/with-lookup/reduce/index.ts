@@ -15,7 +15,7 @@
  */
 
 export { withReduce } from './active.js'
-export type { ReduceStrategy } from './strategy.js'
+export type { ReduceStrategy, ReduceOptions } from './strategy.js'
 
 export { Reduction, reduceRecords, buildLiveReduction } from './reduction.js'
 export type {
@@ -38,6 +38,27 @@ export type { GroupedRow, GroupedRowN } from './groupby.js'
 
 export { count, countDistinct, sum, avg, min, max, moneySum, moneyMin, moneyMax, reducerBuilder, bindDistinctReducers } from './reducers.js'
 export type { Reducer, ReducerOptions, ReducerBuilder, CountDistinctState } from './reducers.js'
+
+export {
+  withWindow,
+  rowNumber,
+  rank,
+  lag,
+  lead,
+  runningSum,
+  runningMoneySum,
+  applyWindow,
+  WindowedQuery,
+  WindowSelection,
+} from './window.js'
+export type {
+  WindowFactory,
+  WindowSpec,
+  WindowOrderInput,
+  WindowFn,
+  WindowSelectSpec,
+  WindowRow,
+} from './window.js'
 
 /** The un-opted-in stub for this service — exported so callers can compare against it (#844). */
 export { NO_REDUCE } from './strategy.js'

@@ -20,6 +20,24 @@ import type {
   ReductionUpstream,
 } from './reduction.js'
 import type { GroupedQuery, GroupedQueryN } from './groupby.js'
+import type { WindowFactory, WindowSpec, WindowedQuery } from './window.js'
+/**
+ * Re-exported so `kernel/query/builder.ts` can name `.window()`'s spec and
+ * return type WITHOUT a second spine→service import specifier: this strategy
+ * module is the seam the kernel is allowed to reach (`check-architecture.mjs`
+ * → PRE_EXISTING_SPINE_SERVICE_IMPORTS), and adding a new grandfathered path
+ * there for a type-only import would loosen the ratchet for no gain.
+ */
+export type { WindowSpec, WindowedQuery } from './window.js'
+
+/**
+ * Options for {@link withReduce}. `window` is the {@link WindowFactory}
+ * returned by `withWindow()` — omitted, `.window()` throws and the window
+ * engine stays out of the bundle entirely (see `window.ts` § "Opting in").
+ */
+export interface ReduceOptions {
+  readonly window?: WindowFactory
+}
 import type { ViaPipeline } from '../../kernel/via/pipeline.js'
 
 /**
@@ -71,6 +89,23 @@ export interface ReduceStrategy {
   ): GroupedQueryN<T, F, S, M>
 
   /**
+   * Build a `WindowedQuery<T>` for `Query.window(spec)` (#1349). Same closure
+   * / upstream inputs as `groupBy`, plus the window definition. The Via
+   * pipeline is threaded so `.select()` gets the same money/distinct reducer
+   * rewriting `.aggregate()` gets.
+   *
+   * Throws unless the strategy was built as `withReduce({ window: withWindow() })`
+   * — the second opt-in exists so the window engine is not charged to a
+   * consumer who only aggregates. See `window.ts` § "Opting in".
+   */
+  window<T>(
+    executeRecords: () => readonly unknown[],
+    spec: WindowSpec,
+    upstreams: readonly ReductionUpstream[],
+    via?: ViaPipeline,
+  ): WindowedQuery<T>
+
+  /**
    * Terminal streaming aggregator for `ScanBuilder.aggregate(spec)`.
    * Takes an async iterable of decrypted records + the spec and
    * returns the reduced result.
@@ -82,7 +117,7 @@ export interface ReduceStrategy {
 }
 
 const NOT_ENABLED = new Error(
-  'Aggregate / groupBy is not enabled on this Noydb instance. ' +
+  'Aggregate / groupBy / window is not enabled on this Noydb instance. ' +
   'Import `{ withReduce }` from "@noy-db/hub/reduce" and pass it to ' +
   '`createNoydb({ reduceStrategy: withReduce() })`.',
 )
@@ -99,5 +134,6 @@ export const NO_REDUCE: ReduceStrategy = {
   aggregate() { throw NOT_ENABLED },
   groupBy() { throw NOT_ENABLED },
   groupByN() { throw NOT_ENABLED },
+  window() { throw NOT_ENABLED },
   scanAggregate() { throw NOT_ENABLED },
 }
