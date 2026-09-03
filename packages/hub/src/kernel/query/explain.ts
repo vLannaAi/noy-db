@@ -165,8 +165,18 @@ function indexDispatchFor(
 /** `op`-free one-line description of a clause. */
 function describeClause(clause: Clause): { op: string; detail: string } {
   switch (clause.type) {
-    case 'field':
-      return { op: 'where', detail: `${clause.field} ${clause.op} ${formatValue(clause.value)}` }
+    case 'field': {
+      // #1351: an `in`/`!in` operand that came from a SUBQUERY is already a
+      // resolved id array by the time explain() sees it, and printing 400 ids
+      // is not a readable plan. Name the inner source and the set size — the
+      // sentence a reader is after is "the inner query ran once, it produced
+      // N ids, and the outer clause is index-served off them".
+      const detail =
+        clause.subquery !== undefined
+          ? `${clause.field} ${clause.op} subquery(${clause.subquery.from}) → ${clause.subquery.ids} ids`
+          : `${clause.field} ${clause.op} ${formatValue(clause.value)}`
+      return { op: 'where', detail }
+    }
     case 'group':
       return { op: 'group', detail: `${clause.op} (${clause.clauses.length} clause${clause.clauses.length === 1 ? '' : 's'})` }
     case 'filter':

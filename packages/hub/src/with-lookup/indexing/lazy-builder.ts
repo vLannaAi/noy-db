@@ -24,7 +24,7 @@
  */
 
 import type { Clause, FieldClause, Operator } from '../../kernel/query/predicate.js'
-import { evaluateClause, normalizeMatches, readPath } from '../../kernel/query/predicate.js'
+import { evaluateClause, normalizeMatches, normalizeSubqueryOperand, readPath } from '../../kernel/query/predicate.js'
 import type { PersistedCollectionIndex } from './persisted-indexes.js'
 import { IndexRequiredError, FieldNotQueryableError } from '../../kernel/errors.js'
 import type { QueryField } from '../../kernel/types.js'
@@ -123,7 +123,11 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
     // site — an anchored literal prefix lowers to `startsWith` (taking the
     // sorted index), anything else serializes to `{ source, flags }` so the
     // pattern folds into an MV's queryHash. Every other operator is identity.
-    const { op: mop, value: mval } = normalizeMatches(op, value)
+    // #1351: a SUBQUERY operand of `in`/`!in` resolves to its id array here,
+    // at build time — same normalization order as `Query.where()`, so all
+    // three builders turn the same call into the same clause.
+    const { op: sop, value: sval, subquery } = normalizeSubqueryOperand(op, value)
+    const { op: mop, value: mval } = normalizeMatches(sop, sval)
     const viaClause = via?.buildClause(field, mop, mval)
     const clause: FieldClause = viaClause
       ? {
@@ -131,6 +135,7 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
           field,
           op: mop,
           value: mval,
+          ...(subquery ? { subquery } : {}),
           via: {
             brand: viaClause.brand,
             payload: viaClause.payload,
@@ -138,7 +143,7 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
             indexValue: via!.indexProbe(viaClause, mop),
           },
         }
-      : { type: 'field', field, op: mop, value: mval }
+      : { type: 'field', field, op: mop, value: mval, ...(subquery ? { subquery } : {}) }
     return new LazyQuery<T, S, Q>(this.source, {
       ...this.plan,
       clauses: [...this.plan.clauses, clause],
