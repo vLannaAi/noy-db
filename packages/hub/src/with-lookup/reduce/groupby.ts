@@ -68,7 +68,7 @@ import type {
 } from './reduction.js'
 import { buildLiveReduction } from './reduction.js'
 import type { ReducerBuilder } from './reducers.js'
-import { reducerBuilder } from './reducers.js'
+import { bindDistinctReducers, reducerBuilder } from './reducers.js'
 import { canonicalGroupKey } from './canonical-key.js'
 import { GroupCardinalityError } from '../../kernel/errors.js'
 import type { MoneyDescriptor } from '../../via/money/descriptor.js'
@@ -191,7 +191,10 @@ abstract class GroupedQueryBase {
 
   /** Apply Via-aware reducer rewriting (e.g. money) when the source declares one. */
   protected wrapSpec<Spec extends ReduceSpec>(spec: Spec): Spec {
-    return this.via ? this.via.wrapReducers(spec) : spec
+    // #1347 — `countDistinct` is rebound to the collection's index-key
+    // canonicalizer here too, so a grouped distinct count agrees with an
+    // ungrouped one over the same Via-covered field.
+    return bindDistinctReducers(this.via ? this.via.wrapReducers(spec) : spec, this.via)
   }
 }
 
@@ -200,10 +203,13 @@ abstract class GroupedQueryBase {
  * with `.aggregate(spec)` which returns a `GroupedReduction`.
  *
  * Kept minimal — the only operation on a grouped query is
- * reduction. Ordering, limiting, and further filtering belong on
- * the underlying `Query` before `.groupBy()` is called; applying
- * them post-group would be a different operation (`having` /
- * `groupOrderBy`), out of scope for.
+ * reduction. Ordering, limiting and further filtering of the
+ * REDUCED rows live one step further along the chain, on the
+ * `GroupedReduction` that `.aggregate()` returns (`.having()`,
+ * `.orderBy()`, `.limit()` — #1336); ordering and limiting of the
+ * SOURCE RECORDS stays on the underlying `Query`, before
+ * `.groupBy()`. The two are different operations and neither
+ * substitutes for the other.
  */
 export class GroupedQuery<T, F extends string, S extends keyof T = never, M extends keyof T & string = never> extends GroupedQueryBase {
   /**
@@ -298,7 +304,14 @@ export function groupAndReduce<R>(
   // kernel's Via port rather than a Query-attached pipeline — `moneyFields`
   // here is the MV spec's OWN descriptor map, not a collection's.
   if (moneyFields) {
-    spec = viaBinder('money')({ moneyFields }).wrapReducers!(spec) as ReduceSpec
+    const binding = viaBinder('money')({ moneyFields })
+    spec = binding.wrapReducers!(spec) as ReduceSpec
+    // #1347 — same binding, the other half: `countDistinct` over a declared
+    // money field must dedup on the BigInt-normalized scaled int, or a UNION
+    // MV counts `'0100'` and `'100'` as two values of one amount.
+    spec = bindDistinctReducers(spec, {
+      canonicalizeIndexKey: (f, v) => binding.canonicalizeIndexKey?.(f, v),
+    })
   }
 
   // Bucket value is { keyValues, records } so the output row can stamp
@@ -371,6 +384,96 @@ export function groupAndReduce<R>(
 }
 
 /**
+ * The post-group stage (#1336): `having` predicates, an ordering spec over the
+ * reduced rows, and a row cap. Immutable — every builder method returns a new
+ * `GroupedReduction` carrying a new `PostGroup`.
+ *
+ * @internal — not exported; `GroupedReduction`'s public signatures name only
+ * inline function/union types, so no consumer needs this shape.
+ */
+interface PostGroup {
+  readonly having: readonly ((row: unknown) => boolean)[]
+  readonly orderBy: readonly { readonly key: string; readonly direction: 'asc' | 'desc' }[]
+  readonly limit: number | undefined
+}
+
+const NO_POST_GROUP: PostGroup = { having: [], orderBy: [], limit: undefined }
+
+/**
+ * Decimal-numeral test for the post-group comparator. Matches the exact
+ * canonical decimal strings a Via-dressed reducer finalizes to — money's
+ * `sum`/`min`/`max` return `'10004.00'`, not a number and not a formatted,
+ * grouped-and-symbolised label.
+ */
+const DECIMAL_NUMERAL = /^[+-]?\d+(\.\d+)?$/
+
+/**
+ * Compare two REDUCED values for post-group ordering.
+ *
+ * Deliberately NOT the row-pipeline comparator in `kernel/query/builder.ts`,
+ * and one rule apart from it: when both sides are strings that are plain
+ * decimal numerals, they compare by MAGNITUDE. That rule exists for exactly
+ * one reason — a money `sum` finalizes to an exact decimal string, and lexical
+ * order gets it wrong in the ordinary case (`'9882.00' > '10004.00'`). The
+ * pre-group path solves the same problem by asking the Via pipeline
+ * (`compareForOrder`), which cannot serve here: it reads the STORED
+ * scaled-integer form, and a reduced value is already decoded to decimal.
+ *
+ * The divergence is confined to a surface introduced by #1336 — no pre-group
+ * ordering changes — and it only reaches values that are numerals end to end,
+ * so a group key like `'c1'` still sorts lexically.
+ */
+function compareReduced(a: unknown, b: unknown): number {
+  // Nullish last in asc order — same convention as the row pipeline.
+  if (a === undefined || a === null) return b === undefined || b === null ? 0 : 1
+  if (b === undefined || b === null) return -1
+  if (typeof a === 'number' && typeof b === 'number') return a - b
+  if (typeof a === 'bigint' && typeof b === 'bigint') return a < b ? -1 : a > b ? 1 : 0
+  if (typeof a === 'string' && typeof b === 'string') {
+    if (DECIMAL_NUMERAL.test(a) && DECIMAL_NUMERAL.test(b)) {
+      const an = Number(a)
+      const bn = Number(b)
+      // Number() is lossy past 2^53; fall through to the lexical branch rather
+      // than order two indistinguishable floats arbitrarily.
+      if (an !== bn) return an < bn ? -1 : 1
+    }
+    return a < b ? -1 : a > b ? 1 : 0
+  }
+  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime()
+  // Mixed / unsupported: equal, so the sort stays stable. Same choice the row
+  // pipeline makes.
+  return 0
+}
+
+/**
+ * Apply the post-group stage to a reduced row array, in the order the docs
+ * promise: `having` (all predicates ANDed) → `orderBy` (successive calls are
+ * tie-breakers, stable) → `limit`.
+ */
+function applyPostGroup<R>(rows: R[], post: PostGroup): R[] {
+  let out = rows
+  for (const pred of post.having) {
+    out = out.filter((row) => pred(row))
+  }
+  if (post.orderBy.length > 0) {
+    // Array.prototype.sort has been stable since ES2019, so bucket
+    // first-seen order survives as the final tie-break.
+    out = [...out].sort((x, y) => {
+      for (const { key, direction } of post.orderBy) {
+        const cmp = compareReduced(
+          (x as Record<string, unknown>)[key],
+          (y as Record<string, unknown>)[key],
+        )
+        if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
+      }
+      return 0
+    })
+  }
+  if (post.limit !== undefined && post.limit < out.length) out = out.slice(0, post.limit)
+  return out
+}
+
+/**
  * Grouped reduction wrapper — the `.groupBy(field).aggregate(spec)`
  * terminal. Shape mirrors `Reduction<R>` from aggregate.ts: two
  * terminals (`.run()` and `.live()`), spec bound at construction
@@ -379,6 +482,21 @@ export function groupAndReduce<R>(
  * The generic `R` is the per-row result shape (i.e. a single
  * grouped row), and the terminals return `R[]` — one row per
  * bucket.
+ *
+ * `.having()` / `.orderBy()` / `.limit()` (#1336) post-process that array.
+ * ⛔ **They do not appear in `Query.explain()` (#1348), and that is not an
+ * omission.** `explain()` is a terminal on `Query`; `.groupBy()` leaves
+ * `Query` for `GroupedQuery` and then `GroupedReduction`, so by the time these
+ * three are reachable there is no `explain()` in the chain to add a node to.
+ * Adding one would mean putting `explain()` on `GroupedReduction` — a new
+ * surface, and a plan for a stage with nothing to choose: `having`/`orderBy`/
+ * `limit` here have exactly one dispatch (a filter, a stable sort, a slice)
+ * over rows already in memory. File an issue if a real consumer wants it.
+ * ⚠️ They are POST-processing, never a memory optimization: the group pass has
+ * already built and reduced every bucket by the time a `having` predicate is
+ * called, so `GROUPBY_WARN_CARDINALITY` / `GROUPBY_MAX_CARDINALITY` see the
+ * UNFILTERED bucket count and `having` cannot buy headroom under them. Narrow
+ * with `.where()` before `.groupBy()` for that.
  */
 export class GroupedReduction<R> {
   private readonly fields: readonly string[]
@@ -397,8 +515,86 @@ export class GroupedReduction<R> {
       locale: string,
       fallback?: string | readonly string[],
     ) => Promise<string | undefined>,
+    /**
+     * The post-group stage (#1336). Optional and defaulted so every existing
+     * construction site — `GroupedQuery.aggregate()`, `GroupedQueryN`, the MV
+     * executor — is unchanged.
+     */
+    private readonly post: PostGroup = NO_POST_GROUP,
   ) {
     this.fields = typeof fields === 'string' ? [fields] : [...fields]
+  }
+
+  /** Clone with a replaced post-group stage. */
+  private withPost(post: PostGroup): GroupedReduction<R> {
+    return new GroupedReduction<R>(
+      this.executeRecords,
+      this.fields,
+      this.spec,
+      this.upstreams,
+      this.dictLabelResolver,
+      post,
+    )
+  }
+
+  /**
+   * Keep only the reduced rows a predicate accepts — SQL's `HAVING` (#1336).
+   *
+   * ```ts
+   * invoices.query()
+   *   .groupBy('clientId')
+   *   .aggregate({ total: sum('amount') })
+   *   .having(r => (r.total as number) > 10_000)
+   *   .orderBy('total', 'desc')
+   *   .limit(20)
+   *   .run()
+   * ```
+   *
+   * The predicate sees the WHOLE reduced row — group keys (including a
+   * `dateTrunc()`-derived one) and reducer outputs alike — with each value in
+   * its exact reduced form: a money `sum` arrives as its canonical decimal
+   * string (`'10004.00'`), never as a locale-formatted label, so comparing on
+   * it is exact. Successive calls AND.
+   *
+   * ⚠️ Not a memory optimization. See the class docs — the buckets exist
+   * already; `having` only decides what is returned.
+   */
+  having(predicate: (row: R) => boolean): GroupedReduction<R> {
+    return this.withPost({
+      ...this.post,
+      having: [...this.post.having, predicate as (row: unknown) => boolean],
+    })
+  }
+
+  /**
+   * Order the REDUCED rows by one of their keys (#1336). Successive calls are
+   * tie-breakers; the sort is stable, so bucket first-seen order breaks a
+   * final tie.
+   *
+   * ⭐ Distinguished from `Query.orderBy()` by POSITION, not by name: this one
+   * exists only after `.aggregate()` and sorts result rows by a reduced key or
+   * a group key; `Query.orderBy()` exists only before `.groupBy()` and sorts
+   * SOURCE RECORDS, which (via `.limit()`) changes which records are grouped
+   * at all. Both may appear in one chain and they do not interfere.
+   */
+  orderBy(key: string, direction: 'asc' | 'desc' = 'asc'): GroupedReduction<R> {
+    return this.withPost({
+      ...this.post,
+      orderBy: [...this.post.orderBy, { key, direction }],
+    })
+  }
+
+  /**
+   * Cap the number of reduced rows returned (#1336) — applied AFTER `having`
+   * and `orderBy`, so `.orderBy('total', 'desc').limit(20)` is a top-20.
+   *
+   * A later call replaces an earlier one.
+   */
+  limit(n: number): GroupedReduction<R> {
+    if (!Number.isInteger(n) || n < 0) {
+      throw new Error(`.limit(${n}): a post-group limit must be a non-negative integer.`)
+    }
+    return this.withPost({ ...this.post, limit: n })
   }
 
   /**
@@ -423,7 +619,7 @@ export class GroupedReduction<R> {
         records = records.map((r) => applyI18nLocale(r as Record<string, unknown>, groupI18n, opts.locale!, undefined, 'mv'))
       }
     }
-    return groupAndReduce<R>(records, this.fields, this.spec)
+    return applyPostGroup(groupAndReduce<R>(records, this.fields, this.spec), this.post)
   }
 
   /**
@@ -443,7 +639,13 @@ export class GroupedReduction<R> {
     locale?: string
     fallback?: string | readonly string[]
   }): Promise<R[]> {
-    const rows = groupAndReduce<R>(this.executeRecords(), this.fields, this.spec)
+    // Post-group ops run BEFORE label resolution: `having`/`orderBy` address
+    // the reduced keys, which exist already, and resolving a `<field>Label`
+    // for a row that `having` then discards would be wasted async work.
+    const rows = applyPostGroup(
+      groupAndReduce<R>(this.executeRecords(), this.fields, this.spec),
+      this.post,
+    )
     if (!opts?.locale || !this.dictLabelResolver || this.fields.length !== 1) return rows
 
     const resolve = this.dictLabelResolver
@@ -480,7 +682,10 @@ export class GroupedReduction<R> {
    */
   live(): LiveReduction<R[]> {
     const recompute = (): R[] =>
-      groupAndReduce<R>(this.executeRecords(), this.fields, this.spec)
+      applyPostGroup(
+        groupAndReduce<R>(this.executeRecords(), this.fields, this.spec),
+        this.post,
+      )
     return buildLiveReduction<R[]>(recompute, this.upstreams)
   }
 }

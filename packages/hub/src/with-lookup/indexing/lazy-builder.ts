@@ -24,7 +24,7 @@
  */
 
 import type { Clause, FieldClause, Operator } from '../../kernel/query/predicate.js'
-import { evaluateClause, readPath } from '../../kernel/query/predicate.js'
+import { evaluateClause, normalizeMatches, readPath } from '../../kernel/query/predicate.js'
 import type { PersistedCollectionIndex } from './persisted-indexes.js'
 import { IndexRequiredError, FieldNotQueryableError } from '../../kernel/errors.js'
 import type { QueryField } from '../../kernel/types.js'
@@ -119,21 +119,26 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
     // the call site, instead of building a bare clause that later surfaces
     // as a deferred `IndexRequiredError` from `toArray()`.
     if (via?.postureFor(field)?.queryable === 'none') throw new FieldNotQueryableError(field)
-    const viaClause = via?.buildClause(field, op, value)
+    // #1357: a 'matches' operand is refused-or-normalized HERE, at the call
+    // site — an anchored literal prefix lowers to `startsWith` (taking the
+    // sorted index), anything else serializes to `{ source, flags }` so the
+    // pattern folds into an MV's queryHash. Every other operator is identity.
+    const { op: mop, value: mval } = normalizeMatches(op, value)
+    const viaClause = via?.buildClause(field, mop, mval)
     const clause: FieldClause = viaClause
       ? {
           type: 'field',
           field,
-          op,
-          value,
+          op: mop,
+          value: mval,
           via: {
             brand: viaClause.brand,
             payload: viaClause.payload,
             evaluate: (actual: unknown, evalOp: string) => via!.evaluateClause(viaClause, actual, evalOp),
-            indexValue: via!.indexProbe(viaClause, op),
+            indexValue: via!.indexProbe(viaClause, mop),
           },
         }
-      : { type: 'field', field, op, value }
+      : { type: 'field', field, op: mop, value: mval }
     return new LazyQuery<T, S, Q>(this.source, {
       ...this.plan,
       clauses: [...this.plan.clauses, clause],

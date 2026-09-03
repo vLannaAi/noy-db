@@ -62,7 +62,7 @@ import type { QueryField } from '../types.js'
 import type { ReducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import { reducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import type { Clause, FieldClause, Operator } from './predicate.js'
-import { evaluateClause, hasFnClause, readPath } from './predicate.js'
+import { evaluateClause, hasFnClause, normalizeMatches, readPath } from './predicate.js'
 import type {
   ReduceSpec,
   ReduceResult,
@@ -181,20 +181,25 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
     // in scaled space — same build-time operand rewrite as Query.where().
     const via = this.via
     if (via?.postureFor(field as string)?.queryable === 'none') throw new FieldNotQueryableError(field as string)
-    const viaClause = via?.buildClause(field as string, op, value)
+    // #1357: a 'matches' operand is refused-or-normalized HERE, at the call
+    // site — an anchored literal prefix lowers to `startsWith` (taking the
+    // sorted index), anything else serializes to `{ source, flags }` so the
+    // pattern folds into an MV's queryHash. Every other operator is identity.
+    const { op: mop, value: mval } = normalizeMatches(op, value)
+    const viaClause = via?.buildClause(field as string, mop, mval)
     const clause: FieldClause = viaClause
       ? {
           type: 'field',
           field: field as string,
-          op,
-          value,
+          op: mop,
+          value: mval,
           via: {
             brand: viaClause.brand,
             payload: viaClause.payload,
             evaluate: (actual: unknown, evalOp: string) => via!.evaluateClause(viaClause, actual, evalOp),
           },
         }
-      : { type: 'field', field: field as string, op, value }
+      : { type: 'field', field: field as string, op: mop, value: mval }
     return new ScanBuilder<T, S, M>(
       this.pageProvider,
       this.pageSize,

@@ -16,6 +16,7 @@
  */
 
 import { readPath } from '../../kernel/query/predicate.js'
+import { stringifyBucketKey } from '../../kernel/query/distinct-key.js'
 import { SortedIndex, buildSortedIndex, type RangeOperator } from './sorted-indexes.js'
 import {
   CompoundIndex,
@@ -381,6 +382,36 @@ export class CollectionIndexes {
     }
     return out
   }
+
+  /**
+   * One record id per NON-EMPTY bucket of `field`'s hash index, in bucket
+   * order — the index-backed spine of `Query.distinct()` (#1347). `null` when
+   * no hash index covers the field, so the caller scans instead.
+   *
+   * The bucket set IS the distinct key set, so this costs O(buckets) rather
+   * than O(records). It returns REPRESENTATIVE IDS rather than the keys
+   * themselves on purpose: a bucket key is a canonical string (money's
+   * BigInt-normalized scaled int, say), and `distinct()` owes its caller the
+   * field's real value, which only the record carries.
+   *
+   * Bucket insertion order is first-seen record order — `build()` walks the
+   * snapshot in order and `upsert()` appends — which is why an index-backed
+   * `distinct()` and a scanned one agree on ORDER too, not merely on the set.
+   * Empty buckets are skipped defensively; `removeFromIndex` already deletes
+   * them, so this is belt-and-braces against a future partial removal path.
+   */
+  bucketRepresentatives(field: string): readonly string[] | null {
+    const idx = this.indexes.get(field)
+    if (!idx) return null
+    const out: string[] = []
+    for (const bucket of idx.buckets.values()) {
+      for (const id of bucket) {
+        out.push(id)
+        break
+      }
+    }
+    return out
+  }
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set()
@@ -388,19 +419,13 @@ const EMPTY_SET: ReadonlySet<string> = new Set()
 /**
  * Stringify a value into a stable bucket key.
  *
- * `null`/`undefined` produce a sentinel that records will never match
- * (so we never index nullish values — `where('x', '==', null)` falls back
- * to a linear scan). Numbers, booleans, strings, and Date objects are
- * coerced via `String()`. Objects produce a sentinel that no real record
- * will match — querying with object values is a code smell.
+ * ⚠️ The DEFINITION moved to `kernel/query/distinct-key.ts` (#1347) and is
+ * only aliased here. `distinct()` / `countDistinct()` recompute this key on
+ * the scan path, and an index-backed `distinct()` reads the buckets it made —
+ * one definition is what stops those two answers from drifting apart. Change
+ * the shared function, not a copy.
  */
-function stringifyKey(value: unknown): string {
-  if (value === null || value === undefined) return '\0NULL\0'
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (value instanceof Date) return value.toISOString()
-  return '\0OBJECT\0'
-}
+const stringifyKey = stringifyBucketKey
 
 function addToIndex<T>(
   idx: HashIndex,
