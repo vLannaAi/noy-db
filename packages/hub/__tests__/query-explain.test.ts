@@ -352,6 +352,215 @@ describe('Query.explain() > money exact reducer rewrite', () => {
   })
 })
 
+// ── #1375: the exhaustive dispatch witness ───────────────────────────────
+
+/**
+ * A source that counts how many RECORDS the executor read out of the
+ * snapshot — not how many times it called `snapshot()`.
+ *
+ * ⭐ That distinction IS #1375. #1348's witness counted CALLS, which was exact
+ * while `index:hash` and `scan` were the only two dispatches: the hash path
+ * never asked for the snapshot at all. #1344's `orderedIndexRows` and #1345's
+ * `compoundCandidates` both call `snapshot()` for their coverage check and
+ * read only its `.length`, so a call counter now reports "scan" for two paths
+ * that never touch a record. Counting element reads separates "measured the
+ * collection" from "walked the collection", which is the property that
+ * actually distinguishes an index path from a scan.
+ */
+function witnessSource(records: Invoice[], declare: (ix: CollectionIndexes) => void) {
+  const indexes = new CollectionIndexes()
+  declare(indexes)
+  indexes.build(records.map(r => ({ id: r.id, record: r })))
+  const byId = new Map(records.map(r => [r.id, r]))
+  let reads = 0
+  const proxied = new Proxy(records, {
+    get(target, prop, receiver) {
+      if (typeof prop === 'string' && /^\d+$/.test(prop)) reads++
+      return Reflect.get(target, prop, receiver) as unknown
+    },
+  })
+  const source: QuerySource<Invoice> = {
+    snapshot: () => proxied,
+    getIndexes: () => indexes,
+    lookupById: (id: string) => byId.get(id),
+  }
+  return { source, reset: () => { reads = 0 }, reads: () => reads }
+}
+
+/** Hash on status; sorted on amount and dueDate; compound on (status, amount). */
+function declareAll(ix: CollectionIndexes): void {
+  ix.declare('status')
+  ix.declareSorted('amount')
+  ix.declareSorted('dueDate')
+  ix.declareCompound(['status', 'amount'])
+}
+
+/**
+ * One row per dispatch kind the executor can pick. `expected` is the label
+ * `explain()` must report; the ⟺ assertion below is what makes a MISSING row
+ * cheap to notice and a WRONG label impossible to ship.
+ */
+const DISPATCH_TABLE: ReadonlyArray<{
+  readonly name: string
+  readonly expected: string
+  readonly build: (q: Query<Invoice>) => Query<Invoice>
+}> = [
+  { name: '== on a hash-indexed field', expected: 'index:hash', build: q => q.where('status', '==', 'open') },
+  { name: 'in on a hash-indexed field', expected: 'index:hash', build: q => q.where('status', 'in', ['open', 'paid']) },
+  { name: '> on a sorted-indexed field', expected: 'index:range', build: q => q.where('amount', '>', 500) },
+  { name: 'between on a sorted-indexed field', expected: 'index:range', build: q => q.where('amount', 'between', [200, 900]) },
+  { name: 'startsWith on a sorted-indexed field', expected: 'index:range', build: q => q.where('dueDate', 'startsWith', '2026-0') },
+  {
+    name: 'equality prefix + range on a compound tuple',
+    expected: 'index:compound',
+    build: q => q.where('status', '==', 'open').where('amount', '>=', 250),
+  },
+  {
+    name: 'orderBy(sorted).limit(n) — the single-field ordered walk',
+    expected: 'index:ordered',
+    build: q => q.orderBy('amount', 'desc').limit(2),
+  },
+  {
+    name: 'where(==).orderBy(next component).limit(n) — the compound ordered walk',
+    expected: 'index:ordered',
+    build: q => q.where('status', '==', 'open').orderBy('amount', 'asc').limit(2),
+  },
+  { name: '== on an unindexed field', expected: 'scan', build: q => q.where('clientId', '==', 'c1') },
+  { name: '> on a hash-only field', expected: 'scan', build: q => q.where('status', '>', 'draft') },
+  { name: 'no clauses at all', expected: 'scan', build: q => q },
+  { name: 'a filter(fn) clause', expected: 'scan', build: q => q.filter(r => r.amount > 0) },
+  { name: 'orderBy(sorted) with NO limit', expected: 'scan', build: q => q.orderBy('amount', 'desc') },
+]
+
+describe('#1375 > explain() dispatch agrees with the executor, for every dispatch kind', () => {
+  for (const row of DISPATCH_TABLE) {
+    it(`${row.name} → ${row.expected}`, () => {
+      const w = witnessSource([...SAMPLE], declareAll)
+      const q = row.build(new Query<Invoice>(w.source))
+
+      const claimed = dispatches(q.explain()).filter(d => d.startsWith('index:') || d === 'scan')
+      // A pure-scan plan can carry NO clause node at all (`orderBy` alone, or
+      // nothing) — "scan" is then the absence of an index label, which the ⟺
+      // below asserts. Only an index claim has to be named.
+      if (row.expected !== 'scan') expect(claimed).toContain(row.expected)
+
+      // The ⟺: an index path materializes through `lookupById` and never walks
+      // the snapshot; a scan path always does. Both directions are asserted,
+      // so a label that over-claims fails exactly as loudly as one that
+      // under-claims.
+      const claimsIndex = claimed.some(d => d.startsWith('index:'))
+      w.reset()
+      q.toArray()
+      expect(claimsIndex, `explain() claimed ${JSON.stringify(claimed)}`).toBe(w.reads() === 0)
+    })
+  }
+
+  it('the table covers every index label the type publishes', () => {
+    const labelled = new Set(DISPATCH_TABLE.map(r => r.expected))
+    expect([...labelled].sort()).toEqual(['index:compound', 'index:hash', 'index:ordered', 'index:range', 'scan'])
+  })
+
+  it('every shape returns identical rows whether or not explain() ran', () => {
+    for (const row of DISPATCH_TABLE) {
+      const a = row.build(new Query<Invoice>(witnessSource([...SAMPLE], declareAll).source))
+      const b = row.build(new Query<Invoice>(witnessSource([...SAMPLE], declareAll).source))
+      b.explain()
+      expect(b.toArray()).toEqual(a.toArray())
+    }
+  })
+})
+
+describe('#1375 > the sentences a consumer acts on', () => {
+  it('names the sorted index a range operator needs, rather than "== and in only"', () => {
+    const w = witnessSource([...SAMPLE], ix => ix.declare('status'))
+    const e = new Query<Invoice>(w.source).where('status', '>', 'draft').explain()
+    expect(flatten(e.nodes).find(n => n.op === 'where')!.notes.join(' ')).toContain('declare a sorted index')
+  })
+
+  it('says the sort never runs when an ordered index answers the page', () => {
+    const w = witnessSource([...SAMPLE], declareAll)
+    const e = new Query<Invoice>(w.source).orderBy('amount', 'desc').limit(2).explain()
+    const order = flatten(e.nodes).find(n => n.op === 'orderBy')!
+    expect(order.dispatch).toBe('index:ordered')
+    expect(order.estimatedRows).toBe(2)
+    expect(order.notes.join(' ')).toContain('no sort runs')
+  })
+
+  it('declines the ordered walk when the sorted index does not cover the snapshot', () => {
+    // One record has no `amount`, so it is absent from the sorted index and
+    // `sortRecords` would still place it — the executor falls back, and so
+    // must explain().
+    const partial = [...SAMPLE, { id: 'f', status: 'open', clientId: 'c1', dueDate: '2026-06-01' } as unknown as Invoice]
+    const w = witnessSource(partial, declareAll)
+    const q = new Query<Invoice>(w.source).orderBy('amount', 'desc').limit(2)
+    expect(flatten(q.explain().nodes).find(n => n.op === 'orderBy')!.dispatch).toBe('sort')
+    w.reset()
+    q.toArray()
+    expect(w.reads()).toBeGreaterThan(0)
+  })
+})
+
+describe('#1375 > join dispatch has an executor-side witness too', () => {
+  /** The right side, counting the records the join walked out of its snapshot. */
+  function witnessRight(withLookup: boolean) {
+    let reads = 0
+    const proxied = new Proxy(CLIENTS, {
+      get(target, prop, receiver) {
+        if (typeof prop === 'string' && /^\d+$/.test(prop)) reads++
+        return Reflect.get(target, prop, receiver) as unknown
+      },
+    })
+    const source: JoinableSource = withLookup
+      ? { snapshot: () => proxied, lookupById: (id: string) => CLIENTS.find(c => c.id === id) }
+      : { snapshot: () => proxied }
+    return { source, reset: () => { reads = 0 }, reads: () => reads }
+  }
+
+  it('join:nested ⟺ the right snapshot is never walked', () => {
+    const right = witnessRight(true)
+    const q = new Query<Invoice>(plainSource(SAMPLE), undefined, joinContextFor(right.source)).join('clientId', {
+      as: 'client',
+    })
+    expect(flatten(q.explain().nodes).find(n => n.op === 'join')!.dispatch).toBe('join:nested')
+    right.reset()
+    q.toArray()
+    expect(right.reads()).toBe(0)
+  })
+
+  it('join:hash ⟺ the right snapshot IS walked, once, to build the probe map', () => {
+    const right = witnessRight(false)
+    const q = new Query<Invoice>(plainSource(SAMPLE), undefined, joinContextFor(right.source)).join('clientId', {
+      as: 'client',
+    })
+    expect(flatten(q.explain().nodes).find(n => n.op === 'join')!.dispatch).toBe('join:hash')
+    right.reset()
+    q.toArray()
+    expect(right.reads()).toBeGreaterThan(0)
+  })
+
+  it('join:reverse-index ⟺ the right snapshot drives the walk', () => {
+    const right = witnessRight(true)
+    const q = new Query<Invoice>(plainSource(SAMPLE), undefined, joinContextFor(right.source)).rightJoin('clientId', {
+      as: 'client',
+    })
+    expect(flatten(q.explain().nodes).find(n => n.op === 'join')!.dispatch).toBe('join:reverse-index')
+    right.reset()
+    q.toArray()
+    expect(right.reads()).toBeGreaterThan(0)
+  })
+
+  it('#1361 — an inner leg keeps its forward strategy label and says it drops rows', () => {
+    const right = witnessRight(true)
+    const q = new Query<Invoice>(plainSource(SAMPLE), undefined, joinContextFor(right.source)).join('clientId', {
+      as: 'client',
+      mode: 'inner',
+    })
+    const join = flatten(q.explain().nodes).find(n => n.op === 'join')!
+    expect(join.dispatch).toBe('join:nested')
+    expect(join.notes.join(' ')).toContain('inner')
+  })
+})
+
 describe('Query.explain() > source node', () => {
   it('names the declared indexes and the snapshot size', () => {
     const { source } = indexedSource(SAMPLE, ['status', 'clientId'])

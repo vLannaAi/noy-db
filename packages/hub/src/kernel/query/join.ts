@@ -151,6 +151,17 @@ export interface JoinLeg {
    */
   readonly direction?: JoinDirection
   /**
+   * INNER join (#1361) — drop every left row whose alias resolves to nothing,
+   * instead of attaching `null` under it.
+   *
+   * Only `.join()` sets it (a right/full leg already drops on its own side),
+   * and only when the caller passes `{ mode: 'inner' }`. Omitted rather than
+   * written as `false` for the same reason `direction` is: a plan built
+   * without it must serialize byte-identically to a pre-#1361 one, or every
+   * stored `queryHash` moves.
+   */
+  readonly inner?: true
+  /**
    * When `true`, this is a dictionary join. The executor
    * resolves the left-field value against the dict snapshot and
    * attaches `{ ...labels, key }` rather than a right-side record.
@@ -365,6 +376,20 @@ export function orderReferencesJoinAlias(
 }
 
 /**
+ * Does any leg drop left rows (#1361)?
+ *
+ * The entry condition for every terminal that must run the legs even though
+ * nothing addresses an alias: an inner leg is no longer projection-only, so
+ * `count()`, `exists()` and the ordering placement in `toArray()` all have to
+ * ask. Kept beside {@link splitAroundJoins} and {@link orderReferencesJoinAlias}
+ * because the three answer the same family of question, and because
+ * `Query.toArray()` and `Query.explain()` must not drift on the answer.
+ */
+export function joinsDropLeftRows(joins: readonly JoinLeg[]): boolean {
+  return joins.some(leg => leg.inner === true)
+}
+
+/**
  * Coerce an unknown FK value into a lookup key string.
  *
  * Legitimate ref values are strings or numbers — the same narrowing
@@ -443,6 +468,12 @@ function warnCeilingApproaching(
  * index-driven ordering fast path — the cost of sorting on a field the
  * index does not hold. `Query.explain()` names which placement a plan gets.
  *
+ * An INNER leg (#1361) moves only the PAGE, not the sort: the drop removes
+ * rows, so `limit` must observe it, but the ordering is on a left-side field
+ * that the drop cannot reorder. `toArray()` therefore sorts pre-join, joins,
+ * and slices after — and `explain()` reports `pre-join` on the sort and
+ * `post-join` on the page rather than one word for both.
+ *
  * **Multi-FK chaining:** each leg's `maxRows` is enforced
  * against the current left-row count independently. Because
  * joins are equi-joins on the target's primary key (one-to-one or
@@ -467,7 +498,27 @@ export function applyJoins(
   return result
 }
 
+/**
+ * One leg, plus the #1361 inner-join drop.
+ *
+ * The drop is applied to the leg's OUTPUT rather than threaded through the
+ * three producers (nested-loop, hash, dict) — an unmatched row is `null` under
+ * the alias in all three by construction, and `attachJoin` has already run, so
+ * a strict-mode `DanglingReferenceError` still fires for a dangling ref that
+ * `inner` would otherwise hide.
+ */
 function applyOneJoin(
+  leftRows: readonly unknown[],
+  leg: JoinLeg,
+  context: JoinContext,
+  locale?: string,
+): unknown[] {
+  const rows = applyOneJoinRaw(leftRows, leg, context, locale)
+  if (leg.inner !== true) return rows
+  return rows.filter(row => row !== null && typeof row === 'object' && (row as Record<string, unknown>)[leg.as] != null)
+}
+
+function applyOneJoinRaw(
   leftRows: readonly unknown[],
   leg: JoinLeg,
   context: JoinContext,
