@@ -292,26 +292,34 @@ export class CollectionIndexes {
    */
   upsert<T>(id: string, newRecord: T, previousRecord: T | null): void {
     if (this.indexes.size === 0 && this.sorted.size === 0 && this.compound.size === 0) return
-    // Detach the compound entries FIRST, holding the rank each one had. An
+    // Detach the compound and sorted entries FIRST, holding the rank each one had. An
     // in-place `put` does not move a record within `snapshot()`, so it must
     // not move it within a tie run either — otherwise an index-served
     // `orderBy(...).limit(n)` page disagrees with the stable scan-and-sort
-    // it is required to reproduce exactly (#1345). The `this.remove()` below
-    // re-runs the compound removal, which is then a no-op.
+    // it is required to reproduce exactly (#1345, #1369). The `this.remove()`
+    // below re-runs both removals, which are then no-ops.
     const ranks = new Map<string, number | undefined>()
+    const sortedRanks = new Map<string, number | undefined>()
     if (previousRecord !== null) {
       for (const [key, idx] of this.compound) {
         ranks.set(key, idx.remove(id, tupleKeyOf(idx.fields, previousRecord, this.canonicalize)))
+      }
+      // Same for the single-field sorted indexes (#1369) — the defect and the
+      // remedy are identical, and the two implementations must agree.
+      for (const [key, idx] of this.sorted) {
+        const value = readPath(previousRecord, idx.field)
+        if (value === null || value === undefined) continue
+        sortedRanks.set(key, idx.remove(id, value, this.canonicalize?.(idx.field, value)))
       }
       this.remove(id, previousRecord)
     }
     for (const idx of this.indexes.values()) {
       addToIndex(idx, id, newRecord, this.canonicalize)
     }
-    for (const idx of this.sorted.values()) {
+    for (const [key, idx] of this.sorted) {
       const value = readPath(newRecord, idx.field)
       if (value === null || value === undefined) continue
-      idx.add(id, value, this.canonicalize?.(idx.field, value))
+      idx.add(id, value, this.canonicalize?.(idx.field, value), sortedRanks.get(key))
     }
     for (const [key, idx] of this.compound) {
       idx.add(id, tupleKeyOf(idx.fields, newRecord, this.canonicalize), ranks.get(key))
