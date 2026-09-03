@@ -794,7 +794,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
           strategy: opts.strategy,
           maxRows: opts.maxRows,
           ...directionField,
-          //  constraint #1 — always 'all' in. Do not remove.
+          // The partition seam — always 'all'. Do not remove, and do not
+          // populate without reading JoinLeg.partitionScope's two
+          // constraints (#1342): this value is inside every stored MV
+          // queryHash. Pinned by __tests__/query-partition-scope.test.ts.
           partitionScope: 'all',
         }
       : {
