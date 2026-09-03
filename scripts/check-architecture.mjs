@@ -1083,7 +1083,19 @@ const KERNEL_SURFACE_BUDGET = {
   // move onto the ServiceBus: both are views of `this.cache` / `this.via`, which only the
   // kernel holds. All the join LOGIC is in kernel/query/{join,builder}.ts; only the two
   // accessors it reads through are here.
-  'packages/hub/src/kernel/collection.ts': 4322,
+  // Bumped 4322->4332 (2026-09-04, #1359 persisted field indexes): TEN lines, all of
+  // them the collection-resident half that cannot move. One nullable field + its doc
+  // (the sidecar coordinator), one constructor line that builds it from the indexing
+  // facade, one line binding it into `indexingContext()`, one `_flushFieldIndexes`
+  // delegator, and one import name. The two write-path pokes fold onto the existing
+  // `searchIndexStore?.markDirty()` lines and cost nothing. Everything else — the
+  // snapshot format, the freshness stamp, the debounce, the encrypt/decrypt bridge and
+  // the hydrate-time restore — is in `with-lookup/indexing/`, reached through the
+  // already-grandfathered `collection-facade.js` specifier, so the spine never names a
+  // with-* class. It cannot move onto the ServiceBus: the store must be constructed with
+  // a thunk over `this.indexingContext()` (codec + adapter + the live cache), which only
+  // the kernel holds, and hydration must await it inside `ensureHydrated`.
+  'packages/hub/src/kernel/collection.ts': 4332,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

@@ -50,17 +50,20 @@ export function withIndexing(): IndexingStrategy {
           // `kind: 'sorted'` (#1344) additionally builds the ordered array
           // that drives `<`/`>`/`between`/`startsWith`/`orderBy+limit`. The
           // hash index is declared either way, so `==`/`in` stay O(1).
-          const obj = def as { fields: readonly string[]; kind?: 'hash' | 'sorted' }
+          const obj = def as { fields: readonly string[]; kind?: 'hash' | 'sorted'; persist?: boolean }
           for (const f of obj.fields) {
             eager.declare(f)
-            if (obj.kind === 'sorted') eager.declareSorted(f)
+            // `persist: true` (#1359) opts the SORTED structures into an
+            // encrypted sidecar so a restart reuses them. The hash index is
+            // never persisted — the flag is inert without `kind: 'sorted'`.
+            if (obj.kind === 'sorted') eager.declareSorted(f, { persist: obj.persist === true })
           }
           // A MULTI-FIELD `kind: 'sorted'` declaration additionally builds the
           // tuple-keyed compound index (#1345) that drives an equality prefix
           // plus a range or `orderBy` on the next component. The per-field
           // indexes above are kept too, so a query touching only one component
           // keeps its existing plan.
-          if (obj.kind === 'sorted') eager.declareCompound(obj.fields)
+          if (obj.kind === 'sorted') eager.declareCompound(obj.fields, { persist: obj.persist === true })
         }
       }
       return makeEagerState(eager)

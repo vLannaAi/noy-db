@@ -29,11 +29,22 @@
  * CompoundIndex.size} against the snapshot size before dispatching, and
  * falls back to the scan when the index does not cover the collection.
  *
- * PERSISTENCE IS OUT OF SCOPE (#1359), same as its single-field sibling.
+ * PERSISTENCE (#1359) is OPT-IN, same as its single-field sibling. The wire
+ * form keeps the tuple as an ARRAY of per-component keys — see
+ * `index-snapshot.ts`: flattening it to a delimited string would destroy
+ * exactly the per-component ordering and kind partition this class is built
+ * to preserve.
  */
 
 import { readPath } from '../../kernel/query/predicate.js'
 import { KIND_STRING, compareKeys, toSortKey, type RangeOperator, type SortKey } from './sorted-indexes.js'
+import {
+  FIELD_INDEX_SNAPSHOT_VERSION,
+  type CompoundIndexSnapshot,
+  type FieldIndexSnapshot,
+  type WireCompoundEntry,
+  type WireKey,
+} from './index-snapshot.js'
 
 /** A range constraint on the component just past the equality prefix. */
 export interface CompoundRangeProbe {
@@ -233,6 +244,46 @@ export class CompoundIndex {
       else hi = mid
     }
     return lo
+  }
+
+  /**
+   * The persistable form of this index (#1359). Each entry's tuple stays an
+   * ARRAY of `[kind, key]` pairs: nothing is joined into a string, so a
+   * string component may hold any byte and the per-component kind partition
+   * survives the round trip intact.
+   */
+  toSnapshot(): CompoundIndexSnapshot {
+    return {
+      v: FIELD_INDEX_SNAPSHOT_VERSION,
+      t: 'compound',
+      fields: [...this.fields],
+      nextSeq: this.nextSeq,
+      entries: this.entries.map(
+        e => [e.keys.map(k => [k.kind, k.key] as WireKey), e.seq, e.id] as WireCompoundEntry,
+      ),
+    }
+  }
+
+  /**
+   * Adopt a validated snapshot, or refuse it. Same contract as
+   * `SortedIndex.loadSnapshot`: all-or-nothing, and an entry naming a record
+   * the cache does not hold rejects the whole blob so crash residue becomes a
+   * rebuild rather than a wrong answer. A snapshot whose field tuple is not
+   * exactly this index's is refused — the declaration changed under it.
+   */
+  loadSnapshot(snap: FieldIndexSnapshot, isLive: (id: string) => boolean): boolean {
+    if (snap.t !== 'compound') return false
+    if (snap.fields.length !== this.fields.length) return false
+    for (let i = 0; i < snap.fields.length; i++) if (snap.fields[i] !== this.fields[i]) return false
+    const staged: CompoundEntry[] = []
+    for (const [keys, seq, id] of snap.entries) {
+      if (!isLive(id)) return false
+      staged.push({ keys: keys.map(k => ({ kind: k[0] as SortKey['kind'], key: k[1] })), seq, id })
+    }
+    this.entries.length = 0
+    for (const e of staged) this.entries.push(e)
+    this.nextSeq = snap.nextSeq
+    return true
   }
 
   /**

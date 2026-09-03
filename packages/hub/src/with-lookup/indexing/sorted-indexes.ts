@@ -29,11 +29,20 @@
  * money operand has no ordered stored-form probe) — see
  * `kernel/query/builder.ts`'s `candidateRecords`.
  *
- * PERSISTENCE IS OUT OF SCOPE (#1359). This index lives in memory and is
- * rebuilt on hydrate, like its hash sibling.
+ * PERSISTENCE (#1359) is OPT-IN, via `{ persist: true }` on the declaration.
+ * {@link SortedIndex.toSnapshot} / {@link SortedIndex.loadSnapshot} are the
+ * whole of this class's part in it — the encrypted sidecar, the freshness
+ * stamp and the debounce live in `persisted-field-indexes.ts`. Without the
+ * opt-in the index is in memory only and rebuilt on hydrate, as before.
  */
 
 import { readPath } from '../../kernel/query/predicate.js'
+import {
+  FIELD_INDEX_SNAPSHOT_VERSION,
+  type FieldIndexSnapshot,
+  type SortedIndexSnapshot,
+  type WireSortedEntry,
+} from './index-snapshot.js'
 
 /** Range operators a sorted index can answer. */
 export type RangeOperator = '<' | '<=' | '>' | '>=' | 'between' | 'startsWith'
@@ -224,6 +233,45 @@ export class SortedIndex {
       else hi = mid
     }
     return lo
+  }
+
+  /**
+   * The persistable form of this index (#1359). `kind` travels with every
+   * key: entries rank by runtime kind first, so an encoding that dropped it
+   * would let a `string` probe reach `number` entries on the way back in.
+   */
+  toSnapshot(): SortedIndexSnapshot {
+    return {
+      v: FIELD_INDEX_SNAPSHOT_VERSION,
+      t: 'sorted',
+      field: this.field,
+      nextSeq: this.nextSeq,
+      entries: this.entries.map(e => [e.kind, e.key, e.seq, e.id] as WireSortedEntry),
+    }
+  }
+
+  /**
+   * Adopt a validated snapshot, or refuse it. Refusal (`false`) means the
+   * caller rebuilds — it NEVER means a partial index: the entries are staged
+   * and only swapped in once every one of them is accepted.
+   *
+   * `isLive` is the caller's liveness predicate over the record cache. An
+   * entry naming a record the cache does not hold means the blob and the
+   * collection have diverged (a crash between the two writes, say), so the
+   * whole blob is discarded. Crash residue must be a rebuild, never a wrong
+   * answer.
+   */
+  loadSnapshot(snap: FieldIndexSnapshot, isLive: (id: string) => boolean): boolean {
+    if (snap.t !== 'sorted' || snap.field !== this.field) return false
+    const staged: Entry[] = []
+    for (const [kind, key, seq, id] of snap.entries) {
+      if (!isLive(id)) return false
+      staged.push({ kind: kind as KeyKind, key, seq, id })
+    }
+    this.entries.length = 0
+    for (const e of staged) this.entries.push(e)
+    this.nextSeq = snap.nextSeq
+    return true
   }
 
   /**

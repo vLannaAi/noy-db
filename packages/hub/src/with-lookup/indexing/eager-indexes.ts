@@ -26,6 +26,11 @@ import {
   tupleKeyOf,
   type CompoundRangeProbe,
 } from './compound-indexes.js'
+import {
+  compoundIndexKey,
+  sortedIndexKey,
+  type FieldIndexSnapshot,
+} from './index-snapshot.js'
 
 /**
  * Index declaration accepted by `Collection`'s constructor.
@@ -43,7 +48,19 @@ import {
  */
 export type IndexDef =
   | string
-  | { readonly fields: readonly string[]; readonly unique?: boolean; readonly kind?: IndexKind }
+  | {
+      readonly fields: readonly string[]
+      readonly unique?: boolean
+      readonly kind?: IndexKind
+      /**
+       * Persist this index as an encrypted sidecar so a restart reuses it
+       * instead of rebuilding (#1359). Only meaningful with `kind: 'sorted'`
+       * — the hash index is not persisted. OPT-IN until measured: at the
+       * 1K–50K target scale rebuild-on-open is free, and a sidecar is a
+       * write on every debounce window plus a blob at rest.
+       */
+      readonly persist?: boolean
+    }
   | readonly string[]
 
 /**
@@ -117,6 +134,14 @@ export class CollectionIndexes {
   private readonly compound = new Map<string, CompoundIndex>()
 
   /**
+   * The indexes declared `persist: true` (#1359), keyed by their SIDECAR key
+   * (`s:<field>` / `c:<f1>,<f2>`). A separate map rather than a flag on the
+   * index classes: persistence is a property of the DECLARATION, and the
+   * index classes stay unaware of storage.
+   */
+  private readonly persistable = new Map<string, SortedIndex | CompoundIndex>()
+
+  /**
    * Per-field bucket-key canonicalizer (#672 review C1), registered ONCE
    * via {@link setCanonicalizer} when the collection wires indexing up
    * (money-aware via `ViaPipeline.canonicalizeIndexKey`). Consulted by
@@ -151,9 +176,13 @@ export class CollectionIndexes {
    * declare both (which is what `withIndexing()` does for a
    * `kind: 'sorted'` declaration). Idempotent.
    */
-  declareSorted(field: string): void {
-    if (this.sorted.has(field)) return
-    this.sorted.set(field, new SortedIndex(field))
+  declareSorted(field: string, opts?: { readonly persist?: boolean }): void {
+    let idx = this.sorted.get(field)
+    if (!idx) {
+      idx = new SortedIndex(field)
+      this.sorted.set(field, idx)
+    }
+    if (opts?.persist) this.persistable.set(sortedIndexKey(field), idx)
   }
 
   /** True if the given field has a declared SORTED index. */
@@ -196,11 +225,15 @@ export class CollectionIndexes {
    * tuple. A tuple shorter than two fields is a single-field sorted index
    * and is ignored here. Idempotent.
    */
-  declareCompound(fields: readonly string[]): void {
+  declareCompound(fields: readonly string[], opts?: { readonly persist?: boolean }): void {
     if (fields.length < 2) return
     const key = compoundKey(fields)
-    if (this.compound.has(key)) return
-    this.compound.set(key, new CompoundIndex([...fields]))
+    let idx = this.compound.get(key)
+    if (!idx) {
+      idx = new CompoundIndex([...fields])
+      this.compound.set(key, idx)
+    }
+    if (opts?.persist) this.persistable.set(compoundIndexKey(fields), idx)
   }
 
   /** Every declared field tuple, in declaration order. */
@@ -268,19 +301,43 @@ export class CollectionIndexes {
    * Called once per hydration. O(N × indexes.size). Buckets through the
    * registered {@link setCanonicalizer} closure, same as `upsert`/`remove`.
    */
-  build<T>(records: ReadonlyArray<{ id: string; record: T }>): void {
+  build<T>(records: ReadonlyArray<{ id: string; record: T }>, skip: ReadonlySet<string> = EMPTY_KEYS): void {
     for (const idx of this.indexes.values()) {
       idx.buckets.clear()
       for (const { id, record } of records) {
         addToIndex(idx, id, record, this.canonicalize)
       }
     }
-    for (const idx of this.sorted.values()) {
+    // `skip` names the sidecar keys a persisted snapshot already restored
+    // (#1359) — rebuilding them would throw that work away AND renumber every
+    // `seq`, which is what the whole ordered fast path rests on.
+    for (const [field, idx] of this.sorted) {
+      if (skip.has(sortedIndexKey(field))) continue
       buildSortedIndex(idx, records, this.canonicalize)
     }
     for (const idx of this.compound.values()) {
+      if (skip.has(compoundIndexKey(idx.fields))) continue
       buildCompoundIndex(idx, records, this.canonicalize)
     }
+  }
+
+  /** Sidecar keys of every index declared `persist: true`, in declaration order. */
+  persistableKeys(): readonly string[] {
+    return [...this.persistable.keys()]
+  }
+
+  /** The persistable snapshot behind one sidecar key, or `undefined` if it is not declared. */
+  snapshotIndex(key: string): FieldIndexSnapshot | undefined {
+    return this.persistable.get(key)?.toSnapshot()
+  }
+
+  /**
+   * Adopt a validated snapshot into the index behind `key`. `false` means the
+   * caller must rebuild that index from the cache — the index is left
+   * untouched, never half-loaded.
+   */
+  restoreIndex(key: string, snap: FieldIndexSnapshot, isLive: (id: string) => boolean): boolean {
+    return this.persistable.get(key)?.loadSnapshot(snap, isLive) ?? false
   }
 
   /**
@@ -423,6 +480,7 @@ export class CollectionIndexes {
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set()
+const EMPTY_KEYS: ReadonlySet<string> = new Set()
 
 /**
  * Stringify a value into a stable bucket key.
