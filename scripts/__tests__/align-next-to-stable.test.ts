@@ -56,20 +56,23 @@ describe('planAlignment — exclusions are stated, never silent', () => {
   const derived = [
     { pkg: '@noy-db/hub', version: '0.6.0' },
     { pkg: '@noy-db/to-file', version: '0.6.0' },
-    { pkg: 'create-noy-db', version: '0.3.3-pre.23' },
+    { pkg: 'create-noy-db', version: '0.6.0' },
   ]
 
-  it('excludes create-noy-db BY NAME, not by its version happening to differ', () => {
+  it('create-noy-db is a lockstep target like any other member (#1313)', () => {
+    // It used to be excluded by name as an "own version line" package. It never
+    // meant to be one: the normaliser skipped the unscoped name and the drift
+    // broke every scaffolded install. On the line, its `next` is aligned here.
     const { targets, excluded } = planAlignment(derived, '0.6.0')
-    expect(targets.map((t) => t.pkg)).toEqual(['@noy-db/hub', '@noy-db/to-file'])
-    expect(excluded.find((e) => e.pkg === 'create-noy-db')?.why).toMatch(/own version line/)
+    expect(targets.map((t) => t.pkg)).toEqual(['@noy-db/hub', '@noy-db/to-file', 'create-noy-db'])
+    expect(excluded).toEqual([])
   })
 
-  it('still excludes it when its version coincidentally matches the target', () => {
-    const coincidence = [{ pkg: 'create-noy-db', version: '0.6.0' }]
-    const { targets, excluded } = planAlignment(coincidence, '0.6.0')
-    expect(targets).toEqual([])
-    expect(excluded[0]!.why).toMatch(/own version line/)
+  it('a create-noy-db that fell off the line is a lockstep BREAK, not an exclusion', () => {
+    const drifted = [{ pkg: '@noy-db/hub', version: '0.6.0' }, { pkg: 'create-noy-db', version: '0.3.3-pre.23' }]
+    const { lockstepBroken, excluded } = planAlignment(drifted, '0.6.0')
+    expect(lockstepBroken).toBe(true)
+    expect(excluded.find((e) => e.pkg === 'create-noy-db')?.why).toMatch(/^LOCKSTEP/)
   })
 
   it('treats a lockstep mismatch as an ABORT, not a skip', () => {
@@ -86,8 +89,8 @@ describe('planAlignment — exclusions are stated, never silent', () => {
     expect(planAlignment(derived, '0.6.0').lockstepBroken).toBe(false)
   })
 
-  it('OWN_VERSION_LINE is exported so the exclusion is auditable', () => {
-    expect(OWN_VERSION_LINE).toContain('create-noy-db')
+  it('OWN_VERSION_LINE is exported so the exclusion is auditable — and empty since #1313', () => {
+    expect(OWN_VERSION_LINE).toEqual([])
   })
 })
 
@@ -196,12 +199,14 @@ describe('confirmMoved — the ordering that gives the tail its settle', () => {
 
 // ── #1305: own-line packages align against THEIR OWN tags ──────────────────
 //
-// `OWN_VERSION_LINE` excludes create-noy-db from the lockstep alignment, and
+// `OWN_VERSION_LINE` excluded create-noy-db from the lockstep alignment, and
 // nothing else was told to touch it — so every stable cut left its `next`
 // (0.3.4-pre.17) below its `latest` (0.3.4). The invariant is over the
 // OUTPUT: no published package ends a release with `next` sorting below
 // `latest`. Computed per package from its own registry tags, never from the
-// lockstep `--version`.
+// lockstep `--version`. The list is empty since #1313 (create-noy-db rides
+// the line); the decision stays pure and tested for the day a package
+// genuinely declares its own line.
 import { decideOwnLineAction } from '../align-next-to-stable.mjs'
 
 describe('decideOwnLineAction — the own-line invariant (#1305)', () => {

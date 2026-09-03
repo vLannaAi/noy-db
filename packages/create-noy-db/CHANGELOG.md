@@ -1,5 +1,11 @@
 # Changelog — create-noy-db
 
+## 0.7.1-pre.0 (rejoins the lockstep line)
+
+### Patch Changes
+
+- **The version number jumps from `0.3.5-pre.0` to `0.7.1-pre.0` to rejoin the family's lockstep line. It does not indicate four minor releases of scaffolder change.** The release normaliser filtered members by the `@noy-db/` prefix, so this — the family's one unscoped package — drifted onto its own line while the wizard kept filling every template pin from its own version (#703). Every scaffolded app therefore pinned `^0.3.4`, a range no published `@noy-db/hub` has ever satisfied, and failed to install (#1313). Membership is now workspace membership, and a test asserts the real `{{NOYDB_VERSION}}` value equals the workspace version of every package the templates pin.
+
 ## 0.3.5-pre.0
 
 ### Patch Changes
