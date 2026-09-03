@@ -7,6 +7,8 @@
  * dependency on any Via feature's implementation — still tree-shakeable.
  */
 
+import { UnsafePatternError } from '../errors.js'
+
 /** Comparison operators supported by the where() builder. */
 export type Operator =
   | '=='
@@ -19,6 +21,14 @@ export type Operator =
   | 'contains'
   | 'startsWith'
   | 'between'
+  /**
+   * Regex / SQL-LIKE pattern match (#1357). Operand: a `RegExp`, or a
+   * LIKE string. Normalized at `where()` time by {@link normalizeMatches}
+   * — an anchored literal prefix is LOWERED to `startsWith` (so it takes
+   * the sorted index), everything else is stored as `{ source, flags }`
+   * and evaluated per record.
+   */
+  | 'matches'
 
 /**
  * A single field comparison clause inside a query plan.
@@ -190,6 +200,11 @@ export function evaluateFieldClause(record: unknown, clause: FieldClause): boole
       return false
     case 'startsWith':
       return typeof actual === 'string' && typeof value === 'string' && actual.startsWith(value)
+    case 'matches': {
+      if (typeof actual !== 'string') return false
+      const re = matchesRegExp(value)
+      return re !== null && re.test(actual)
+    }
     case 'between': {
       if (!Array.isArray(value) || value.length !== 2) return false
       const [lo, hi] = value
@@ -203,6 +218,218 @@ export function evaluateFieldClause(record: unknown, clause: FieldClause): boole
       return false
     }
   }
+}
+
+// --- 'matches' (#1357) ------------------------------------------------
+
+/**
+ * The serialized `matches` operand. Plans are JSON-serializable and an MV's
+ * `queryHash` is taken over that JSON — a bare `RegExp` canonicalizes to
+ * `{}`, so two different patterns would hash the SAME and a stale view would
+ * never refresh. Source + flags is what makes the pattern part of the hash.
+ */
+interface MatchesOperand {
+  readonly source: string
+  readonly flags: string
+}
+
+/** ReDoS budget. A refusal, not a sanitiser — see {@link UnsafePatternError}. */
+const MATCHES_MAX_SOURCE = 200
+const MATCHES_MAX_GROUP_DEPTH = 5
+const MATCHES_MAX_QUANTIFIERS = 20
+
+function isQuantifier(c: string | undefined): boolean {
+  return c === '*' || c === '+' || c === '?' || c === '{'
+}
+
+/**
+ * Refuse a pattern that could backtrack catastrophically, by budget.
+ *
+ * Deliberately syntactic and conservative: an unescaped `{` counts as a
+ * quantifier even when it is a literal brace, because over-counting only
+ * ever costs a refusal the caller can see, while under-counting costs a
+ * hang. The one structural rule is the real ReDoS shape — a quantified
+ * group whose body itself quantifies, `(a+)+`.
+ */
+function assertSafePattern(source: string, flags: string): void {
+  if (source.length > MATCHES_MAX_SOURCE) {
+    throw new UnsafePatternError(
+      `where(..., 'matches', ...): pattern is ${source.length} characters, over the ` +
+        `${MATCHES_MAX_SOURCE}-character budget. Narrow the pattern, or use .filter(fn) ` +
+        `and accept that it cannot use an index.`,
+    )
+  }
+  for (const f of flags) {
+    if (f === 'g' || f === 'y') {
+      throw new UnsafePatternError(
+        `where(..., 'matches', ...): the '${f}' flag makes RegExp.test() stateful across ` +
+          `records and would silently drop rows. Remove it from /${source}/${flags}.`,
+      )
+    }
+  }
+  let quantifiers = 0
+  let inClass = false
+  let escaped = false
+  const groupQuantified: boolean[] = []
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i]!
+    if (escaped) { escaped = false; continue }
+    if (c === '\\') { escaped = true; continue }
+    if (inClass) { if (c === ']') inClass = false; continue }
+    if (c === '[') { inClass = true; continue }
+    if (c === '(') {
+      groupQuantified.push(false)
+      if (groupQuantified.length > MATCHES_MAX_GROUP_DEPTH) {
+        throw new UnsafePatternError(
+          `where(..., 'matches', ...): group nesting exceeds the depth-${MATCHES_MAX_GROUP_DEPTH} ` +
+            `budget in /${source}/. Flatten the pattern.`,
+        )
+      }
+      // `(?:` / `(?=` / `(?<name>` — that '?' is a group marker, not a quantifier.
+      if (source[i + 1] === '?') i++
+      continue
+    }
+    if (c === ')') {
+      const bodyQuantified = groupQuantified.pop() ?? false
+      if (bodyQuantified && isQuantifier(source[i + 1])) {
+        throw new UnsafePatternError(
+          `where(..., 'matches', ...): nested quantifier at index ${i + 1} of /${source}/ ` +
+            `— a quantified group whose body also quantifies backtracks exponentially. ` +
+            `Rewrite it, or use .filter(fn).`,
+        )
+      }
+      continue
+    }
+    if (isQuantifier(c)) {
+      quantifiers++
+      if (quantifiers > MATCHES_MAX_QUANTIFIERS) {
+        throw new UnsafePatternError(
+          `where(..., 'matches', ...): more than ${MATCHES_MAX_QUANTIFIERS} quantifiers in ` +
+            `/${source}/. Narrow the pattern, or use .filter(fn).`,
+        )
+      }
+      if (groupQuantified.length > 0) groupQuantified[groupQuantified.length - 1] = true
+    }
+  }
+}
+
+/** Escape one character for literal use inside a RegExp source. */
+function escapeRegExpChar(c: string): string {
+  return /[.*+?^${}()|[\]\\/]/.test(c) ? `\\${c}` : c
+}
+
+/**
+ * LIKE semantics, stated once: the pattern is ANCHORED at both ends (SQL
+ * `LIKE`, not a substring find), `%` is any run of characters including
+ * none, `_` is exactly one, and a BACKSLASH escapes the next character —
+ * `\%` and `\_` are literal, `\\` is a literal backslash. Both wildcards
+ * match newlines.
+ */
+function likeToSource(like: string): string {
+  let out = '^'
+  for (let i = 0; i < like.length; i++) {
+    const c = like[i]!
+    if (c === '\\') {
+      const next = like[i + 1]
+      if (next === undefined) {
+        throw new UnsafePatternError(
+          `where(..., 'matches', ...): LIKE pattern "${like}" ends with a dangling escape.`,
+        )
+      }
+      i++
+      out += escapeRegExpChar(next)
+      continue
+    }
+    if (c === '%') { out += '[\\s\\S]*'; continue }
+    if (c === '_') { out += '[\\s\\S]'; continue }
+    out += escapeRegExpChar(c)
+  }
+  return `${out}$`
+}
+
+/**
+ * The literal prefix a pattern is EXACTLY equivalent to, or `null`.
+ *
+ * Conservative by construction, because a wrong lowering returns wrong rows
+ * silently while a missed one only costs a scan. It lowers only when the
+ * source is `^` followed by characters that carry no regex meaning at all —
+ * no escapes, no classes, no alternation, no quantifiers, no `$` — and the
+ * flags are EMPTY. `i` in particular must never lower: the sorted index is
+ * case-sensitive, so `/^client-b/i` would lose rows.
+ */
+function literalPrefixAnchor(source: string, flags: string): string | null {
+  if (flags !== '' || !source.startsWith('^')) return null
+  const rest = source.slice(1)
+  return /^[^\\^$.|?*+()[\]{}]*$/.test(rest) ? rest : null
+}
+
+/**
+ * Normalize a `where(field, 'matches', operand)` at BUILD time: refuse an
+ * unsafe pattern, lower an anchored literal prefix to `startsWith`, and
+ * otherwise serialize to `{ source, flags }`. Every other operator passes
+ * through untouched.
+ *
+ * Called by every `where()` (`Query`, `ScanBuilder`, `LazyQuery`) so all
+ * three build the same clause for the same call.
+ */
+export function normalizeMatches(op: Operator, value: unknown): { op: Operator, value: unknown } {
+  if (op !== 'matches') return { op, value }
+  let source: string
+  let flags: string
+  if (typeof value === 'string') {
+    // `abc%` — a literal run then an open tail — IS startsWith('abc').
+    if (/^[^%_\\]*%$/.test(value)) return { op: 'startsWith', value: value.slice(0, -1) }
+    source = likeToSource(value)
+    flags = ''
+  } else if (value instanceof RegExp) {
+    source = value.source
+    flags = value.flags
+  } else {
+    throw new UnsafePatternError(
+      `where(..., 'matches', ...) needs a RegExp or a LIKE string; received ${typeof value}.`,
+    )
+  }
+  assertSafePattern(source, flags)
+  const prefix = literalPrefixAnchor(source, flags)
+  if (prefix !== null) return { op: 'startsWith', value: prefix }
+  return { op: 'matches', value: { source, flags } satisfies MatchesOperand }
+}
+
+/**
+ * Compiled-pattern cache, keyed by flags + source. `evaluateFieldClause`
+ * runs per record, so recompiling would dominate the scan. Cleared wholesale
+ * at a small cap rather than evicting — a query's live patterns recompile
+ * once and the map cannot grow without bound.
+ */
+const MATCHES_CACHE = new Map<string, RegExp>()
+const MATCHES_CACHE_MAX = 256
+
+/**
+ * The RegExp for a clause operand. Accepts the normalized
+ * {@link MatchesOperand} and — for a hand-built plan that never went through
+ * `where()` — a raw `RegExp`, whose `g`/`y` flags are stripped so `test()`
+ * cannot carry `lastIndex` from one record to the next. Returns `null` for
+ * anything else: a clause that cannot compile matches nothing, the same
+ * posture as every other type mismatch in this module.
+ */
+function matchesRegExp(value: unknown): RegExp | null {
+  const spec = value instanceof RegExp ? { source: value.source, flags: value.flags } : value
+  if (typeof spec !== 'object' || spec === null) return null
+  const { source, flags } = spec as Partial<MatchesOperand>
+  if (typeof source !== 'string' || typeof flags !== 'string') return null
+  const safeFlags = flags.replace(/[gy]/g, '')
+  const key = `${safeFlags} ${source}`
+  const cached = MATCHES_CACHE.get(key)
+  if (cached !== undefined) return cached
+  let re: RegExp
+  try {
+    re = new RegExp(source, safeFlags)
+  } catch {
+    return null
+  }
+  if (MATCHES_CACHE.size >= MATCHES_CACHE_MAX) MATCHES_CACHE.clear()
+  MATCHES_CACHE.set(key, re)
+  return re
 }
 
 /**

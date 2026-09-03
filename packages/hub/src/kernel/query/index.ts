@@ -50,4 +50,5 @@ export {
   CrossJoinTooLargeError,
   CrossJoinSourceUnknownError,
   FieldNotQueryableError,
+  UnsafePatternError,
 } from '../errors.js'

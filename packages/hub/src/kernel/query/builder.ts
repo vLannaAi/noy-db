@@ -9,7 +9,7 @@ import type { QueryField } from '../types.js'
 import type { DateTruncKey, GroupKey } from './date-trunc.js'
 import { groupKeyName, isDateTruncKey, projectDateTruncKeys } from './date-trunc.js'
 import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
-import { evaluateClause, hasFnClause } from './predicate.js'
+import { evaluateClause, hasFnClause, normalizeMatches } from './predicate.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 import type { JoinableSource, JoinContext, JoinLeg, JoinStrategy } from './join.js'
 import { applyJoins, splitAroundJoins } from './join.js'
@@ -383,21 +383,26 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   where(field: QueryField<T, S, Q>, op: Operator, value: unknown): Query<T, S, Q, M> {
     const via = this.source.via
     if (via?.postureFor(field)?.queryable === 'none') throw new FieldNotQueryableError(field)
-    const viaClause = via?.buildClause(field, op, value)
+    // #1357: a 'matches' operand is refused-or-normalized HERE, at the call
+    // site — an anchored literal prefix lowers to `startsWith` (taking the
+    // sorted index), anything else serializes to `{ source, flags }` so the
+    // pattern folds into an MV's queryHash. Every other operator is identity.
+    const { op: mop, value: mval } = normalizeMatches(op, value)
+    const viaClause = via?.buildClause(field, mop, mval)
     const clause: FieldClause = viaClause
       ? {
           type: 'field',
           field,
-          op,
-          value,
+          op: mop,
+          value: mval,
           via: {
             brand: viaClause.brand,
             payload: viaClause.payload,
             evaluate: (actual: unknown, evalOp: string) => via!.evaluateClause(viaClause, actual, evalOp),
-            indexValue: via!.indexProbe(viaClause, op),
+            indexValue: via!.indexProbe(viaClause, mop),
           },
         }
-      : { type: 'field', field, op, value }
+      : { type: 'field', field, op: mop, value: mval }
     return new Query<T, S, Q, M>(
       this.source as QuerySource<T>,
       { ...this.plan, clauses: [...this.plan.clauses, clause] },
