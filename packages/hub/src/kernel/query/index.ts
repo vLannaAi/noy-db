@@ -26,6 +26,9 @@ export type { JoinLeg, JoinContext, JoinableSource, JoinStrategy } from './join.
 export { buildLiveQuery } from './live.js'
 export type { LiveQuery, LiveUpstream } from './live.js'
 export { ScanBuilder } from './scan-builder.js'
+// Calendar group keys (#1350) — `.groupBy(dateTrunc('date', 'month', { timeZone }))`.
+export { dateTrunc, isDateTruncKey, truncateDate } from './date-trunc.js'
+export type { DateTruncKey, DateTruncUnit, DateTruncOptions, WeekStart, GroupKey } from './date-trunc.js'
 export type { ScanPageProvider } from './scan-builder.js'
 
 // Re-export note: QueryPlan, Clause, FilterClause, GroupClause are intentionally

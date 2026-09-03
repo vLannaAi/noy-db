@@ -1,3 +1,4 @@
+import { describeGroupKey, type GroupKey } from '../../kernel/query/date-trunc.js'
 import type { Query, QueryPlan } from '../../kernel/query/builder.js'
 import type { JoinContext } from '../../kernel/query/join.js'
 import type { MaterializedViewSpec } from './types.js'
@@ -124,9 +125,10 @@ export function summarizeQueryPlan(query: Query<any>): string {
  *     same `queryHash`, refresh would be a no-op, and stale MV rows
  *     would persist. Hashing in declaration order makes any reorder
  *     trigger a refresh.
- *   - `groupBy` fields ARE sorted. Multi-key groupBy buckets are
- *     commutative (`canonicalGroupKey` produces the same composite key
- *     regardless of field order in the input spec).
+ *   - `groupBy` fields ARE sorted, by their canonical `describeGroupKey`
+ *     description (which is the field name itself for a plain key). Multi-key
+ *     groupBy buckets are commutative (`canonicalGroupKey` produces the same
+ *     composite key regardless of field order in the input spec).
  *   - `aggregate` keys ARE sorted. Reducer-spec keys are independent
  *     of each other — order of declaration doesn't change output.
  *
@@ -203,11 +205,15 @@ function summarizeUnionArms<T extends Record<string, unknown>>(
 function summarizeGroupingTail<T extends Record<string, unknown>>(
   spec: MaterializedViewSpec<T>,
 ): string {
+  // `describeGroupKey` is the identity of a group key: a plain field name maps
+  // to itself, and a `dateTrunc()` key (#1350) to a canonical string carrying
+  // every parameter that decides which bucket a row lands in. Changing a unit,
+  // a timezone or the week start therefore bumps the hash and forces a refresh.
   const groupBy: string = Array.isArray(spec.groupBy)
-    ? [...spec.groupBy].sort().join(',')
-    : typeof spec.groupBy === 'string'
-      ? spec.groupBy
-      : ''
+    ? spec.groupBy.map(describeGroupKey).sort().join(',')
+    : spec.groupBy === undefined
+      ? ''
+      : describeGroupKey(spec.groupBy as GroupKey)
   const aggKeys = spec.aggregate ? Object.keys(spec.aggregate).sort().join(',') : ''
   // `moneyFields` changes reducer semantics (float → exact BigInt), so
   // declaring / removing / re-keying it must bump queryHash. Keys are

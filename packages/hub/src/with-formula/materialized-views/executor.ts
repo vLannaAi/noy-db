@@ -1,3 +1,4 @@
+import { groupKeyName, isDateTruncKey, projectDateTruncKeys, type GroupKey } from '../../kernel/query/date-trunc.js'
 import type { Collection } from '../../kernel/collection.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'
 import type { EncryptedEnvelope } from '../../kernel/types.js'
@@ -175,8 +176,18 @@ function finalizeMappedRows<TRow extends Record<string, unknown>>(
 ): ReadonlyArray<Record<string, unknown>> {
   if (!spec.groupBy) return unified
 
-  const groupFields: readonly string[] =
-    typeof spec.groupBy === 'string' ? [spec.groupBy] : spec.groupBy
+  const groupKeys: readonly GroupKey[] = Array.isArray(spec.groupBy)
+    ? (spec.groupBy as readonly GroupKey[])
+    : [spec.groupBy as GroupKey]
+  const groupFields: readonly string[] = groupKeys.map(groupKeyName)
+
+  // Derived calendar keys (#1350) are bucketed onto the mapped row first, so
+  // every rule below — the i18n resolution, the object-key refusal, the dedup
+  // path and `groupAndReduce` — sees an ordinary stored field.
+  const derivedKeys = groupKeys.filter(isDateTruncKey)
+  if (derivedKeys.length > 0) {
+    unified = projectDateTruncKeys(unified, derivedKeys)
+  }
 
   // i18n-aware group keys. An `i18nText` group field carries a raw
   // `{ locale: string }` map, an unstable object key. When `i18nLocale` is
@@ -252,7 +263,9 @@ function applyDerive<TRow extends Record<string, unknown>>(
   rows: ReadonlyArray<Record<string, unknown>>,
 ): ReadonlyArray<Record<string, unknown>> {
   const groupFields = new Set<string>(
-    spec.groupBy === undefined ? [] : typeof spec.groupBy === 'string' ? [spec.groupBy] : spec.groupBy,
+    spec.groupBy === undefined
+      ? []
+      : (Array.isArray(spec.groupBy) ? spec.groupBy : [spec.groupBy]).map(groupKeyName),
   )
   return rows.map((row) => {
     // `derive` sees the row the way a READER would: money decoded to its

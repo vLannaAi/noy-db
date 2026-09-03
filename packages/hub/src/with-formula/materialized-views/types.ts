@@ -1,3 +1,4 @@
+import type { GroupKey } from '../../kernel/query/date-trunc.js'
 import type { Query } from '../../kernel/query/builder.js'
 import type { Collection } from '../../kernel/collection.js'
 import type { ReduceSpec, Reduction } from '../../with-lookup/reduce/reduction.js'
@@ -322,11 +323,16 @@ export interface MaterializedViewSpec<TRow extends Record<string, unknown>> {
    * field names for multi-key grouping (same shape as
    * `Query.groupBy(...fields)`).
    *
+   * A field name can be replaced by a `dateTrunc(field, unit, { timeZone })`
+   * derived calendar key (#1350) — the bucket is computed on the mapped row
+   * before grouping, and the key's parameters fold into the MV's `queryHash`,
+   * so re-parameterising it forces a refresh.
+   *
    * UNION-mode only. Ignored if {@link query} is set — single-source
    * grouping is expressed inside the `Query<T>` returned from `query()`
    * via `.groupBy(...).aggregate(...)`.
    */
-  groupBy?: string | ReadonlyArray<string>
+  groupBy?: GroupKey | ReadonlyArray<GroupKey>
   /**
    * Reduction spec for UNION mode. Applied per-group after
    * {@link groupBy} buckets the concatenated mapped-row stream from
