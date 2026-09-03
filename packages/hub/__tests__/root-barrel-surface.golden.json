@@ -861,6 +861,7 @@
     "TabLockManager",
     "TabPresence",
     "TabRole",
+    "TamperedReason",
     "TeamStrategy",
     "TierMode",
     "Tokenizer",
