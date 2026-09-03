@@ -1674,6 +1674,42 @@ export class GroupCardinalityError extends NoydbError {
 }
 
 /**
+ * Thrown by `.traverse()` / `ancestorsOf()` / `descendantsOf()` when a cycle
+ * is reached AND the caller opted into `{ onCycle: 'throw' }` (#1352).
+ *
+ * The default is `'stop'` — the walk simply does not re-enter a node already
+ * on the current path, which is what keeps a circular parent chain from
+ * hanging the tab. `'throw'` exists for the other legitimate reading: a
+ * self-referencing hierarchy that is SUPPOSED to be acyclic, where a cycle is
+ * a data-integrity finding the consumer wants surfaced rather than silently
+ * pruned.
+ *
+ * `cycle` is the offending walk closed back on itself — the path from the
+ * seed to the node that would have been re-entered, with that node repeated
+ * as the final element, so `cycle[0]` and `cycle.at(-1)` name the same
+ * record only for a cycle that reaches all the way back to the seed.
+ */
+export class TraversalCycleError extends NoydbError {
+  /** The declared self-ref field being traversed. */
+  readonly field: string
+  /** The path that closed on itself, with the re-entered id repeated last. */
+  readonly cycle: readonly string[]
+
+  constructor(opts: { field: string; cycle: readonly string[] }) {
+    super(
+      'TRAVERSAL_CYCLE',
+      `.traverse("${opts.field}") reached a cycle: ${opts.cycle.join(' → ')}. ` +
+        `The default { onCycle: 'stop' } prunes the repeated node and finishes ` +
+        `the walk; this query asked for { onCycle: 'throw' }. Fix the parent ` +
+        `chain, or drop back to 'stop' if cycles are expected in this data.`,
+    )
+    this.name = 'TraversalCycleError'
+    this.field = opts.field
+    this.cycle = opts.cycle
+  }
+}
+
+/**
  * Thrown in lazy mode when a `.query()` / `.where()` / `.orderBy()` clause
  * references a field that does not have a declared index.
  *
@@ -1744,16 +1780,17 @@ export class UniqueConstraintError extends NoydbError {
  * Thrown at collection registration when an index option is declared that
  * is incompatible with the collection's operating mode.
  *
- * Currently covers two cases:
- * - `unique: true` on a lazy-mode (`prefetch: false`) collection — lazy mode
- *   does not pre-load all records, so an in-memory uniqueness map cannot be
- *   maintained reliably.
- * - `unique: true` on a CRDT collection (`crdt: 'lww-map' | 'rga' | 'yjs'`) —
- *   CRDT put() short-circuits the unique-constraint check, so enforcement would
- *   silently not fire.
+ * ⚠️ **Nothing throws this today (#1358).** It used to cover three cases —
+ * `unique: true` on a lazy-mode (`prefetch: false`), CRDT, or tiered
+ * collection — because those write paths bypassed enforcement. Lazy and
+ * tiered now enforce for real, and CRDT reports detected duplicates on the
+ * `unique:violation` event instead of refusing the declaration (see
+ * `with-lookup/indexing/unique-constraints.ts`). The class is retained: it is
+ * part of the published surface, and it is the right shape for the next index
+ * option that a mode genuinely cannot honour.
  *
- * Both cases are caught eagerly at `vault.collection()` time so the developer
- * sees the incompatibility immediately rather than shipping silently-ignored
+ * Any future case belongs at `vault.collection()` time so the developer sees
+ * the incompatibility immediately rather than shipping silently-ignored
  * constraints.
  *
  * The `option` field names the incompatible option (`'unique'`) so catch blocks
