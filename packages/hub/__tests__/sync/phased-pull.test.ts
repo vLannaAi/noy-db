@@ -41,6 +41,34 @@ function recorder(opts: { delayMs?: number; failOn?: string; throwOn?: string } 
   }
 }
 
+/**
+ * A recorder whose phases BLOCK until the test releases them. Turns "did the
+ * walk continue after stop()?" from a wall-clock race into a stated ordering.
+ */
+function gatedRecorder() {
+  const scopes: string[] = []
+  const pending: (() => void)[] = []
+  const callbacks: SyncSchedulerCallbacks = {
+    push: async () => {},
+    getDirtyCount: () => 0,
+    pull: async (collections) => {
+      scopes.push(collections?.[0] ?? '<all>')
+      await new Promise<void>(r => pending.push(r))
+    },
+  }
+  return {
+    callbacks,
+    order: () => [...scopes],
+    /** Let every blocked phase finish. */
+    release: () => { for (const r of pending.splice(0)) r() },
+  }
+}
+
+/** Drain a few event-loop turns — enough for an unstopped walk to advance. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 0))
+}
+
 const phased = (sequence: readonly string[], intervalMs?: number): SyncPolicy => ({
   push: MANUAL_PUSH,
   pull: { mode: 'phased', sequence, ...(intervalMs ? { intervalMs } : {}) },
@@ -127,18 +155,24 @@ describe('#809 — phased pull executes the sequence in order', () => {
   })
 
   it('stop() cuts the sequence short', async () => {
-    const rec = recorder({ delayMs: 30 })
+    // The claim is causal — stop() ends the walk — so the phase boundary is
+    // GATED rather than raced against a 30ms-per-phase wall clock. The old
+    // shape could let all four phases finish before a loaded runner reached
+    // `s.stop()`, failing `toBeLessThan(4)` with no bug present (#1382 class).
+    const rec = gatedRecorder()
     const s = new SyncScheduler(phased(['a', 'b', 'c', 'd']), rec.callbacks)
 
     s.start()
-    await vi.waitFor(() => expect(rec.order().length).toBeGreaterThan(0))
+    // Phase 'a' is in flight and BLOCKED on the gate — stop() therefore
+    // happens strictly before the phase completes, every run.
+    await vi.waitFor(() => expect(rec.order()).toEqual(['a']))
     s.stop()
-    const atStop = rec.order().length
-    await new Promise(r => setTimeout(r, 150))
+    rec.release()
+    // `runSequence` continues to the next phase immediately after the awaited
+    // pull resolves — no timer — so a handful of event-loop turns is decisive.
+    await settle()
 
-    // At most the phase already in flight completes; the walk does not continue.
-    expect(rec.order().length).toBeLessThanOrEqual(atStop + 1)
-    expect(rec.order().length).toBeLessThan(4)
+    expect(rec.order()).toEqual(['a'])
   })
 
   it('settles into the steady-state interval after the sequence drains', async () => {
