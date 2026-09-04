@@ -11,14 +11,23 @@ import type { OverlayedViewSpec } from './types.js'
  *   - `get(id)`: overlay row wins iff `overlay[shadowField] === shadowValue`;
  *     when `spec.mergeMode` is set, an intermediate status may instead pull
  *     a declared subset of fields from the overlay over the base
- *   - `list()` / `.query()`: union of ids, per-id merge applied
+ *   - `list()`: union of ids, per-id merge applied
  *   - `put(record)` / `put(id, record)`: routes to overlay; id derived
  *     via the base MV's `rowKey` (validated on the two-arg form)
  *   - `delete(id)`: removes the overlay row only; base stays
  *
- * Reactive APIs (`live`, `subscribe`, `query().live()`) are out of
- * scope for this release and surface as "not yet implemented" — wired in a
- * future sub-issue.
+ * ⚠️ **`query()` THROWS** — it is not implemented for overlay views (#154);
+ * use `list()` + filter, or read the base / overlay collections directly.
+ * This paragraph used to list `.query()` beside `list()` as working, while
+ * naming only `query().live()` among the deferrals — so the header
+ * over-claimed the one method on this class that throws, and the deferral
+ * list quietly omitted it. Corrected 2026-09-04; the throw-stubs below are
+ * the authority, and a doc comment that disagrees with an adjacent `never`
+ * return type is worth more scepticism than one that disagrees with distant
+ * code.
+ *
+ * Also deferred, same issue, same shape: `live`, `subscribe`,
+ * `query().live()`.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class OverlayedCollection<T extends Record<string, unknown> = any> {

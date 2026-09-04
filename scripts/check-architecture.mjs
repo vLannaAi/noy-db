@@ -586,9 +586,15 @@ function checkEveryServiceGated() {
 //   NOT_SERVICE_SUBPATHS — entries that are contract seams or plain modules,
 //   not opt-in capabilities, so they have no with*() factory by design.
 //
-//   NO_SUBPATH_FACTORIES — capabilities that ship reachable only from the root
-//   barrel. Each is recorded in SERVICES.md § "Shipped capabilities with no
-//   subpath". Removing a name from here means giving it a subpath.
+//   NO_SUBPATH_FACTORIES — with*() factories that own no subpath. Most ship
+//   reachable from the ROOT BARREL instead, and each of those is recorded in
+//   SERVICES.md § "Shipped capabilities with no subpath". Removing such a name
+//   from here means giving it a subpath.
+//
+//   ⚠️ "Root-barrel instead" is the COMMON reason, not the definition of the
+//   set (#1396). One member — `withLookup` — is reachable from NO published
+//   entry point at all, and that is correct; it carries its own reason at its
+//   entry. Read the comment on a line before concluding an entry is stale.
 const NOT_SERVICE_SUBPATHS = new Set([
   'cargo', 'to', 'pod', 'satellites', 'util', 'share-link', 'query',
   // FAMILY PORT, like `to`: the contract an `at-*` sealing-key provider
@@ -644,7 +650,27 @@ const NOT_SERVICE_SUBPATH_PREFIXES = ['codemods/']
 const NO_SUBPATH_FACTORIES = new Set([
   // Complete seams that qualify for a subpath — no reason on record yet.
   'withArchive',   // held as `ArchiveStrategy | null`, no NO_* stub — decide the stub first
-  'withLookup',    // deliberate: via/lookup/index.ts records root-barrel re-export instead
+  // ⭐ NOT A CONSUMER OPT-IN AT ALL — the one member of this set that reaches
+  // NO published entry point, and that is the intended resting state (#1396).
+  //
+  // Measured: `src/index.ts` re-exports the lookup DECLARATION surface
+  // (`lookup`/`dict`/`enumOf`/`enum`) from `via/lookup/index.js`; it does not
+  // re-export `withLookup`, and no subpath does either. `via/lookup/index.ts`
+  // exports it, but that module is not an entry point. So a consumer cannot
+  // call it — by design.
+  //
+  // What it IS: an internal TREE-SHAKE seam. `via/i18n/active.ts:40` is the
+  // only caller — `withI18n()` reaches it transitively, which is what keeps
+  // the `LookupHandle` engine out of a bundle that never enables i18n
+  // (`port/with/lookup-strategy.ts:125` documents the same chain from the
+  // other side). It is neither dead code nor a missing export.
+  //
+  // ⛔ DO NOT "fix" this by exporting the factory. Publishing `withLookup`
+  // would make an internal seam a supported opt-in and put a second, unusable
+  // way to configure lookup in front of consumers. A previous audit read the
+  // unreachability as a bug and reached exactly that conclusion; the reason
+  // lives here so the next one does not have to re-derive it.
+  'withLookup',
   // Store middleware: returns StoreMiddleware, not a strategy. Not services.
   'withRetry', 'withLogging', 'withMetrics', 'withCircuitBreaker', 'withCache', 'withHealthCheck',
   // Declaration helpers consumed via createNoydb({ numbering }) / desugared onto another service.
