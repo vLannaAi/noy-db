@@ -13,6 +13,9 @@ import type { JoinContext, JoinableSource } from '../src/kernel/query/join.js'
 import { ViaPipeline } from '../src/kernel/via/pipeline.js'
 import { moneyVia } from '../src/via/money/binding.js'
 import { money } from '../src/via/money/descriptor.js'
+import { geoVia } from '../src/via/geo/binding.js'
+import { geo } from '../src/via/geo/descriptor.js'
+import type { GeoPoint } from '../src/via/geo/geohash.js'
 
 interface Invoice {
   id: string
@@ -20,15 +23,20 @@ interface Invoice {
   amount: number
   clientId: string
   dueDate: string
+  /** #1355 — a `geo()`-declared point, so the witness table can cover `index:prefix`. */
+  at?: GeoPoint
 }
 
 const SAMPLE: Invoice[] = [
-  { id: 'a', status: 'draft', amount: 100, clientId: 'c1', dueDate: '2026-04-01' },
-  { id: 'b', status: 'open', amount: 250, clientId: 'c1', dueDate: '2026-03-15' },
-  { id: 'c', status: 'open', amount: 5000, clientId: 'c2', dueDate: '2026-05-01' },
-  { id: 'd', status: 'paid', amount: 800, clientId: 'c2', dueDate: '2026-02-28' },
-  { id: 'e', status: 'open', amount: 1500, clientId: 'c3', dueDate: '2026-01-10' },
+  { id: 'a', status: 'draft', amount: 100, clientId: 'c1', dueDate: '2026-04-01', at: { lat: 51.50, lng: -0.12 } },
+  { id: 'b', status: 'open', amount: 250, clientId: 'c1', dueDate: '2026-03-15', at: { lat: 51.51, lng: -0.13 } },
+  { id: 'c', status: 'open', amount: 5000, clientId: 'c2', dueDate: '2026-05-01', at: { lat: 48.86, lng: 2.29 } },
+  { id: 'd', status: 'paid', amount: 800, clientId: 'c2', dueDate: '2026-02-28', at: { lat: -33.86, lng: 151.21 } },
+  { id: 'e', status: 'open', amount: 1500, clientId: 'c3', dueDate: '2026-01-10', at: { lat: 40.69, lng: -74.04 } },
 ]
+
+/** The `geo()` pipeline the witness source binds — one field, `at`. */
+const GEO_VIA = ViaPipeline.build([geoVia({ at: geo() })])!
 
 /**
  * A source whose `snapshot()` calls are counted. The count is an
@@ -370,6 +378,10 @@ describe('Query.explain() > money exact reducer rewrite', () => {
 function witnessSource(records: Invoice[], declare: (ix: CollectionIndexes) => void) {
   const indexes = new CollectionIndexes()
   declare(indexes)
+  // #1355 — the geo binding keys `at` by its derived geohash, exactly as a
+  // real collection does. Registered BEFORE `build()`, or the entries would
+  // land under a stringified object and no prefix could reach them.
+  indexes.setCanonicalizer((field, value) => GEO_VIA.canonicalizeIndexKey(field, value))
   indexes.build(records.map(r => ({ id: r.id, record: r })))
   const byId = new Map(records.map(r => [r.id, r]))
   let reads = 0
@@ -383,6 +395,7 @@ function witnessSource(records: Invoice[], declare: (ix: CollectionIndexes) => v
     snapshot: () => proxied,
     getIndexes: () => indexes,
     lookupById: (id: string) => byId.get(id),
+    via: GEO_VIA,
   }
   return { source, reset: () => { reads = 0 }, reads: () => reads }
 }
@@ -393,6 +406,7 @@ function declareAll(ix: CollectionIndexes): void {
   ix.declareSorted('amount')
   ix.declareSorted('dueDate')
   ix.declareCompound(['status', 'amount'])
+  ix.declareSorted('at')
 }
 
 /**
@@ -424,6 +438,13 @@ const DISPATCH_TABLE: ReadonlyArray<{
     name: 'where(==).orderBy(next component).limit(n) — the compound ordered walk',
     expected: 'index:ordered',
     build: q => q.where('status', '==', 'open').orderBy('amount', 'asc').limit(2),
+  },
+  {
+    // #1355 — the one index label whose clause is NOT consumed: the prefix
+    // cover narrows, the haversine still filters.
+    name: 'near on a geo field with a sorted index',
+    expected: 'index:prefix',
+    build: q => q.where('at', 'near', { lat: 51.505, lng: -0.125, radiusKm: 25 }),
   },
   { name: '== on an unindexed field', expected: 'scan', build: q => q.where('clientId', '==', 'c1') },
   { name: '> on a hash-only field', expected: 'scan', build: q => q.where('status', '>', 'draft') },
@@ -457,7 +478,7 @@ describe('#1375 > explain() dispatch agrees with the executor, for every dispatc
 
   it('the table covers every index label the type publishes', () => {
     const labelled = new Set(DISPATCH_TABLE.map(r => r.expected))
-    expect([...labelled].sort()).toEqual(['index:compound', 'index:hash', 'index:ordered', 'index:range', 'scan'])
+    expect([...labelled].sort()).toEqual(['index:compound', 'index:hash', 'index:ordered', 'index:prefix', 'index:range', 'scan'])
   })
 
   it('every shape returns identical rows whether or not explain() ran', () => {

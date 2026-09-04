@@ -51,6 +51,7 @@ import type { JoinContext, JoinLeg } from './join.js'
 import { DEFAULT_JOIN_MAX_ROWS, joinsDropLeftRows, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
 import { describeJoinOn, joinOnDispatch } from './join-on.js'
 import type { ViaPipeline } from '../via/pipeline.js'
+import { isViaPrefixProbe } from '../via/index.js'
 
 /**
  * How a node is executed. An OPEN label set on purpose — a consumer reads
@@ -67,6 +68,14 @@ export type ExplainDispatch =
   | 'index:range'
   /** #1345 — a compound tuple served an equality prefix (+ an optional range). */
   | 'index:compound'
+  /**
+   * #1355 — a sorted index served a UNION of `startsWith` slices named by a
+   * Via binding's prefix probe (`geo()`'s `near`). Unlike every other index
+   * label, the clause is NOT consumed: the cover is a superset and the
+   * binding's predicate still runs over the candidates, so `estimatedRows`
+   * here is the candidate count, not the answer's.
+   */
+  | 'index:prefix'
   /**
    * #1344 / #1345 — an ordered index walk answered `orderBy(f).limit(n)`
    * outright: no sort runs, and only the page's worth of records is read.
@@ -225,6 +234,10 @@ function indexDispatchFor(source: ExplainSource, clauses: readonly Clause[]): Cl
   const compound = compoundDispatchFor(source, indexes, clauses)
   if (compound) return compound
 
+  // #1355 — mirrors `prefixCandidates()`, ordering included.
+  const prefixed = prefixDispatchFor(indexes, clauses)
+  if (prefixed) return prefixed
+
   for (let i = 0; i < clauses.length; i++) {
     const clause = clauses[i]!
     if (clause.type !== 'field') continue
@@ -245,6 +258,30 @@ function indexDispatchFor(source: ExplainSource, clauses: readonly Clause[]): Cl
       dispatch = 'index:range'
     }
     if (ids !== null) return { consumed: new Map([[i, dispatch]]), rows: ids.size }
+  }
+  return null
+}
+
+/**
+ * #1355 — mirrors `prefixCandidates()`. The clause is labelled even though
+ * the executor does not consume it: the index really did produce the
+ * candidate set, and reporting `scan` for a path that never walks the
+ * snapshot is exactly the disagreement the witness table exists to catch.
+ */
+function prefixDispatchFor(indexes: ExplainIndexProbe, clauses: readonly Clause[]): ClauseDispatchPick | null {
+  for (let i = 0; i < clauses.length; i++) {
+    const clause = clauses[i]!
+    if (clause.type !== 'field' || clause.via === undefined) continue
+    const probe = clause.via.indexValue
+    if (!isViaPrefixProbe(probe)) continue
+    if (indexes.hasSorted?.(clause.field) !== true) continue
+    const ids = new Set<string>()
+    for (const prefix of probe.prefixes) {
+      const hit = indexes.lookupRange?.(clause.field, 'startsWith', prefix) ?? null
+      if (hit === null) return null
+      for (const id of hit) ids.add(id)
+    }
+    return { consumed: new Map([[i, 'index:prefix' as ExplainDispatch]]), rows: ids.size }
   }
   return null
 }
@@ -467,7 +504,13 @@ export function explainPlan(
       if (dispatch !== null) {
         const { op, detail } = describeClause(clause)
         if (pick) rows = pick.rows
-        nodes.push({ op, dispatch, detail, estimatedRows: rows, notes: [], children: [] })
+        // #1355 — the one index label whose clause is not consumed. Say so,
+        // or `estimatedRows` reads as the answer's size when it is the
+        // candidate set's.
+        const notes = dispatch === 'index:prefix'
+          ? ['prefix cover is a superset: the clause still filters the candidates exactly']
+          : []
+        nodes.push({ op, dispatch, detail, estimatedRows: rows, notes, children: [] })
         return
       }
       nodes.push(scanNode(clause, rows, scanReason(clause, indexes, pick !== null)))

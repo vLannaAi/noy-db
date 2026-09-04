@@ -637,7 +637,7 @@ export function compileVias<T>(
   classifiedGuardCtx: ClassifiedGuardCtx,
   eraseCfgOut?: { classified?: ClassifiedViaConfig },
 ): NoydbVia[] {
-  const { moneyFields, i18nFields, dictKeyFields, computedFields, lookupFields } = mergeViaFields(opts)
+  const { moneyFields, i18nFields, dictKeyFields, computedFields, lookupFields, geoFields } = mergeViaFields(opts)
   const allComputedFields = unifyComputedFields(opts, computedFields)
   guardCrossBindingFieldCollisions({
     moneyFields, i18nFields, dictKeyFields, lookupFields,
@@ -646,6 +646,7 @@ export function compileVias<T>(
       : undefined,
     blobFields: opts.blobFields,
     computed: allComputedFields,
+    geoFields,
   })
   const bindings: NoydbVia[] = []
   // #669 — hoisted above the money push (was built at the tail of this function, alongside
@@ -721,6 +722,13 @@ export function compileVias<T>(
   }
   if (virtualFields.size > 0) {
     bindings.push(viaBinder('computed')({ virtualFields }))
+  }
+  // #1355 — geo compiles LAST among the field-owning families, and its
+  // position is inert: it declares only `ingest` (write) plus the sync query
+  // hooks, and touches no field another binding claims (the collision guard
+  // above refuses that outright).
+  if (geoFields !== undefined) {
+    bindings.push(viaBinder('geo')({ geoFields }))
   }
   return bindings
 }

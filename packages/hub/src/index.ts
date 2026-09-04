@@ -959,10 +959,33 @@ export type {
   ExactOperand,
 } from './via/money/index.js'
 
+// geo — geospatial point field descriptor + the primitives behind `near` (#1355)
+export {
+  geo,
+  isGeoDescriptor,
+  GeoPointError,
+  haversineKm,
+  encodeGeohash,
+  decodeGeohashBox,
+  isGeoPoint,
+  // Aliased on the way out: this barrel is FLAT, and `boundingBox` /
+  // `coverSize` / `gridBits` / `MAX_PRECISION` are names a consumer would
+  // reasonably expect to mean something else in a document store.
+  boundingBox as geoBoundingBox,
+  coverPrefixes as geoCoverPrefixes,
+  coverSize as geoCoverSize,
+  gridBits as geoGridBits,
+  prefixesForRadius as geoPrefixesForRadius,
+  EARTH_RADIUS_KM,
+  MAX_PRECISION as GEO_MAX_PRECISION,
+} from './via/geo/index.js'
+export type { GeoDescriptor, GeoOptions, GeoPoint, GeoBox, NearOperand, GeoWhereOperand, GeoNearOperand, GeoPassthroughOperand } from './via/geo/index.js'
+
 // via — public field composer (declares a field's Via feature(s) without a sugar key)
 export { via, isViaFieldSpec } from './kernel/via/compose.js'
 export type { ViaFieldSpec } from './kernel/via/compose.js'
-export type { ViaPosture, ViaDescriptor } from './kernel/via/index.js'
+export type { ViaPosture, ViaDescriptor, ViaPrefixProbe } from './kernel/via/index.js'
+export { isViaPrefixProbe } from './kernel/via/index.js'
 export type { DerivationSkippedFrozen } from './kernel/via/dispatch.js'
 
 // classified — preset catalog (creditCard/birthDate/email/phone) + validators

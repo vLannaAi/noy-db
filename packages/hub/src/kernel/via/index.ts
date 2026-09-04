@@ -199,6 +199,38 @@ export interface NoydbVia {
   describeFragment?(): Record<string, unknown>
 }
 
+/**
+ * An `indexProbe` result asking for a UNION of sorted-index PREFIX slices
+ * (#1355), rather than the single equality operand `indexProbe` yielded
+ * before it existed.
+ *
+ * ⛔ IT IS A SUPERSET, AND THAT IS THE CONTRACT. `candidateRecords()`
+ * (`kernel/query/builder.ts`) narrows to the union of these prefixes and
+ * then keeps the clause in `remainingClauses`, so the binding's own
+ * `evaluateClause` still runs over every candidate. A binding returning
+ * this promises only that no MATCHING record lies outside the union —
+ * never that every record inside it matches. Return `undefined` instead
+ * of a cover you cannot prove complete: an over-wide cover costs
+ * predicate calls, a short one silently drops rows.
+ *
+ * Generic on purpose. Geo is today's only producer, but nothing here is
+ * spatial — any binding whose stored key is an ordered string with a
+ * meaningful prefix (a path, a bucketed timestamp) can use it.
+ */
+export interface ViaPrefixProbe {
+  readonly kind: 'via-prefixes'
+  readonly prefixes: readonly string[]
+}
+
+/** Runtime predicate for a {@link ViaPrefixProbe} handed back by `indexProbe`. */
+export function isViaPrefixProbe(x: unknown): x is ViaPrefixProbe {
+  return (
+    typeof x === 'object' && x !== null &&
+    (x as { kind?: unknown }).kind === 'via-prefixes' &&
+    Array.isArray((x as { prefixes?: unknown }).prefixes)
+  )
+}
+
 /** Binder: constructs a binding from a collection's declared config. Installed by the feature's declaration factory. */
 export type ViaBinder = (config: unknown) => NoydbVia
 
