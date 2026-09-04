@@ -29,6 +29,7 @@ import type { PersistedCollectionIndex } from './persisted-indexes.js'
 import { IndexRequiredError, FieldNotQueryableError } from '../../kernel/errors.js'
 import type { QueryField } from '../../kernel/types.js'
 import type { ViaPipeline } from '../../kernel/via/pipeline.js'
+import { isViaPrefixProbe } from '../../kernel/via/index.js'
 
 export interface LazyOrderBy {
   readonly field: string
@@ -277,6 +278,24 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
     }
 
     for (const clause of this.plan.clauses) {
+      // #1355 — a PREFIX-COVER probe (geo's `near`). Lazy's persisted mirror
+      // has no `startsWith` slice, so there is no prefix fast path to take
+      // here; enumerate the field's indexed ids and let the (via-aware, #684)
+      // post-filter in `toArray()` apply the exact predicate. Same shape as
+      // the via-RANGE branch below, and for the same reason: a candidate
+      // SUPERSET scoped to indexed ids is sound, while refusing the query
+      // outright — which is what the tail of this function does for an op no
+      // branch claims (`null` → `IndexRequiredError`) — would be a lazy-only
+      // behaviour gap against eager mode.
+      //
+      // Placed INSIDE this loop rather than the composite pre-pass above, so
+      // a more selective `==` clause on another field still wins first: the
+      // loop takes the first clause that resolves, in clause order.
+      if (clause.via && isViaPrefixProbe(clause.via.indexValue)) {
+        const entries = idx.orderedBy(clause.field, 'asc')
+        if (entries) return entries.map(e => e.recordId)
+        continue
+      }
       if (clause.op === '==') {
         if (clause.via) {
           // #684: prefer `clause.via.indexValue` — the same STORED-form

@@ -145,6 +145,13 @@ const SCENARIOS = [
       'moneyFieldClause',      // money where() build engine
       'evaluateMoneyClause',   // money predicate engine
       'wrapMoneyReducers',     // money aggregation engine
+      // #1355 geo -- same archetype-3 shape as money: the geohash engine is
+      // linked by geo() at DECLARATION time, so a floor consumer that never
+      // declares a geo field must not carry the spherical trigonometry.
+      'encodeGeohash',         // geo write/index-key engine
+      'haversineKm',           // geo predicate engine
+      'prefixesForRadius',     // geo prefix-cover planner
+      'geoFieldClause',        // geo where() build engine
       'evalComputedFields',    // computed-fields engine (lazy at first put)
       'LinkSet',               // link-set storage engine (lazy links() handle)
       'persistSchemaIfNeeded', // schema-update decision engine

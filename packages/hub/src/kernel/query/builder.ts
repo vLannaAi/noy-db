@@ -28,6 +28,7 @@ import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/reduce/group
 import { NO_REDUCE, type ReduceStrategy } from '../../with-lookup/reduce/strategy.js'
 import type { WindowSpec, WindowedQuery } from '../../with-lookup/reduce/strategy.js'
 import type { ViaPipeline } from '../via/pipeline.js'
+import { isViaPrefixProbe } from '../via/index.js'
 import { decodeCursor, encodeCursor, keysetShape } from './cursor.js'
 import type { QueryExplanation } from './explain.js'
 import { explainPlan } from './explain.js'
@@ -2813,6 +2814,13 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
   const compound = compoundCandidates(source, indexes, lookupById, clauses)
   if (compound) return compound
 
+  // #1355: a Via binding may probe with a PREFIX COVER instead of an
+  // equality operand. Tried before the single-clause loop below for the
+  // same reason compound is — it is the narrowest thing the index can do
+  // for that clause — but unlike every other arm it CONSUMES NOTHING.
+  const prefixed = prefixCandidates(indexes, lookupById, clauses)
+  if (prefixed) return prefixed
+
   for (let i = 0; i < clauses.length; i++) {
     const clause = clauses[i]!
     if (clause.type !== 'field') continue
@@ -2879,6 +2887,46 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
 
   // No clause was index-eligible — fall back to a full scan.
   return { candidates: source.snapshot(), remainingClauses: clauses }
+}
+
+/**
+ * #1355 prefix fast path: narrow through a UNION of sorted-index
+ * `startsWith` slices named by a Via binding's {@link ViaPrefixProbe}.
+ *
+ * ⛔ EVERY CLAUSE STAYS IN `remainingClauses`, INCLUDING THIS ONE. A prefix
+ * cover is a SUPERSET by contract (`kernel/via/index.ts`), so the binding's
+ * `evaluateClause` is still the answer — dropping the clause here would
+ * return the cover's corners as matches. That also means this path needs no
+ * snapshot-coverage guard of its own: it removes nothing from the plan, so
+ * an under-covering index cannot make it return a record the predicate has
+ * not seen. What it DOES need is the other half of the same soundness
+ * argument, and it is the binding's to hold — a record absent from the
+ * index must be one `evaluateClause` would reject anyway. Geo's is: the
+ * index key is the geohash derived from `lat`/`lng`, so a record with no
+ * key has no usable point, and a clause over no point never matches.
+ *
+ * Returns `null` — fall back — when no clause carries a prefix probe, or
+ * when the field has no sorted index to slice.
+ */
+function prefixCandidates(
+  indexes: CollectionIndexes,
+  lookupById: (id: string) => unknown,
+  clauses: readonly Clause[],
+): CandidateResult | null {
+  for (const clause of clauses) {
+    if (clause.type !== 'field' || clause.via === undefined) continue
+    const probe = clause.via.indexValue
+    if (!isViaPrefixProbe(probe)) continue
+    if (!indexes.hasSorted(clause.field)) continue
+    const ids = new Set<string>()
+    for (const prefix of probe.prefixes) {
+      const hit = indexes.lookupRange(clause.field, 'startsWith', prefix)
+      if (hit === null) return null
+      for (const id of hit) ids.add(id)
+    }
+    return { candidates: materializeIds(ids, lookupById), remainingClauses: clauses }
+  }
+  return null
 }
 
 function materializeIds(

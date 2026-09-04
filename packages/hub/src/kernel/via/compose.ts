@@ -84,6 +84,9 @@ export interface MergedViaFields {
    *  entries (#650 Task 2) — a SEPARATE binding from i18n; `dictKey()`/`staticDict()` stay
    *  routed onto `dictKeyFields`/the i18n binding (the alias, unchanged). */
   readonly lookupFields: Record<string, LookupDescriptor> | undefined
+  /** `via(geo())` entries (#1355). Like `computedFields`, there is no `geoFields` sugar
+   *  KEY to merge against — geo is declared through the `via()` composer only. */
+  readonly geoFields: Record<string, ViaDescriptor> | undefined
 }
 
 /**
@@ -114,7 +117,7 @@ export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
   if (!sources.viaFields || Object.keys(sources.viaFields).length === 0) {
     return {
       moneyFields: sources.moneyFields, i18nFields: sources.i18nFields, dictKeyFields: sources.dictKeyFields,
-      computedFields: undefined, lookupFields: sources.lookupFields,
+      computedFields: undefined, lookupFields: sources.lookupFields, geoFields: undefined,
     }
   }
   const sugarFieldNames = new Set([
@@ -128,6 +131,7 @@ export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
   const viaDictKey: Record<string, DictKeyDescriptor | StaticDictDescriptor> = {}
   const viaComputed: Record<string, ComputedDescriptor> = {}
   const viaLookup: Record<string, LookupDescriptor> = {}
+  const viaGeo: Record<string, ViaDescriptor> = {}
   for (const [field, spec] of Object.entries(sources.viaFields)) {
     if (sugarFieldNames.has(field)) {
       throw new ValidationError(
@@ -144,8 +148,14 @@ export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
         viaComputed[field] = descriptor as ComputedDescriptor
       } else if (descriptor._viaBrand === 'lookup' && isLookupDescriptor(descriptor)) {
         viaLookup[field] = descriptor
+      } else if (descriptor._viaBrand === 'geo') {
+        // Kept as the opaque `ViaDescriptor` the kernel already speaks — geo's
+        // concrete type lives in `src/via/geo/`, which the kernel may not import
+        // (`check-architecture.mjs`'s port-layering ratchet). Same treatment
+        // `moneyFields` gets.
+        viaGeo[field] = descriptor
       } else {
-        throw new ValidationError(`via(): field "${field}" has a descriptor with unrecognized _viaBrand "${descriptor._viaBrand}" — via() only supports money/i18n/computed/lookup descriptors today.`)
+        throw new ValidationError(`via(): field "${field}" has a descriptor with unrecognized _viaBrand "${descriptor._viaBrand}" — via() only supports money/i18n/computed/lookup/geo descriptors today.`)
       }
     }
   }
@@ -155,6 +165,7 @@ export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
     dictKeyFields: Object.keys(viaDictKey).length > 0 ? { ...(sources.dictKeyFields ?? {}), ...viaDictKey } : sources.dictKeyFields,
     computedFields: Object.keys(viaComputed).length > 0 ? viaComputed : undefined,
     lookupFields: Object.keys(viaLookup).length > 0 ? { ...(sources.lookupFields ?? {}), ...viaLookup } : sources.lookupFields,
+    geoFields: Object.keys(viaGeo).length > 0 ? viaGeo : undefined,
   }
 }
 
@@ -169,7 +180,7 @@ export function mergeViaFields(sources: ViaFieldSources): MergedViaFields {
  *  both in this file, read it. */
 const VIA_FIELD_MAP_FAMILY: Readonly<Record<string, string>> = {
   moneyFields: 'money', i18nFields: 'i18n', dictKeyFields: 'i18n', lookupFields: 'lookup',
-  classifiedFields: 'classified', blobFields: 'blob', computed: 'computed',
+  classifiedFields: 'classified', blobFields: 'blob', computed: 'computed', geoFields: 'geo',
 }
 
 /**
