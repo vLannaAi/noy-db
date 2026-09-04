@@ -1,6 +1,6 @@
 import { describeGroupKey, type GroupKey } from '../../kernel/query/date-trunc.js'
 import type { Query, QueryPlan } from '../../kernel/query/builder.js'
-import type { JoinContext } from '../../kernel/query/join.js'
+import type { JoinContext, JoinLeg } from '../../kernel/query/join.js'
 import type { MaterializedViewSpec } from './types.js'
 
 /**
@@ -107,20 +107,78 @@ export function summarizeQueryPlan(query: Query<any>): string {
     orderBy: plan.orderBy,
     limit: plan.limit ?? null,
     offset: plan.offset,
-    joins: plan.joins.map(j => ({
-      field: j.field,
-      as: j.as,
-      target: j.target,
-      mode: j.mode,
-      // #1339 — the declared `on` IS the join's identity: two `.joinOn()`
-      // plans differing only here select different rows, and without this key
-      // they would hash identically and neither MV would ever be seen as
-      // stale. `undefined` for every other leg, and `JSON.stringify` drops an
-      // undefined value, so a plan carrying no `joinOn` summarises
-      // byte-identically to its pre-#1339 self and no stored hash moves.
-      on: j.on,
-    })),
+    joins: plan.joins.map(j => summarizeJoinLeg(j)),
   })
+}
+
+/**
+ * The per-leg half of {@link summarizeQueryPlan}, split out so the property
+ * test in `__tests__/query-join-summary-hash.test.ts` can address it directly.
+ *
+ * ⭐ **THE RULE FOR GROWING THIS FUNCTION (#1389).** Every key here is inside
+ * an already-stored `queryHash`. A key that is emitted unconditionally can
+ * never be added, removed, or renamed without moving EVERY joined MV's hash
+ * and silently recomputing every one of them. A key that is OMITTED AT ITS
+ * DEFAULT can: `JSON.stringify` drops an `undefined` value, so a leg that does
+ * not use the feature summarises byte-identically to its pre-change self and
+ * only the MVs genuinely using the feature recompute — once, correctly.
+ * So: **new keys are omitted at their default, always.** Pinned by the
+ * byte-identity test in that file.
+ *
+ * ⛔ And the converse duty, which is what #1389 actually was: a `JoinLeg` field
+ * that changes WHICH ROWS the leg produces and is NOT emitted here makes two
+ * semantically different MVs share a hash, so drift detection goes blind and
+ * nothing reports it. `direction`, `inner` and `isDictJoin` were all in that
+ * state. The exclusion list below is deliberate and each entry states why;
+ * the property test fails if a new `JoinLeg` key appears in neither.
+ */
+function summarizeJoinLeg(j: JoinLeg): Record<string, unknown> {
+  return {
+    field: j.field,
+    as: j.as,
+    target: j.target,
+    mode: j.mode,
+    // #1339 — the declared `on` IS the join's identity: two `.joinOn()`
+    // plans differing only here select different rows, and without this key
+    // they would hash identically and neither MV would ever be seen as
+    // stale. `undefined` for every other leg, and `JSON.stringify` drops an
+    // undefined value, so a plan carrying no `joinOn` summarises
+    // byte-identically to its pre-#1339 self and no stored hash moves.
+    on: j.on,
+    // #1389 — `direction` (#1289) decides which SIDE is preserved: a right or
+    // full leg emits rows a left leg never produces. Omitted for a left leg,
+    // which is `undefined` on the leg itself, so a plain `.join()` plan is
+    // byte-identical to its pre-#1389 summary.
+    direction: j.direction,
+    // #1389 — `inner` (#1361) DROPS every unmatched left row. Only ever
+    // `true`; `undefined` on every other leg, so again nothing moves for a
+    // plan that does not use it.
+    inner: j.inner,
+    // #1389 — a dict join attaches `{ ...labels, key }` from the dictionary
+    // snapshot instead of a right-side record, and `target` names a
+    // dictionary rather than a collection. Two legs can otherwise agree on
+    // all four base keys (a dict leg's `target` IS its `field`, which a ref
+    // join to a like-named collection reproduces), so without this key they
+    // hash identically while materializing different rows. Only ever `true`.
+    isDictJoin: j.isDictJoin,
+    // ── EXCLUDED, deliberately (#1389). Read before adding one. ──────────
+    //
+    // `partitionScope` — NOT emitted, and this is the load-bearing one. It is
+    //   `'all'` on every leg ever built and the executor never reads it
+    //   (#1342), so it cannot change a row. It is also present unconditionally
+    //   rather than omitted-at-default, so starting to emit it would move
+    //   EVERY joined MV's hash at once for zero semantic gain. If a future
+    //   change ever makes it narrowable, emit it only when it is not `'all'`.
+    //
+    // `strategy` — NOT emitted: a manual planner override picks HOW the same
+    //   rows are produced (hash vs lookup), never which. Emitting it would
+    //   force a full recompute for a pure performance tweak.
+    //
+    // `maxRows` — NOT emitted: a per-side ceiling that throws
+    //   `JoinTooLargeError` when crossed. A query that succeeds returns the
+    //   same rows at any ceiling above its size, so it is not part of the
+    //   plan's row identity.
+  }
 }
 
 /**
