@@ -1,49 +1,49 @@
 {
   "scenarios": {
     "floor": {
-      "minifiedBytes": 1746,
-      "gzippedBytes": 532
+      "minifiedBytes": 1764,
+      "gzippedBytes": 549
     },
     "lazy": {
-      "minifiedBytes": 1834,
-      "gzippedBytes": 608
+      "minifiedBytes": 1852,
+      "gzippedBytes": 622
     },
     "team": {
-      "minifiedBytes": 2103,
-      "gzippedBytes": 716
+      "minifiedBytes": 2121,
+      "gzippedBytes": 731
     },
     "broker": {
-      "minifiedBytes": 2830,
-      "gzippedBytes": 1157
+      "minifiedBytes": 2848,
+      "gzippedBytes": 1167
     },
     "history": {
-      "minifiedBytes": 5442,
-      "gzippedBytes": 2013
+      "minifiedBytes": 5460,
+      "gzippedBytes": 2021
     },
     "classified": {
-      "minifiedBytes": 3096,
-      "gzippedBytes": 1096
+      "minifiedBytes": 3114,
+      "gzippedBytes": 1109
     },
     "blobs": {
-      "minifiedBytes": 1917,
-      "gzippedBytes": 673
+      "minifiedBytes": 1935,
+      "gzippedBytes": 688
     },
     "analytics": {
-      "minifiedBytes": 2947,
-      "gzippedBytes": 1132
+      "minifiedBytes": 2965,
+      "gzippedBytes": 1147
     },
     "search": {
-      "minifiedBytes": 1788,
-      "gzippedBytes": 576
+      "minifiedBytes": 1806,
+      "gzippedBytes": 588
     },
     "search-ann": {
-      "minifiedBytes": 1817,
-      "gzippedBytes": 596
+      "minifiedBytes": 1835,
+      "gzippedBytes": 608
     },
     "all-on": {
-      "minifiedBytes": 34787,
-      "gzippedBytes": 11004
+      "minifiedBytes": 64441,
+      "gzippedBytes": 20438
     }
   },
-  "updatedAt": "2026-09-04T00:16:02.959Z"
+  "updatedAt": "2026-09-04T01:28:35.021Z"
 }

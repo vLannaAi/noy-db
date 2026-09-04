@@ -297,28 +297,53 @@ describe('cross-vault queries.', () => {
     it('concurrency > 1 overlaps work; concurrency 1 serializes', async () => {
       const ids = ['T1', 'T2', 'T7']
 
-      // With concurrency 1 and 30ms per call, total ≈ 90ms.
-      // With concurrency 3 and 30ms per call, total ≈ 30ms.
-      const startSerial = Date.now()
-      await aliceDb.queryAcross(
-        ids,
-        async () => { await new Promise((r) => setTimeout(r, 30)); return null },
-        { concurrency: 1 },
-      )
-      const serialMs = Date.now() - startSerial
+      // The claim is about OVERLAP, so measure overlap directly — peak
+      // in-flight count — instead of inferring it from elapsed wall clock.
+      // The old shape compared two real durations (3 x 30ms serial vs ~30ms
+      // parallel) and could invert on a loaded box with no bug present
+      // (#1382 class). Peak concurrency is machine-speed independent.
+      /**
+       * `expectedOverlap` workers hold their slot open until that many are in
+       * flight together, then all are released — so the test blocks only for
+       * an overlap the configured concurrency can actually deliver, and never
+       * deadlocks.
+       */
+      function probe(expectedOverlap: number) {
+        let inFlight = 0
+        let peak = 0
+        const waiters: (() => void)[] = []
+        return {
+          peak: () => peak,
+          fn: async () => {
+            inFlight++
+            peak = Math.max(peak, inFlight)
+            if (inFlight >= expectedOverlap) {
+              for (const release of waiters.splice(0)) release()
+            } else {
+              // The escape hatch exists only for the BROKEN path: if the
+              // overlap never materialises, fail on the assertion below
+              // rather than hanging until the suite timeout. A working
+              // implementation releases on the peer's arrival immediately,
+              // so this timer is never reached.
+              await new Promise<void>((r) => {
+                waiters.push(r)
+                const escape = setTimeout(r, 2_000)
+                waiters.push(() => clearTimeout(escape))
+              })
+            }
+            inFlight--
+            return null
+          },
+        }
+      }
 
-      const startParallel = Date.now()
-      await aliceDb.queryAcross(
-        ids,
-        async () => { await new Promise((r) => setTimeout(r, 30)); return null },
-        { concurrency: 3 },
-      )
-      const parallelMs = Date.now() - startParallel
+      const serial = probe(1)
+      await aliceDb.queryAcross(ids, serial.fn, { concurrency: 1 })
+      expect(serial.peak()).toBe(1) // serialized: never two at once
 
-      // Generous bounds — CI machines vary. The point is that
-      // parallel is meaningfully faster than serial, not exact timing.
-      expect(serialMs).toBeGreaterThanOrEqual(80)
-      expect(parallelMs).toBeLessThan(serialMs)
+      const parallel = probe(2)
+      await aliceDb.queryAcross(ids, parallel.fn, { concurrency: 3 })
+      expect(parallel.peak()).toBeGreaterThan(1) // genuinely overlapped
     })
 
     it('handles an empty vault list cleanly', async () => {

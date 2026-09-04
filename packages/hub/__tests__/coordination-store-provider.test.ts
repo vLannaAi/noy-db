@@ -55,24 +55,36 @@ describe('StoreMesh', () => {
   })
 
   it('observeFence only fires on change', async () => {
-    const store = memStore()
-    const prov = new StoreMesh(store, { pollIntervalMs: 5 })
-    await prov.setFence(VAULT, { currentSchemaVersion: 1, fenceState: 'normal' })
+    // "no change -> no new emissions" is a non-occurrence claim over a real 5ms
+    // poll, and both assertions are exact counts. Driving the poll with fake
+    // timers states how many ticks happened instead of racing them (#1382
+    // class): a real 20ms sleep can deliver a different number of polls on a
+    // loaded box, and `afterFirst` can be snapshotted before the first
+    // emission has landed at all.
+    vi.useFakeTimers()
+    try {
+      const store = memStore()
+      const prov = new StoreMesh(store, { pollIntervalMs: 5 })
+      await prov.setFence(VAULT, { currentSchemaVersion: 1, fenceState: 'normal' })
 
-    const seen: FenceDoc[] = []
-    const unsub = prov.observeFence(VAULT, (f) => seen.push(f))
-    await new Promise((r) => setTimeout(r, 20))
-    const afterFirst = seen.length
-    // no change -> no new emissions
-    await new Promise((r) => setTimeout(r, 20))
-    expect(seen.length).toBe(afterFirst)
+      const seen: FenceDoc[] = []
+      const unsub = prov.observeFence(VAULT, (f) => seen.push(f))
+      await vi.advanceTimersByTimeAsync(20)   // 4 polls
+      expect(seen.length).toBe(1)             // exactly the initial state
 
-    // change -> one more emission
-    await prov.setFence(VAULT, { currentSchemaVersion: 2, fenceState: 'draining' })
-    await new Promise((r) => setTimeout(r, 20))
-    unsub()
-    expect(seen.length).toBe(afterFirst + 1)
-    expect(seen[seen.length - 1]).toEqual({ currentSchemaVersion: 2, fenceState: 'draining' })
+      // no change -> no new emissions, however many polls run
+      await vi.advanceTimersByTimeAsync(20)   // 4 more polls
+      expect(seen.length).toBe(1)
+
+      // change -> one more emission, and only one
+      await prov.setFence(VAULT, { currentSchemaVersion: 2, fenceState: 'draining' })
+      await vi.advanceTimersByTimeAsync(20)
+      unsub()
+      expect(seen.length).toBe(2)
+      expect(seen[seen.length - 1]).toEqual({ currentSchemaVersion: 2, fenceState: 'draining' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('reportPresence for 2 writers; reachableWriters returns both with sessionId preserved', async () => {

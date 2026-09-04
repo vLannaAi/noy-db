@@ -46,6 +46,19 @@ export type Operator =
    * and evaluated per record.
    */
   | 'matches'
+  /**
+   * Proximity (#1355) — operand `{ lat, lng, radiusKm }`, matching a
+   * record whose stored point is within `radiusKm` great-circle
+   * kilometres of the centre.
+   *
+   * ⛔ MEANINGFUL ONLY OVER A `geo()`-DECLARED FIELD. Every other field
+   * has no point to measure, so the case below returns false rather than
+   * guessing at a `{lat,lng}`-shaped object — the geo binding owns both
+   * the comparison and the index cover, and an undeclared field has
+   * neither. `where()` is where a malformed operand throws; here a
+   * type mismatch is simply "no match", as it is for every operator.
+   */
+  | 'near'
 
 /**
  * A single field comparison clause inside a query plan.
@@ -222,7 +235,23 @@ export function evaluateFieldClause(record: unknown, clause: FieldClause): boole
   // pre-built at query BUILD time and the binding's own evaluator knows
   // how to compare it against the raw stored value.
   if (clause.via) return clause.via.evaluate(actual, op)
+  return evaluateOperator(actual, op, value)
+}
 
+/**
+ * The generic comparison, with no record and no Via involved.
+ *
+ * Split out of {@link evaluateFieldClause} (#1355) so a Via binding can
+ * DELEGATE the operators it does not itself define. That matters more than
+ * it sounds: a binding that claims a field for one operator and declines
+ * the rest leaves the others with `clause.via` unset, and an unset `via` is
+ * exactly what tells `candidateRecords()` a secondary index may serve the
+ * clause. For a binding that also rewrites the index KEY
+ * (`canonicalizeIndexKey`), that combination lets the index and the scan
+ * answer the same clause differently. Claiming every operator and routing
+ * the uninteresting ones back here keeps the two in step.
+ */
+export function evaluateOperator(actual: unknown, op: Operator, value: unknown): boolean {
   switch (op) {
     case '==':
       return actual === value
@@ -261,6 +290,11 @@ export function evaluateFieldClause(record: unknown, clause: FieldClause): boole
       if (!isComparable(actual, lo) || !isComparable(actual, hi)) return false
       return (actual as number) >= (lo as number) && (actual as number) <= (hi as number)
     }
+    case 'near':
+      // Reached only when NO via binding claimed the field (a `geo()`
+      // clause carries `clause.via` and returned above). Nothing else in
+      // the kernel knows what a point is.
+      return false
     default: {
       // Exhaustiveness — TS will error if a new operator is added without a case.
       const _exhaustive: never = op

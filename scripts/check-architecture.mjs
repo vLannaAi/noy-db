@@ -506,6 +506,12 @@ const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   // same ③ schema-feature bucket as via/money/with-formula/computed above), not
   // an opt-in strategy gate; the computed via-binder links eagerly (port/with/computed-strategy.ts).
   'via/computed',
+  // #1355 — geo() is a declaration factory in the SAME ③ bucket as
+  // money()/computed() above: the binding links at descriptor construction,
+  // never through a with*() strategy gate. Its engine is proven absent from
+  // an undeclared bundle by the floor canaries in check-bundle.mjs, which is
+  // the property a with*() gate exists to buy.
+  'via/geo',
 ])
 
 // Does any .ts file in `dir` (recursively) export a `with*()` factory —

@@ -3,32 +3,34 @@
  * that makes populating it dangerous (#1342).
  *
  * `partitionScope` is documented as plumbing for partition-aware execution:
- * always `'all'`, never read by an executor. What that documentation does NOT
- * say — and what this file pins — is that the field is inside every stored
- * materialized-view `queryHash`. `QueryPlan.joins` is serialized VERBATIM by
- * `serializePlan()`, and `computeQueryHash()` hashes the canonicalized plan
- * whole, so `partitionScope` is a hash input on every joined MV written to
- * date.
+ * always `'all'`, never read by an executor.
  *
- * ⛔ THE CONSEQUENCE, for whoever implements partition scoping: populating
- * this field at plan-build time SILENTLY INVALIDATES every stored MV whose
- * query narrows — a stale-row rebuild with no error and no warning. #1289 hit
- * the near-miss version of this and dodged it by omitting `direction` from
- * the leg when it holds its default (`builder.ts`, `directionField`). That
- * escape is NOT available here: `partitionScope: 'all'` is not omitted, it is
- * baked into every join plan hashed so far. So an implementation must
+ * ⚠️⚠️ **CORRECTED 2026-09-04.** This header, and the third test's name,
+ * previously claimed the field is inside *every stored MV `queryHash`*. It is
+ * not, and the file's own shape is what made the claim look measured:
  *
- *   (a) keep emitting `partitionScope: 'all'` verbatim for an unnarrowed leg
- *       — "cleaning it up" by omission moves every existing hash — and
- *   (b) treat the one-time invalidation of narrowing MVs as a release note,
- *       not a discovery.
+ *   - a **registered MV** hashes `summarizeQueryPlan()`
+ *     (`materialized-views/registry.ts:201,243`), which has never emitted
+ *     `partitionScope`. Its hash does not contain the field and never did.
+ *   - a **hand-composed** `computeQueryHash(name, deps,
+ *     canonicalizeQueryPlan(serializePlan(q)))` does contain it, because
+ *     `serializePlan()` emits `plan.joins` verbatim.
  *
- * ⭐ The cheaper route, and the recommendation on #1342: derive the scope in
- * the EXECUTOR from clauses already in the plan and leave the leg alone. It
- * is a derived value; storing it buys nothing and costs the hash.
+ * The third test builds the second composition itself and then asserts a
+ * property of it — so it proved something true about a pipeline it had just
+ * assembled, and said something false about the pipeline the product uses.
+ * ⭐ A test that constructs the path it claims to observe cannot witness which
+ * path the system actually takes. The fourth test below is the missing half:
+ * it pins the REGISTRY's input, which is the one that governs stored rows.
  *
- * These tests are expected to be EDITED, not deleted, when scoping lands —
- * the third one is the one that will fail, and its failure is the notice.
+ * What this means for #1342: populating `partitionScope` does **not**
+ * invalidate registered MVs. The reason to leave it alone is smaller and
+ * still sufficient — it is a derived value, so storing it buys nothing, and
+ * it is the one leg key emitted UNCONDITIONALLY rather than
+ * omitted-at-default, so summarising it later (per #1389's rule) would move
+ * every joined MV's hash at once for zero gain. Derive it in the EXECUTOR.
+ *
+ * These tests are expected to be EDITED, not deleted, when scoping lands.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
@@ -40,6 +42,7 @@ import {
   canonicalizeQueryPlan,
   computeQueryHash,
 } from '../src/with-formula/materialized-views/query-hash.js'
+import { summarizeQueryPlan } from '../src/with-formula/materialized-views/dependency-analyzer.js'
 
 /** Inline memory adapter — same shape as `query-join.test.ts`. */
 function toMemory(): NoydbStore {
@@ -155,7 +158,7 @@ describe('JoinLeg.partitionScope (#1342)', () => {
     expect(sb.joins[0]!.partitionScope).toBe('all')
   })
 
-  it('partitionScope is a queryHash input — narrowing it, or omitting it, moves the hash', async () => {
+  it('partitionScope reaches a hand-composed queryHash — narrowing it, or omitting it, moves that hash', async () => {
     const { invoices } = await seed()
     const plan = (invoices.query() as unknown as {
       join(f: string, o: { as: string }): { toPlan(): unknown }
@@ -180,5 +183,37 @@ describe('JoinLeg.partitionScope (#1342)', () => {
     //     `direction`, and it is not available here.
     const { partitionScope: _dropped, ...withoutScope } = plan.joins[0]!
     expect(await hashOf({ ...plan, joins: [withoutScope] })).not.toBe(today)
+  })
+
+  it('a REGISTERED MV never sees partitionScope — the registry hashes summarizeQueryPlan(), not serializePlan()', async () => {
+    const { invoices } = await seed()
+    const q = (invoices.query() as unknown as {
+      join(f: string, o: { as: string }): {
+        _plan(): { joins: JoinLeg[] }
+        _joinContext(): unknown
+      }
+    }).join('clientId', { as: 'client' })
+
+    // This is the exact input `MaterializedViewRegistry` hands to
+    // `computeQueryHash` (registry.ts:201 → 243). Nothing else reaches a
+    // stored `_materializedFrom.queryHash` for a Query-shaped MV.
+    const summary = summarizeQueryPlan(q as never)
+    expect(summary).not.toContain('partitionScope')
+
+    // And it is INSENSITIVE to the field, which is the property that makes
+    // the correction load-bearing: whoever populates the leg does not
+    // invalidate a single stored MV row by doing so. `summarizeQueryPlan`
+    // reads the query through `_plan()` / `_joinContext()`, so the narrowed
+    // leg is injected there rather than onto the query object.
+    const plan = q._plan()
+    expect(plan.joins[0]!.partitionScope).toBe('all')
+    const narrowed = {
+      _plan: () => ({
+        ...plan,
+        joins: [{ ...plan.joins[0]!, partitionScope: ['FY2026-Q1'] as readonly string[] }],
+      }),
+      _joinContext: () => q._joinContext(),
+    }
+    expect(summarizeQueryPlan(narrowed as never)).toBe(summary)
   })
 })

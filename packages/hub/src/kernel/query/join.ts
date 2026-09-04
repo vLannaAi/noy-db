@@ -104,25 +104,31 @@ export interface JoinLeg {
   /**
    * Partition scope for future partition-aware joins. Always `'all'` today —
    * the executor never reads this field. Do not remove even though it looks
-   * unused: it is a plan-shape seam, and (see below) it is already inside
-   * every stored queryHash, so deleting it moves them all.
+   * unused: it is a plan-shape seam.
    *
-   * ⛔ TWO CONSTRAINTS BEFORE POPULATING THIS (#1342), both measured:
+   * ⛔ TWO CONSTRAINTS BEFORE POPULATING THIS (#1342):
    *
-   * 1. **It is a `queryHash` input.** `serializePlan()` emits `plan.joins`
-   *    verbatim and `computeQueryHash()` hashes the canonicalized plan whole
-   *    (`with-formula/materialized-views/query-hash.ts`), so a leg's
-   *    `partitionScope` is baked into every joined MV's stored hash. Writing
-   *    a narrowed scope here silently invalidates those rows — a rebuild with
-   *    no error and no warning. #1289 dodged the same trap for `direction` by
-   *    OMITTING the field at its default; that escape is not available here,
-   *    because `'all'` has been emitted all along. An implementation must keep
-   *    emitting `'all'` verbatim for an unnarrowed leg, and must treat the
-   *    one-time invalidation of narrowing MVs as a release note.
-   *    ⭐ Cheaper: derive the scope in the EXECUTOR from clauses the plan
-   *    already carries, and leave this field alone. It is a derived value;
-   *    storing it buys nothing and costs the hash. Pinned by
-   *    `__tests__/query-partition-scope.test.ts`.
+   * 1. **It is a `queryHash` input on a HAND-COMPOSED path only — NOT for a
+   *    registered materialized view.** ⚠️ This paragraph asserted the
+   *    opposite until 2026-09-04; the correction is the measurement.
+   *    `MaterializedViewRegistry` feeds `computeQueryHash` from
+   *    `summarizeQueryPlan()` (`materialized-views/registry.ts:201,243`),
+   *    and that summary has never emitted `partitionScope`. `serializePlan()`
+   *    *does* emit `plan.joins` verbatim, and `canonicalizeQueryPlan` is
+   *    exported, so a consumer composing
+   *    `computeQueryHash(name, deps, canonicalizeQueryPlan(serializePlan(q)))`
+   *    by hand does carry the field in their hash. **That composition, and
+   *    only that one, is what this constraint binds** — it is also the
+   *    composition `__tests__/query-partition-scope.test.ts` builds, which is
+   *    why the file read as evidence for the stronger claim.
+   *    ⭐ So populating this field does NOT invalidate registered MVs. The
+   *    reason to leave it alone is smaller and still sufficient: it is a
+   *    DERIVED value — storing it buys nothing, and it is the one leg key
+   *    emitted UNCONDITIONALLY rather than omitted-at-default, so any later
+   *    move to summarise it (see #1389's rule) would shift every joined MV's
+   *    hash at once, for zero gain. Derive the scope in the EXECUTOR from
+   *    clauses the plan already carries. Pinned by
+   *    `__tests__/query-partition-scope.test.ts`, which now pins BOTH paths.
    *
    * 2. **Pruning only pays on the `scan()` path, and there it is a security
    *    decision, not an optimisation.** `query()` runs over an in-memory,
