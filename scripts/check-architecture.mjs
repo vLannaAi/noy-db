@@ -56,6 +56,7 @@
  */
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { resolve, join, relative, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -1177,7 +1178,16 @@ const KERNEL_SURFACE_BUDGET = {
   // ctor assignment, one line in searchContext(). The postings format, the
   // clause parser and the matcher all live in with-lookup/search/; nothing of
   // the feature is kernel-resident.
-  'packages/hub/src/kernel/collection.ts': 4353,
+  // Bumped 4353->4354 (2026-09-04, #1363 read-coverage sensor): ONE line, and
+  // it is a seam resolution, not logic — `strategies.coverage.observer(...)`
+  // in the RecordCodec construction bag. The observer must be resolved where
+  // the codec is built (that is the only place holding vault + collection +
+  // principal + fieldMeta + emitter at once), and the un-opted-in path returns
+  // `undefined` there so the decrypt path stays a single `!== undefined` test.
+  // Every line of the sensor — sketches, accounting, alerting — lives in
+  // src/with-audit/coverage/, and the decrypt hook itself is in
+  // kernel/enclave/record-keys/record-codec.ts, which carries no ceiling.
+  'packages/hub/src/kernel/collection.ts': 4354,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
@@ -1673,6 +1683,48 @@ const KERNEL_SURFACE_BUDGET = {
   // A test now asserts noydb.ts contains exactly ONE `new Vault(` site — that invariant,
   // not this ceiling, is what keeps the six-strategy drift from recurring.
   // Lowered 2420→2406 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
+}
+
+// ─── Check: sources-tracked (no source or test file may be git-ignored) ───
+//
+// ⛔ THE INCIDENT THIS EXISTS FOR (2026-09-04). `.gitignore` carried a bare
+// `coverage/`, which matches a directory of that name at ANY depth. When
+// `withCoverage()` (#1363) landed at `packages/hub/src/with-audit/coverage/`,
+// git silently swallowed the entire module AND its four test files. Every
+// local gate passed — against the files on disk. `git status` said clean.
+// `git add -A` added nothing. `git commit` reported no error. CI then failed
+// on `service-subpath-naming` with "subpath @noy-db/hub/coverage has no
+// withCoverage() factory", because in the pushed tree the factory genuinely
+// did not exist.
+//
+// ⭐ The class: every tool in the loop answered a slightly different question
+// than the one that mattered. Gates asked "does the working tree work"; the
+// answer was yes. What nobody asked is "is the working tree what I am about to
+// push". This check asks that one, and it is cheap.
+//
+// Scoped to source and tests rather than "any ignored file", because build
+// output, dist/, node_modules and real coverage reports are ignored ON PURPOSE
+// and always will be.
+function checkSourcesTracked() {
+  let out
+  try {
+    out = execFileSync(
+      'git',
+      ['ls-files', '--others', '--ignored', '--exclude-standard',
+       '--', 'packages/*/src/**', 'packages/*/__tests__/**', 'test-harnesses/*/src/**'],
+      { cwd: ROOT, encoding: 'utf8' },
+    )
+  } catch {
+    // Not a git checkout (a packed tarball, a vendored copy). Nothing to check.
+    return
+  }
+  for (const rel of out.split('\n').map(l => l.trim()).filter(Boolean)) {
+    fail(
+      'sources-tracked',
+      `${rel} is GIT-IGNORED but sits under a package's src/ or __tests__/. It exists on your disk and will NOT exist in the pushed tree, so every local gate passes and CI fails on something that looks unrelated. Find the offending .gitignore rule (\`git check-ignore -v ${rel}\`) and anchor it instead of deleting it — a bare \`name/\` pattern matches that directory at any depth.`,
+      join(ROOT, rel),
+    )
+  }
 }
 
 function checkKernelSurface() {
@@ -3041,6 +3093,7 @@ checkStoresCiphertextOnly()
 checkStrategyOptIns()
 checkServiceSubpathNaming()
 checkEveryServiceGated()
+checkSourcesTracked()
 checkKernelSurface()
 checkNoDebugPlaintextInSource()
 checkNoOutboundKlumImport()

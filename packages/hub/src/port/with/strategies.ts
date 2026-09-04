@@ -67,6 +67,7 @@ import { NO_BROKER, type BrokerStrategy } from './broker-strategy.js'
 import { NO_CARGO, type CargoStrategy } from '../../with-cargo/strategy.js'
 import { NO_CLASSIFIED, type ClassifiedStrategy } from './classified-strategy.js'
 import { NO_CONSENT, type ConsentStrategy } from '../../with-audit/consent/strategy.js'
+import { NO_COVERAGE, type CoverageStrategy } from './coverage-strategy.js'
 import { NO_CRDT, type CrdtStrategy } from '../../with-commit/crdt/strategy.js'
 import { NO_CUSTODY, type CustodyStrategy } from '../../with-party/custody/strategy.js'
 import { NO_FORGET, type ForgetStrategy } from '../../with-audit/forget/strategy.js'
@@ -106,6 +107,7 @@ export interface StrategyBag {
   readonly cargo: CargoStrategy
   readonly classified: ClassifiedStrategy
   readonly consent: ConsentStrategy
+  readonly coverage: CoverageStrategy
   readonly crdt: CrdtStrategy
   readonly custody: CustodyStrategy
   readonly forget: ForgetStrategy
@@ -146,6 +148,7 @@ export const STRATEGY_DEFAULTS: StrategyBag = {
   cargo: NO_CARGO,
   classified: NO_CLASSIFIED,
   consent: NO_CONSENT,
+  coverage: NO_COVERAGE,
   crdt: NO_CRDT,
   custody: NO_CUSTODY,
   forget: NO_FORGET,

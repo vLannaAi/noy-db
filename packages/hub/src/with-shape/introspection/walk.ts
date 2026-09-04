@@ -184,6 +184,14 @@ async function describeCollection(
     // Sampling path not implemented in baseline slice 2; reserved for follow-up.
   }
 
+  // Read-shape sensitivity (#1363): `FieldMeta.bulk` lives in the `fieldMeta`
+  // channel, which is never persisted with the schema — so it can only be read
+  // off a collection that is live in this process. Merged onto whatever fields
+  // the persisted/derived route already produced; never invents a field.
+  if (liveColl !== undefined && Object.keys(fields).length > 0) {
+    fields = overlayBulk(fields, liveColl)
+  }
+
   // Populate collection-level meta and config from the live collection when available.
   const collMeta = liveColl?.getMeta()
   const collConfig = liveColl?.getConfig()
@@ -217,6 +225,33 @@ async function describeCollection(
     ;(descriptor as { stats?: CollectionStats }).stats = stats
   }
   return descriptor
+}
+
+/**
+ * Overlay the `bulk` axis from a live collection's `describe()` onto the
+ * snapshot's field map. Sync and store-free by construction (`describe()` with
+ * no options does no I/O); silent if a collection cannot describe itself,
+ * because a snapshot that throws is worse than one missing a telemetry hint.
+ */
+function overlayBulk(
+  fields: Record<string, FieldDescriptor>,
+  liveColl: Collection<unknown>,
+): Record<string, FieldDescriptor> {
+  let described
+  try {
+    described = liveColl.describe()
+  } catch {
+    return fields
+  }
+  let out: Record<string, FieldDescriptor> | undefined
+  for (const f of described.fields) {
+    if (f.bulk === undefined) continue
+    const existing = fields[f.key]
+    if (existing === undefined) continue
+    out ??= { ...fields }
+    out[f.key] = { ...existing, bulk: f.bulk }
+  }
+  return out ?? fields
 }
 
 async function statsForCollection(

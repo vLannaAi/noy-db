@@ -117,6 +117,13 @@ const SCENARIOS = [
       'class GuardRegistry',        // guards/registry.ts — must stay opt-in
       'class ReadOnlyVaultFacade',  // guards/read-only-facade.ts — must stay opt-in
       'class DerivationRegistry',   // derivations/registry.ts — must stay opt-in
+      // #1363 read-coverage sensor. The floor holds NO_COVERAGE (a one-line
+      // stub returning undefined); the sketches and the accounting engine must
+      // arrive only via @noy-db/hub/coverage. This is the zero-cost-when-
+      // unopted claim, measured rather than asserted.
+      'class CoverageRegistry',     // coverage/accounting.ts
+      'class HyperLogLog',          // coverage/sketch.ts
+      'class BloomFilter',          // coverage/sketch.ts
       // Object-literal export shape (`const X = { ... }`). The trailing
       // `{` discriminates the actual static export from the lazy-loader
       // placeholder pattern `let GuardExecutor = null` that legitimately
@@ -136,6 +143,9 @@ const SCENARIOS = [
       'GuardRegistry',
       'ReadOnlyVaultFacade',
       'DerivationRegistry',
+      'CoverageRegistry',      // #1363 coverage accounting engine
+      'HyperLogLog',           // #1363 coverage sketch
+      'BloomFilter',           // #1363 coverage sketch
       'GuardExecutor',
       'DerivationExecutor',
       // Archetype-3 schema engines (#553) -- declaration-gated, must never
@@ -332,6 +342,23 @@ const SCENARIOS = [
     leakCanaries: [],
   },
   {
+    name: 'coverage',
+    description: 'createNoydb + withCoverage (#1363) — the read-coverage sensor is telemetry, and this is its price',
+    code: `
+      import { createNoydb } from '@noy-db/hub'
+      import { withCoverage } from '@noy-db/hub/coverage'
+      const coverageStrategy = withCoverage({ collections: { clients: { corpusSize: 1000 } } })
+      export { createNoydb, coverageStrategy }
+    `,
+    leakCanaries: [],
+    // The zero-cost-when-unopted claim (#1363 step 2) measured rather than
+    // asserted: these names exist ONLY in the sensor, and the `floor` scenario
+    // — which is `createNoydb` with nothing opted in — is checked against them
+    // below. If a future change makes the kernel reference the accounting
+    // engine directly, `floor` grows and this list catches it.
+    reachableCanaries: [],
+  },
+  {
     name: 'all-on',
     description: 'every published with*() factory actually enabled (upper bound)',
     // #1381 — this scenario is the one a reviewer reads to sanity-check total
@@ -380,6 +407,7 @@ const SCENARIOS = [
       import { withCustody } from '@noy-db/hub/custody'
       import { withSync } from '@noy-db/hub/sync'
       import { withConsent } from '@noy-db/hub/consent'
+      import { withCoverage } from '@noy-db/hub/coverage'
       import { withPeriods } from '@noy-db/hub/periods'
       import { withForget } from '@noy-db/hub/forget'
       import { withTiers } from '@noy-db/hub/tiers'
@@ -416,6 +444,7 @@ const SCENARIOS = [
         crdtStrategy: withCrdt(),
         tiersStrategy: withTiers(),
         consentStrategy: withConsent(),
+        coverageStrategy: withCoverage({ collections: { clients: { corpusSize: 1000 } } }),
         periodsStrategy: withPeriods(),
         shadowStrategy: withShadow(),
         snapshotsStrategy: withSnapshots({ store: memoryStore() }),

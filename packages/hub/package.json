@@ -81,6 +81,10 @@
       "types": "./dist/with-audit/consent/index.d.ts",
       "default": "./dist/consent/index.js"
     },
+    "./coverage": {
+      "types": "./dist/with-audit/coverage/index.d.ts",
+      "default": "./dist/coverage/index.js"
+    },
     "./periods": {
       "types": "./dist/with-audit/periods/index.d.ts",
       "default": "./dist/periods/index.js"

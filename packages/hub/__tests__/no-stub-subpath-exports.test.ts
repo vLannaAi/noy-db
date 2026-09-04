@@ -35,6 +35,7 @@ const OWNED: ReadonlyArray<readonly [string, string]> = [
   ['NO_INDEXING', './indexing'],
   ['NO_REDUCE', './reduce'],
   ['NO_CONSENT', './consent'],
+  ['NO_COVERAGE', './coverage'],   // #1363 read-coverage sensor
   ['NO_PERIODS', './periods'],
 ]
 

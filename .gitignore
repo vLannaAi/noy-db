@@ -21,7 +21,18 @@ out/
 .wrangler/
 
 # ─── Coverage / test artefacts ─────────────────────────────────────────
-coverage/
+# ⛔ ANCHORED DELIBERATELY. A bare `coverage/` matches a directory of that name
+# at ANY depth, and on 2026-09-04 it silently swallowed `withCoverage()`'s whole
+# source tree (`packages/hub/src/with-audit/coverage/`) and its tests: every
+# local gate passed against files on disk, `git status` reported clean, `git
+# add -A` added nothing, and CI failed on a subpath whose factory "did not
+# exist". Vitest writes coverage to a PROJECT ROOT, so name those and only
+# those. `check-architecture.mjs`'s `sources-tracked` check now fails on any
+# ignored file under a package's src/ or __tests__/, so this cannot recur
+# silently for a differently-named directory either.
+/coverage/
+packages/*/coverage/
+test-harnesses/*/coverage/
 .nyc_output/
 *.lcov
 .vitest-reports/
