@@ -2967,10 +2967,41 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
     const probeValue = clause.via ? clause.via.indexValue : clause.value
 
     let ids: ReadonlySet<string> | null = null
+    // ⛔ #1415: A HASH BUCKET IS A SUPERSET, NOT AN ANSWER. The bucket key is
+    // `stringifyBucketKey`, so `1` and `'1'` — and `true` and `'true'`, and a
+    // Date and its ISO spelling, and two distinct Date objects at the same
+    // instant — share one bucket, while the scan compares with `===`. Handing
+    // the bucket back AND dropping the clause from `remainingClauses` is what
+    // made `where('pin','==',1100400123450)` return a row that
+    // `.filter(r => r.pin === v)` and the unindexed collection both reject.
+    // So the equality arms set `exact: false` and the clause STAYS in the
+    // plan; `filterRecords` re-applies the very predicate the scan path
+    // applies, which makes the two answers equal BY CONSTRUCTION rather than
+    // by a type rule that has to enumerate the coercions.
+    //
+    // Why not decline the operand at the probe, the way `isProbeableBucketKey`
+    // declines objects and nullish (#1402)? Because "type-mismatched" is not a
+    // property of the OPERAND — it is a property of the operand against the
+    // STORED values, which the probe cannot see without new per-bucket type
+    // bookkeeping, and even that would not cover two Date objects at one
+    // instant (equal keys, `===` false). Why not make the bucket key
+    // type-aware? That moves stored index keys: it splits `distinct()`'s
+    // buckets (`distinct-key.ts` is the ONE definition, shared with the
+    // scanned `distinct()`) and invalidates persisted index sidecars — a much
+    // larger blast radius than re-filtering a set the executor has already
+    // materialized.
+    //
+    // ⛔ RANGE STAYS EXACT. `lookupRange` is served by the SORTED index, whose
+    // comparisons are the scan's own (#1344, measured on this issue: `!=`,
+    // `startsWith` and the range operators never disagreed). Retaining those
+    // clauses would be a cost with no defect behind it.
+    let exact = true
     if (clause.op === '==') {
       ids = indexes.lookupEqual(clause.field, probeValue)
+      exact = false
     } else if (clause.op === 'in' && Array.isArray(probeValue)) {
       ids = indexes.lookupIn(clause.field, probeValue)
+      exact = false
     } else if (clause.via === undefined && isRangeOperator(clause.op)) {
       // #1344 sorted index: `<`/`<=`/`>`/`>=`/`between`/`startsWith`.
       // `null` when no SORTED index covers the field (a hash-only field
@@ -2982,11 +3013,12 @@ function candidateRecords(source: InternalSource, clauses: readonly Clause[]): C
     }
 
     if (ids !== null) {
-      // Found an index-eligible clause: materialize the candidate set and
-      // remove this clause from the remaining list.
+      // Found an index-eligible clause: materialize the candidate set. The
+      // clause leaves the plan only when the index answer is EXACT — see the
+      // #1415 note above for why the equality arms are supersets.
       const remaining: Clause[] = []
       for (let j = 0; j < clauses.length; j++) {
-        if (j !== i) remaining.push(clauses[j]!)
+        if (j !== i || !exact) remaining.push(clauses[j]!)
       }
       return {
         candidates: materializeIds(ids, lookupById),
