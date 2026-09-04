@@ -43,6 +43,7 @@ import type { UnlockedKeyring } from '../with-party/team/keyring.js'
 import { hasWritePermission } from '../with-party/team/keyring.js'
 import type { NoydbEventEmitter } from './events.js'
 import type { WriteQueueTracker } from './write-queue.js'
+import { trackKeyedWrite } from './tx-write-gate.js' // #1420
 import type { WriteHookRegistry, WriteEvent } from '../port/with/write-hooks.js'
 import type { ServiceBus, GatePutEvent, GatePoint } from '../port/with/service-bus.js'
 import type { SchemaUpdateGate } from '../with-shape/schema-update/gate.js'
@@ -1531,6 +1532,17 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    *                ORIGIN refresh time across vaults. (FR-4)
    */
   async put(id: string, record: T, options?: { readonly reason?: string; readonly source?: string; readonly sourceTs?: string }): Promise<void> {
+    // #1420 — the ONE statement that must run before this method's first
+    // `await`: registering the write on the in-flight gate so a transaction
+    // commit can drain it before its pre-flight reads. Registered from inside
+    // the body instead (as the first version of this fix did) it lands a few
+    // microtasks late, and `coll.put(...)` immediately followed by
+    // `db.transaction(...)` — the reported shape — slips past the drain.
+    return trackKeyedWrite(this.adapter, this.vault, this.name, id, () => this.#putGated(id, record, options))
+  }
+
+  /** @internal The body of {@link put}; see the #1420 note there for why it is split. */
+  async #putGated(id: string, record: T, options?: { readonly reason?: string; readonly source?: string; readonly sourceTs?: string }): Promise<void> {
     // Refuse the write if an update strategy rejected the schema
     // change. Awaited OUTSIDE track() so a rejected write never counts
     // toward writeQueue.depth.
@@ -2353,6 +2365,11 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * so `hub.writeQueue.pending` reflects this write.
    */
   async delete(id: string): Promise<void> {
+    return trackKeyedWrite(this.adapter, this.vault, this.name, id, () => this.#deleteGated(id)) // #1420 — see put()
+  }
+
+  /** @internal The body of {@link delete}; see the #1420 note on {@link put}. */
+  async #deleteGated(id: string): Promise<void> {
     // BYPASS HAZARD: any refusal or side-effect added to this wrapper must ALSO be covered on the atomic tx path — extend _assertWriteGates or _txAtomicSafe (see commitAtomicBatch in with-commit/tx/transaction.ts); two m44 holes (write-hooks, schema gates) came from exactly this bypass.
     await this.schemaUpdateGate?.assertWritable()
     await this.schemaFence?.assertWritable(this.name)
