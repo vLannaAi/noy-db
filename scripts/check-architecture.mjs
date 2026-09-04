@@ -1187,7 +1187,14 @@ const KERNEL_SURFACE_BUDGET = {
   // Every line of the sensor — sketches, accounting, alerting — lives in
   // src/with-audit/coverage/, and the decrypt hook itself is in
   // kernel/enclave/record-keys/record-codec.ts, which carries no ceiling.
-  'packages/hub/src/kernel/collection.ts': 4354,
+  // Bumped 4354→4371 (2026-09-04): #1420 lost update. `put()`/`delete()` now
+  // delegate their bodies to a private `#putGated`/`#deleteGated` so the
+  // in-flight-write registration runs BEFORE the method's first `await` — the
+  // registration cannot be pushed into the body without landing microtasks
+  // late, which is exactly the window the defect lived in. The logic itself is
+  // in its own module (`kernel/tx-write-gate.ts`); what is here is the split
+  // plus its rationale.
+  'packages/hub/src/kernel/collection.ts': 4371,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
