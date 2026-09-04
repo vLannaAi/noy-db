@@ -2996,7 +2996,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    * the filtered records directly (the API). Prefer the chainable
    * form for new code.
    *
-   * **Lazy-MV gap:** `query()` is synchronous and does NOT
+   * **Cold-collection gate (#1414):** until something has bulk-loaded this collection (`list()`, `get()`), every terminal returns a value that hydrates when AWAITED and throws `CollectionNotHydratedError` on synchronous use — an unloaded collection is not an empty one; see `query/hydration.ts`. **Lazy-MV gap:** `query()` is synchronous and does NOT
    * trigger lazy materialized-view resolve-on-read. If this
    * collection is a lazy MV's output and the MV is currently stale,
    * `query().toArray()` returns the pre-stale snapshot. To force a
@@ -3053,7 +3053,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       lookupById: (id: string) => this.cache.get(id)?.record,
       snapshotEntries: () => [...this.cache.entries()].map(([id, e]) => ({ id, record: e.record })),
       // Binds a keyset cursor to this collection (#1346).
-      identity: `${this.vault}/${this.name}`,
+      identity: `${this.vault}/${this.name}`, hydration: { label: `${this.vault}/${this.name}`, collection: this.name, isHydrated: () => this.hydrated, hydrate: () => this.ensureHydrated() }, // #1414 — a never-read eager collection answers by ABSENCE; the gate makes every terminal await-able and refuse a synchronous read (query/hydration.ts)
       ...(this.via ? { via: this.via } : {}),
     }
     // Build a JoinContext if the vault passed a join resolver.

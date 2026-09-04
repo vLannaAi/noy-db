@@ -167,6 +167,15 @@ export interface QueryExplanation {
  */
 export interface ExplainSource {
   snapshot(): readonly unknown[]
+  /**
+   * #1414/#1421 — the cold-collection gate. `explain()` is the one terminal
+   * that stays answerable while unhydrated (a diagnostic that refuses to
+   * diagnose is useless), so it carries the distinction instead: a snapshot
+   * of zero rows because nothing has been loaded is NOT the same fact as a
+   * snapshot of zero rows because the collection is empty, and only the
+   * second one is safe to act on.
+   */
+  hydration?: { isHydrated(): boolean }
   getIndexes?(): ExplainIndexProbe | null
   lookupById?(id: string): unknown
   via?: ViaPipeline
@@ -459,6 +468,15 @@ export function explainPlan(
 
   const reducerRewrite = collectReducerRewrites(source.via, referencedFields(plan))
   const sourceNotes: string[] = []
+  // #1414 — say WHY the snapshot is empty. `rows: 0` on an unhydrated
+  // collection is an absence of data in memory, not an absence of records.
+  const notHydrated = source.hydration?.isHydrated() === false
+  if (notHydrated) {
+    sourceNotes.push(
+      'collection not hydrated — this plan\'s row estimates are not authoritative; ' +
+        'call `await collection.list()` / `await collection.get(id)` first',
+    )
+  }
   for (const r of reducerRewrite) {
     sourceNotes.push(`reducer rewrite: ${r.brand}("${r.field}")`)
   }
@@ -466,7 +484,9 @@ export function explainPlan(
   nodes.push({
     op: 'source',
     dispatch: 'source',
-    detail: indexedFields.length > 0 ? `snapshot (indexes: ${indexedFields.join(', ')})` : 'snapshot (no indexes)',
+    detail: notHydrated
+      ? `snapshot (NOT HYDRATED — nothing has been read yet${indexedFields.length > 0 ? `; indexes: ${indexedFields.join(', ')}` : ''})`
+      : indexedFields.length > 0 ? `snapshot (indexes: ${indexedFields.join(', ')})` : 'snapshot (no indexes)',
     estimatedRows: sourceRows,
     notes: sourceNotes,
     children: [],

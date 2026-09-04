@@ -170,6 +170,7 @@
     "ReadOnlyFrameError",
     "RecordCekNotFoundError",
     "RecordLockedError",
+    "CollectionNotHydratedError",
     "RecoveryNotEnrolledError",
     "RecoveryProfileNotImplementedError",
     "RedirectBadSignatureError",

@@ -37,7 +37,8 @@
  *       │    ├─ IndexWriteFailureError            — index side-car put/delete failed post-main
  *       │    ├─ UniqueConstraintError             — duplicate value on unique index
  *       │    ├─ UnsupportedIndexOptionError       — unique+lazy or unique+crdt at registration
- *       │    └─ FieldNotQueryableError            — field's Via posture is queryable: 'none'
+ *       │    ├─ FieldNotQueryableError            — field's Via posture is queryable: 'none'
+ *       │    └─ CollectionNotHydratedError        — sync terminal used on a never-loaded collection
  *       ├─ i18n / Dictionary errors
  *       │    ├─ ReservedCollectionNameError
  *       │    ├─ DictKeyMissingError
@@ -1911,6 +1912,40 @@ export class FieldNotQueryableError extends NoydbError {
     )
     this.name = 'FieldNotQueryableError'
     this.field = field
+  }
+}
+
+/**
+ * #1414 — thrown when a synchronous query terminal is USED on a collection
+ * that has never been loaded. The collection's eager cache is empty because
+ * nothing has read it yet, not because the collection is empty: those are
+ * different facts, and only one of them is safe to act on.
+ *
+ * The terminal itself does not throw — it returns a pending result so that the
+ * AWAITED form (`await collection.query().toArray()`, which is what every
+ * async guard `check` does) transparently hydrates and answers correctly. The
+ * error is raised the moment that value is used synchronously: indexed,
+ * iterated, compared, coerced, or read for a property.
+ *
+ * Fix a caller by awaiting the terminal, or by `await collection.list()` /
+ * `await collection.get(id)` before the synchronous read.
+ */
+export class CollectionNotHydratedError extends NoydbError {
+  readonly collection: string
+  readonly terminal: string
+
+  constructor(collection: string, terminal: string, label: string = collection) {
+    super(
+      'COLLECTION_NOT_HYDRATED',
+      `Collection "${label}": ${terminal}() cannot answer — the collection has not been ` +
+        `loaded yet, so its in-memory snapshot is empty by absence, not by content. ` +
+        `Await the terminal (\`await collection.query().${terminal}()\`), or call ` +
+        `\`await collection.list()\` / \`await collection.get(id)\` before reading it ` +
+        `synchronously. An unloaded collection is not an empty one.`,
+    )
+    this.name = 'CollectionNotHydratedError'
+    this.collection = collection
+    this.terminal = terminal
   }
 }
 

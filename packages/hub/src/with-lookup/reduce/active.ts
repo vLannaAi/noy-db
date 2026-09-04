@@ -52,8 +52,8 @@ const WINDOW_NOT_ENABLED = new Error(
 export function withReduce(opts?: ReduceOptions): ReduceStrategy {
   const windowFactory = opts?.window
   return {
-    aggregate(executeRecords, spec, upstreams) {
-      return new Reduction(executeRecords, spec as unknown as ReduceSpec, upstreams) as unknown as Reduction<ReduceResult<typeof spec>>
+    aggregate(executeRecords, spec, upstreams, gate) {
+      return new Reduction(executeRecords, spec as unknown as ReduceSpec, upstreams, gate) as unknown as Reduction<ReduceResult<typeof spec>>
     },
     groupBy(executeRecords, field, upstreams, dictLabelResolver, via, maintenance) {
       return new GroupedQuery(executeRecords, field, upstreams, dictLabelResolver, via, maintenance)

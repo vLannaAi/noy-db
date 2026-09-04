@@ -38,6 +38,8 @@
 
 import type { Reducer } from './reducers.js'
 import type { SourceChange } from '../../kernel/query/incremental.js'
+import { gateTerminal } from '../../kernel/query/hydration.js'
+import type { HydrationGate } from '../../kernel/query/hydration.js'
 
 /**
  * A named set of reducers, keyed by output field name. Each key
@@ -265,6 +267,13 @@ export class Reduction<R> {
     private readonly executeRecords: () => readonly unknown[],
     private readonly spec: ReduceSpec,
     private readonly upstreams: readonly ReductionUpstream[],
+    /**
+     * #1414 — the backing collection's cold gate, when the reduction came
+     * from a collection-backed query. `run()` is SYNCHRONOUS, so a reduction
+     * over a never-loaded collection used to answer `0` / `null` with total
+     * confidence — the shape a guard's Σ-over-siblings invariant takes.
+     */
+    private readonly gate?: HydrationGate,
   ) {}
 
   /**
@@ -274,7 +283,11 @@ export class Reduction<R> {
    * `{ total: number, n: number }`.
    */
   run(): R {
-    return reduceRecords(this.executeRecords(), this.spec) as unknown as R
+    // #1414 — `await …aggregate(spec).run()` (what an async guard writes)
+    // hydrates and answers; a synchronous `.run()` on a cold collection
+    // refuses instead of reporting an absence as a zero.
+    return gateTerminal(this.gate, 'aggregate().run', () =>
+      reduceRecords(this.executeRecords(), this.spec) as unknown as R)
   }
 
   /**
@@ -297,7 +310,10 @@ export class Reduction<R> {
   live(): LiveReduction<R> {
     const recompute = (): R =>
       reduceRecords(this.executeRecords(), this.spec) as unknown as R
-    return new LiveAggregationImpl<R>(recompute, this.upstreams)
+    // #1414 — the initial value is computed eagerly in the constructor, so a
+    // cold collection would seed the reactive primitive with an absence.
+    return gateTerminal(this.gate, 'aggregate().live', () =>
+      new LiveAggregationImpl<R>(recompute, this.upstreams))
   }
 }
 

@@ -321,6 +321,7 @@ export {
   ReadOnlyAtInstantError,
   ReadOnlyFrameError,
   RecordLockedError,
+  CollectionNotHydratedError,
   FieldFrozenError,
   IllegalTransitionError,
   InvariantError,

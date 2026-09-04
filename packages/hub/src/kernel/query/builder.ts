@@ -17,6 +17,8 @@ import { applyJoins, joinsDropLeftRows, orderReferencesJoinAlias, splitAroundJoi
 import { reduceViaFor, refuseAliasReduceVia } from './join-reduce.js'
 import { normalizeJoinOn, type JoinOnSpec } from './join-on.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError, RefNotDeclaredError } from '../errors.js'
+import { gateTerminal } from './hydration.js'
+import type { HydrationGate } from './hydration.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
 import type { GroupMaintenanceSource, SourceChange } from './incremental.js'
@@ -218,6 +220,14 @@ export interface QuerySource<T> {
    */
   snapshotEntries?(): readonly { id: string; record: T }[]
   /**
+   * #1414 — cold-collection gate. Present only on collection-backed eager
+   * sources. While `isHydrated()` is false the collection's snapshot is empty
+   * by ABSENCE, not by content, so every terminal returns a pending result
+   * (awaitable, and throwing on synchronous use) instead of a confident empty.
+   * See `query/hydration.ts`.
+   */
+  hydration?: HydrationGate
+  /**
    * Stable name for this source (`<vault>/<collection>`), used to bind a
    * keyset cursor to the query that minted it (#1346) so a cursor replayed
    * against another collection is refused rather than silently mis-paged.
@@ -232,6 +242,7 @@ interface InternalSource {
   lookupById?(id: string): unknown
   via?: ViaPipeline
   snapshotEntries?(): readonly { id: string; record: unknown }[]
+  hydration?: HydrationGate
   identity?: string
 }
 
@@ -301,6 +312,29 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   }
 
   /**
+   * @internal #1414 — clone this Query with the cold-collection gate REMOVED.
+   *
+   * For engine-internal readers only. The materialized-view engine reads its
+   * source collections through the public `collection.query()` on paths that
+   * are synchronous by construction (registration inspects the plan; the
+   * executor's row scan is called from inside a write commit), and it has
+   * always read whatever the in-memory cache held. Gating those would turn a
+   * pre-existing read into a throw for consumers who never asked a question —
+   * so this preserves that behaviour EXACTLY, and confines #1414's change to
+   * the surface a consumer or a guard actually calls.
+   *
+   * ⚠️ It does not make an unhydrated read correct — an MV computed over a
+   * cold source is the same defect wearing a different hat. That is tracked
+   * separately; do not reach for this to silence the gate in new code.
+   */
+  _ungated(): Query<T, S, Q, M> {
+    if (this.source.hydration === undefined) return this
+    const rest: InternalSource = { ...this.source }
+    delete rest.hydration
+    return new Query<T, S, Q, M>(rest as QuerySource<T>, this.plan, this.joinContext, this.reduceStrategy, this.predicates)
+  }
+
+  /**
    * @internal — clone this Query with a declared-predicate map
    * attached. Used by the materialized-view registry to enable
    * `.wherePredicate(name, ctx?)` for the MV's query callback.
@@ -362,6 +396,8 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * to recover.
    */
   ids(): string[] {
+    const _h = this.source.hydration
+    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'ids', () => this.ids())
     return this._idArray()
   }
 
@@ -1188,6 +1224,8 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * (Left/base i18n fields are resolved by `get`/`list`, not here.)
    */
   toArray(opts?: { locale?: string }): T[] {
+    const _h = this.source.hydration
+    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'toArray', () => this.toArray(opts))
     // A cursor was applied: the window is decided by the keyset, not by
     // offset/limit slicing. Same rows `page()` would serve, same signature.
     if (this.plan.after !== undefined) return this.executeKeyset(opts).rows
@@ -1451,6 +1489,8 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * (collection-backed) source, no join legs, no `offset()`.
    */
   page(opts?: { locale?: string }): { rows: T[]; nextCursor: string | null } {
+    const _h = this.source.hydration
+    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'page', () => this.page(opts))
     return this.executeKeyset(opts)
   }
 
@@ -1531,6 +1571,8 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
 
   /** Return the first matching record, or null. Joins are applied. `opts.locale` resolves joined i18n fields. */
   first(opts?: { locale?: string }): T | null {
+    const _h = this.source.hydration
+    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'first', () => this.first(opts))
     const arr = this.limit(1).toArray(opts)
     return arr[0] ?? null
   }
@@ -1552,6 +1594,8 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * the joined side, so they asked for the join.
    */
   count(): number {
+    const _h = this.source.hydration
+    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'count', () => this.count())
     return this.matchedRecords('count').length
   }
 
@@ -1702,6 +1746,8 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * join alias (#1030). Both still answer correctly.
    */
   exists(): boolean {
+    const _h = this.source.hydration
+    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'exists', () => this.exists())
     if (this.plan.clauses.some(c => c.type === 'crossJoin')) {
       return this.matchedRecords('exists').length > 0
     }
@@ -1878,7 +1924,11 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       )
     }
 
-    return this.reduceStrategy.aggregate<Spec>(executeRecords, spec, upstreams)
+    // #1414 — the gate travels INTO the reduction rather than wrapping it.
+    // `Reduction.run()` is the synchronous terminal, and `await …aggregate(
+    // spec).run()` is what an async guard's Σ-over-siblings invariant writes;
+    // gating the builder call instead would break that awaited form.
+    return this.reduceStrategy.aggregate<Spec>(executeRecords, spec, upstreams, this.source.hydration)
   }
 
   /**
@@ -2106,6 +2156,8 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * merges change streams from every join target.
    */
   subscribe(cb: (result: T[]) => void): () => void {
+    const _h = this.source.hydration
+    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'subscribe', () => this.subscribe(cb))
     if (!this.source.subscribe) {
       throw new Error('Query source does not support subscriptions. Pass a source with a subscribe() method.')
     }
@@ -2176,6 +2228,8 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    *   - Streaming live joins are deferred.
    */
   live(options?: { batch?: boolean }): LiveQuery<T> {
+    const _h = this.source.hydration
+    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'live', () => this.live(options))
     const upstreams: LiveUpstream[] = []
 
     // Left-side change stream — every live query subscribes to
@@ -2402,7 +2456,11 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * `explain()` on the seed query still describes how the SEEDS are found.
    */
   traverse(field: QueryField<T, S>, opts: TraverseOptions): TraversalRow<T>[] {
+    // Validation FIRST: a misdeclared ref is a programming error whose own
+    // message must survive #1414's gate, not be masked by it.
     this.assertSelfRef(field, 'traverse')
+    const _h = this.source.hydration
+    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'traverse', () => this.traverse(field, opts))
     return this.runTraverse(field, this.ids(), opts)
   }
 
@@ -2440,6 +2498,8 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     direction: TraverseDirection,
     opts: { maxDepth: number; onCycle?: CyclePolicy },
   ): TraversalRow<T>[] {
+    const _h = this.source.hydration
+    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, direction === 'up' ? 'ancestorsOf' : 'descendantsOf', () => this.traverseFromId(id, field, direction, opts))
     const sugar = direction === 'up' ? 'ancestorsOf' : 'descendantsOf'
     const plan = this.plan
     if (

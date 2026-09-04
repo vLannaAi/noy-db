@@ -40,6 +40,7 @@ export interface ReduceOptions {
   readonly window?: WindowFactory
 }
 import type { ViaPipeline } from '../../kernel/via/pipeline.js'
+import type { HydrationGate } from '../../kernel/query/hydration.js'
 
 /**
  * Seam interface. `@internal` — will promote to public only when the
@@ -58,6 +59,8 @@ export interface ReduceStrategy {
     executeRecords: () => readonly unknown[],
     spec: Spec,
     upstreams: readonly ReductionUpstream[],
+    /** #1414 — the source collection's cold gate, when there is one. */
+    gate?: HydrationGate,
   ): Reduction<ReduceResult<Spec>>
 
   /**
