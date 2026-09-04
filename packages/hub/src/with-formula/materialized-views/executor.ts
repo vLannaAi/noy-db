@@ -6,7 +6,7 @@ import { MaterializedViewTooLargeError, MaterializedViewConfigError, LocaleNotSp
 import { DEFAULT_JOIN_MAX_ROWS } from '../../kernel/query/join.js'
 import type { MaterializedFromMeta, MVQueryContext, MaterializedViewSpec, ProjectionJoinLeg } from './types.js'
 import type { RegisteredMV } from './registry.js'
-import { wrapDbWithPredicates } from './registry.js'
+import { wrapDbWithPredicates, ungatedMvContext } from './registry.js'
 import { groupAndReduce } from '../../with-lookup/reduce/groupby.js'
 import { canonicalGroupKey } from '../../with-lookup/reduce/canonical-key.js'
 import { applyI18nLocale, type I18nTextDescriptor } from '../../via/i18n/core.js'
@@ -562,7 +562,9 @@ export const MaterializedViewExecutor = {
     //    MV declared predicates, wrap the query context the same way
     //    the registry did at registration time so `.wherePredicate()`
     //    calls resolve to the registered functions.
-    const baseCtx = accessor.getQueryContext()
+    // #1414 — `ungatedMvContext` keeps the engine's synchronous source reads
+    // exactly as they were before the cold-collection gate existed.
+    const baseCtx = ungatedMvContext(accessor.getQueryContext())
     const ctxForQuery: MVQueryContext = spec.predicates
       ? wrapDbWithPredicates(baseCtx, spec.predicates)
       : baseCtx

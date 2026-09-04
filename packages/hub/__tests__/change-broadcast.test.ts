@@ -291,6 +291,10 @@ describe('#1362 no channel ⇒ no regression', () => {
       expect(() => { stop = enableChangeBroadcast(db) }).not.toThrow()
 
       // Today's behaviour, unchanged: same-instance live queries still re-fire.
+      // The `list()` is #1414's gate, not this test's subject: `.live()` on a
+      // collection nothing has read yet now refuses rather than seeding itself
+      // from an empty-by-absence snapshot.
+      await c.list()
       const live = c.query().live()
       await c.put('i1', { id: 'i1', amount: 1, memo: 'x' })
       expect(live.value).toHaveLength(1)

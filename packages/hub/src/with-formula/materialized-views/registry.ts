@@ -132,7 +132,8 @@ export class MaterializedViewRegistry {
     // declared, the wrapper intercepts `.collection().query()` and
     // attaches the predicates map to the resulting Query<T>. With no
     // predicates declared, the wrapper is the original db unchanged.
-    const dbForQuery = spec.predicates ? wrapDbWithPredicates(db, spec.predicates) : db
+    const ungatedDb = ungatedMvContext(db) // #1414 — the engine keeps its pre-gate source; see ungatedMvContext
+    const dbForQuery = spec.predicates ? wrapDbWithPredicates(ungatedDb, spec.predicates) : ungatedDb
 
     // Invoke the query callback once to inspect its plan / dependencies.
     // For Query<T> shapes the analyzer extracts deps + plan summary
@@ -425,6 +426,46 @@ export class MaterializedViewRegistry {
  */
 function isFieldClauseOnField(clause: Clause, field: string): clause is FieldClause {
   return clause.type === 'field' && clause.field === field
+}
+
+/**
+ * #1414 — wrap an `MVQueryContext` so its `.collection().query()` returns a
+ * query with the cold-collection gate removed.
+ *
+ * The MV engine reads its sources synchronously: registration inspects the
+ * plan the spec callback returns, and the executor's scan runs from inside a
+ * write commit. Both predate #1414 and both have always read whatever the
+ * in-memory cache held. Gating them would convert a pre-existing (and
+ * separately tracked) staleness into a thrown error on a write path nobody
+ * pointed at a query — so the engine keeps its old source and #1414's change
+ * stays on the surface a consumer or a guard actually calls.
+ *
+ * @internal
+ */
+export function ungatedMvContext(db: MVQueryContext): MVQueryContext {
+  return {
+    // ⚠️ Every argument is forwarded. A spec's `db.collection(name, { tiers })`
+    // supplies the options at FIRST construction (first-construction wins), so
+    // a wrapper that drops the second argument silently un-declares them.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    collection(name: string, ...rest: any[]): any {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const c = (db.collection as any)(name, ...rest) as Record<string | symbol, unknown>
+      return new Proxy(c, {
+        get(target, prop, receiver) {
+          if (prop === 'query') {
+            return (...args: unknown[]) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const q = (target.query as any)(...args)
+              // The legacy predicate overload returns `T[]`, not a Query.
+              return q && typeof q._ungated === 'function' ? q._ungated() : q
+            }
+          }
+          return Reflect.get(target, prop, receiver)
+        },
+      })
+    },
+  }
 }
 
 /**
