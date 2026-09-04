@@ -2,48 +2,52 @@
   "scenarios": {
     "floor": {
       "minifiedBytes": 1764,
-      "gzippedBytes": 549
+      "gzippedBytes": 554
     },
     "lazy": {
       "minifiedBytes": 1852,
-      "gzippedBytes": 622
+      "gzippedBytes": 628
     },
     "team": {
       "minifiedBytes": 2121,
-      "gzippedBytes": 731
+      "gzippedBytes": 730
     },
     "broker": {
       "minifiedBytes": 2848,
-      "gzippedBytes": 1167
+      "gzippedBytes": 1171
     },
     "history": {
       "minifiedBytes": 5460,
-      "gzippedBytes": 2021
+      "gzippedBytes": 2023
     },
     "classified": {
       "minifiedBytes": 3114,
-      "gzippedBytes": 1109
+      "gzippedBytes": 1112
     },
     "blobs": {
       "minifiedBytes": 1935,
-      "gzippedBytes": 688
+      "gzippedBytes": 691
     },
     "analytics": {
-      "minifiedBytes": 2965,
-      "gzippedBytes": 1147
+      "minifiedBytes": 2973,
+      "gzippedBytes": 1154
     },
     "search": {
       "minifiedBytes": 1806,
-      "gzippedBytes": 588
+      "gzippedBytes": 590
     },
     "search-ann": {
       "minifiedBytes": 1835,
-      "gzippedBytes": 608
+      "gzippedBytes": 611
+    },
+    "coverage": {
+      "minifiedBytes": 6567,
+      "gzippedBytes": 2786
     },
     "all-on": {
-      "minifiedBytes": 64441,
-      "gzippedBytes": 20438
+      "minifiedBytes": 69264,
+      "gzippedBytes": 22346
     }
   },
-  "updatedAt": "2026-09-04T01:28:35.021Z"
+  "updatedAt": "2026-09-04T05:31:07.112Z"
 }

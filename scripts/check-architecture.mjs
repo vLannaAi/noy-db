@@ -1151,7 +1151,16 @@ const KERNEL_SURFACE_BUDGET = {
   // ctor assignment, one line in searchContext(). The postings format, the
   // clause parser and the matcher all live in with-lookup/search/; nothing of
   // the feature is kernel-resident.
-  'packages/hub/src/kernel/collection.ts': 4353,
+  // Bumped 4353->4354 (2026-09-04, #1363 read-coverage sensor): ONE line, and
+  // it is a seam resolution, not logic — `strategies.coverage.observer(...)`
+  // in the RecordCodec construction bag. The observer must be resolved where
+  // the codec is built (that is the only place holding vault + collection +
+  // principal + fieldMeta + emitter at once), and the un-opted-in path returns
+  // `undefined` there so the decrypt path stays a single `!== undefined` test.
+  // Every line of the sensor — sketches, accounting, alerting — lives in
+  // src/with-audit/coverage/, and the decrypt hook itself is in
+  // kernel/enclave/record-keys/record-codec.ts, which carries no ceiling.
+  'packages/hub/src/kernel/collection.ts': 4354,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

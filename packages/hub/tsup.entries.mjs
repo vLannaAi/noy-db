@@ -23,6 +23,7 @@ export const ENTRIES = {
   'crdt/index': 'src/with-commit/crdt/index.ts',
   'pod/index': 'src/with-pod/index.ts',
   'consent/index': 'src/with-audit/consent/index.ts',
+  'coverage/index': 'src/with-audit/coverage/index.ts',
   'periods/index': 'src/with-audit/periods/index.ts',
   'guards/index': 'src/with-audit/guards/index.ts',
   'shadow/index': 'src/with-fork/shadow/index.ts',

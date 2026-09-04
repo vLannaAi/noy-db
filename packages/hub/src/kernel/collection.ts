@@ -712,6 +712,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       getDEK: (collection) => this.getDEK(collection ?? this.name),
       cekCache: this.cekCache,
       classifiedMarkerDigestOnly: () => this._classifiedMarkerDigestOnly(),
+      onDecrypt: this.strategies.coverage.observer(this.vault, this.name, this.keyring.userId, () => this.fieldMeta, this.emitter, opts.prefetch !== false), // #1363 read-coverage sensor; NO_COVERAGE returns undefined
       via: this.via,
     }) // #629 T10: classifySealedShred wired onto cfg.classifiedEraseCfg just below, once this.codec exists
     if (cfg.classifiedEraseCfg) cfg.classifiedEraseCfg.classifySealedShred = (live) => this.codec.classifySealedShred(live as EncryptedEnvelope)

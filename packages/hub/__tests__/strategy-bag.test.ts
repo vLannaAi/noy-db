@@ -66,7 +66,7 @@ describe('resolveStrategies (#838)', () => {
 
 describe('STRATEGY_DEFAULTS (#838)', () => {
   it('covers every service exactly once', () => {
-    expect(KEYS).toHaveLength(29) // +vaultHead (#1044), +formats (ADR 0004)
+    expect(KEYS).toHaveLength(30) // +vaultHead (#1044), +formats (ADR 0004), +coverage (#1363)
     expect(new Set(KEYS).size).toBe(KEYS.length)
   })
 

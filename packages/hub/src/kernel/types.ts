@@ -31,6 +31,7 @@ import type { ArchiveStrategy } from '../with-fork/archive/index.js'
 import type { IndexingStrategy } from '../with-lookup/indexing/strategy.js'
 import type { ReduceStrategy } from '../with-lookup/reduce/strategy.js'
 import type { ConsentStrategy } from '../with-audit/consent/strategy.js'
+import type { CoverageEvent, CoverageStrategy } from '../port/with/coverage-strategy.js'
 import type { PeriodsStrategy } from '../with-audit/periods/strategy.js'
 import type { ShadowStrategy } from '../with-fork/shadow/strategy.js'
 import type { TransactionsStrategy } from '../with-commit/tx/strategy.js'
@@ -1720,6 +1721,16 @@ export interface NoydbEventMap {
    * index mirror may have drifted. Operators reconcile via
    * `collection.reconcileIndex(field)`.
    */
+  /**
+   * A principal's estimated COVERAGE of a `bulk: 'sensitive'` collection
+   * crossed a declared threshold (`withCoverage()`, #1363). Fires at most once
+   * per threshold per `(principal, vault, collection)`.
+   *
+   * ⛔ A SIGNAL, never a refusal — the read it reports has already been
+   * served, and no refusal path exists by design (#1251 §3: a refusal at a
+   * boundary is a threshold the reader can binary-search).
+   */
+  'coverage:threshold': CoverageEvent
   'index:write-partial': {
     vault: string
     collection: string
@@ -2714,6 +2725,23 @@ export interface NoydbOptions {
    * @internal
    */
   readonly consentStrategy?: ConsentStrategy
+  /**
+   * tree-shake seam — optional read-coverage SENSOR. Pass `withCoverage()`
+   * from `@noy-db/hub/coverage` to account how much of a `bulk: 'sensitive'`
+   * collection each principal has ever decrypted, and to emit
+   * `'coverage:threshold'` when a declared coverage threshold is crossed.
+   *
+   * ⛔⛔ TELEMETRY, NOT A CONTROL. Against an insider holding the device and
+   * local keys it prevents nothing — they hold the DEK. It makes bulk
+   * extraction visible early, attributable and loud. The remediation is key
+   * custody (tiers, per-collection DEKs). It never refuses a read.
+   *
+   * When omitted, `NO_COVERAGE` resolves no observer at all: the decrypt path
+   * holds `undefined` and the sensor's code never reaches the bundle.
+   *
+   * @internal
+   */
+  readonly coverageStrategy?: CoverageStrategy
   /**
    * tree-shake seam — optional periods strategy. Pass
    * `withPeriods()` from `@noy-db/hub/periods` to enable

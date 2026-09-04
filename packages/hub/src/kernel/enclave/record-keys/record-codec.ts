@@ -107,6 +107,18 @@ export interface RecordCodecContext<T> {
    * snapshot.
    */
   via: ViaPipeline | undefined
+  /**
+   * Read-coverage observer (#1363), resolved once per Collection from
+   * `strategies.coverage.observer(...)`. `undefined` for every un-opted-in
+   * deployment AND for every collection the sensor does not account for, so
+   * the decrypt path costs one `!== undefined` test.
+   *
+   * ⛔⛔ TELEMETRY, NOT A CONTROL: an insider holding the device and local keys
+   * holds the DEK, so this observes an extraction it cannot prevent. It exists
+   * to make one visible early, attributable and loud. It may never grow a
+   * return value — a decrypt is not gated on it, and nothing here may refuse.
+   */
+  readonly onDecrypt?: ((id: string) => void) | undefined
 }
 
 export class RecordCodec<T> {
@@ -604,9 +616,29 @@ export class RecordCodec<T> {
     }
     const aad = recordAadFor(ref, envelope)
     const cek = await this.resolveEnvelopeCek(envelope, id)
-    if (cek !== undefined) return decrypt(envelope._iv, envelope._data, cek, aad)
-    const dek = await this.ctx.getDEK()
-    return decrypt(envelope._iv, envelope._data, dek, aad)
+    const json = cek !== undefined
+      ? await decrypt(envelope._iv, envelope._data, cek, aad)
+      : await decrypt(envelope._iv, envelope._data, await this.ctx.getDEK(), aad)
+    this.observeDecrypt(ref)
+    return json
+  }
+
+  /**
+   * Fire the read-coverage observer for a successful record decrypt (#1363).
+   *
+   * ⚠️ ONLY for this codec's OWN collection. `ref.collection` can be a storage
+   * identity that is not the live collection — a history/version address, the
+   * `_vec` vector sidecar, the `_ft` lexical index (#1041) — and their ids are
+   * not this corpus's ids, so counting them would corrupt the very estimate
+   * the sensor exists to produce. The cost is a deliberate UNDER-count: a
+   * principal reading the corpus through its history sidecar is not accounted.
+   * A sensor that under-counts is honest; one that inflates cries wolf and
+   * gets turned off. Recorded rather than papered over.
+   */
+  private observeDecrypt(ref: RecordRef): void {
+    const observe = this.ctx.onDecrypt
+    if (observe === undefined || ref.collection !== this.ctx.name) return
+    observe(ref.id)
   }
 
   /**
@@ -828,6 +860,9 @@ export class RecordCodec<T> {
     if (envelope._sealed !== undefined && this.ctx.storeCiphertext) {
       record = await this.applySealedSlots(record, envelope._sealed, cek, { ...(id !== undefined ? { id } : {}), sealedAsHandles: true })
     }
+    // The tier>0 side door bypasses decryptJsonString, so it must account for
+    // itself (#1363). A read a sensor cannot see is a hole in the estimate.
+    this.observeDecrypt(ref)
     return record
   }
 
