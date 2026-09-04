@@ -32,6 +32,35 @@ export interface RetrieveOptions<T = unknown> {
    * score exactly as it was. Fields not named weigh 1.
    */
   readonly boost?: Readonly<Record<string, number>>
+  /**
+   * #1360 part 2 — force an EXACT brute-force semantic scan for this call,
+   * bypassing any approximate index the collection opted into. Ignored in
+   * lexical mode. Exactness must stay reachable per query: a caller who needs
+   * a guaranteed complete top-k (an audit, a recall measurement, a test) asks
+   * for it here rather than being told to reconfigure the collection.
+   */
+  readonly exact?: boolean
+  /**
+   * #1360 part 2 — per-query recall dial for the approximate index (lists
+   * probed). Overrides `withVectorIndex({ nprobe })` for this call. No effect
+   * when the query is exact.
+   */
+  readonly nprobe?: number
+}
+
+/**
+ * Options for `collection.similarTo()` — raw-vector kNN. Lives here beside
+ * {@link RetrieveOptions} because it is the same kind of thing: a public
+ * option bag on the retrieval surface.
+ */
+export interface SimilarToOptions {
+  readonly k?: number
+  readonly minScore?: number
+  readonly includeRecord?: boolean
+  /** #1360 part 2 — force the exact brute-force scan, whatever the index policy says. */
+  readonly exact?: boolean
+  /** #1360 part 2 — per-query recall dial (lists probed) for the approximate index. */
+  readonly nprobe?: number
 }
 
 export interface RetrieveHit<T> {

@@ -295,6 +295,43 @@ const SCENARIOS = [
     ],
   },
   {
+    name: 'search',
+    description: 'createNoydb + withSearch, WITHOUT the approximate vector index (#1360)',
+    code: `
+      import { createNoydb } from '@noy-db/hub'
+      import { withSearch } from '@noy-db/hub/search'
+      const searchStrategy = withSearch()
+      export { createNoydb, searchStrategy }
+    `,
+    leakCanaries: [],
+    // ⭐ #1360 part 2 — the tree-shaking PROOF, and the reason
+    // `allChunkCanaries` exists at all.
+    //
+    // `entry.js` canaries cannot answer this question. `withSearch()` already
+    // defers the whole retrieval facade behind a dynamic import, so the
+    // scenario's entry chunk contains almost nothing either way — the ANN
+    // index could be sitting in a split chunk that this consumer loads on its
+    // first `retrieve()` and every entry-scoped check would still read green.
+    //
+    // These names are therefore matched against every chunk REACHABLE from the
+    // entry, static or dynamic. A hit means a consumer who opted into search
+    // but never called `withVectorIndex()` is nonetheless shipping the index —
+    // which is the whole claim #1360 part 2 makes about its own cost.
+    reachableCanaries: ['IvfFlatIndex', 'defaultNlist', 'fitCentroids'],
+  },
+  {
+    name: 'search-ann',
+    description: 'createNoydb + withSearch + withVectorIndex (#1360 part 2) — the opt-in cost',
+    code: `
+      import { createNoydb } from '@noy-db/hub'
+      import { withSearch, withVectorIndex } from '@noy-db/hub/search'
+      const searchStrategy = withSearch()
+      const index = withVectorIndex()
+      export { createNoydb, searchStrategy, index }
+    `,
+    leakCanaries: [],
+  },
+  {
     name: 'all-on',
     description: 'every published with*() factory actually enabled (upper bound)',
     // #1381 — this scenario is the one a reviewer reads to sanity-check total
@@ -336,7 +373,7 @@ const SCENARIOS = [
       import { withClassified } from '@noy-db/hub/classified'
       import { withIndexing } from '@noy-db/hub/indexing'
       import { withReduce, withWindow } from '@noy-db/hub/reduce'
-      import { withSearch } from '@noy-db/hub/search'
+      import { withSearch, withVectorIndex } from '@noy-db/hub/search'
       import { withSession } from '@noy-db/hub/session'
       import { withTeam } from '@noy-db/hub/team'
       import { withBroker } from '@noy-db/hub/broker'
@@ -420,6 +457,18 @@ const SCENARIOS = [
           withOverlayedView({ name: 'ov', base: 'mv' }),
         ],
       })
+
+      // #1360 part 2 — the approximate vector index is neither a createNoydb
+      // slot nor a nested strategy option: it is declared PER COLLECTION, as
+      // \`embeddings.index\`. A third shape, and the reason this guard matches
+      // on the factory NAME rather than on the createNoydb call — a capability
+      // can be published, real, and reachable through none of the shapes a
+      // scenario would naturally enumerate. Exported so nothing is shaken out.
+      export const embeddings = {
+        dim: 8, model: 'stub', source: 'text',
+        encode: async () => new Float32Array(8),
+        index: withVectorIndex(),
+      }
     `,
     leakCanaries: [],
   },
@@ -548,6 +597,45 @@ async function buildScenario(scenario) {
   const leaks = scenario.leakCanaries.filter((canary) =>
     probe.includes(canary),
   )
+
+  // Reachable-chunk canaries — the check that answers "does this consumer SHIP
+  // this code at all", which neither of the two above can.
+  //
+  // The entry-only checks stop at `entry.js`. That is exactly wrong for a
+  // subsystem that is itself lazily loaded: `withSearch()` already defers the
+  // whole retrieval facade behind a dynamic import, so a symbol could sit in a
+  // chunk this consumer loads on its first `retrieve()` and every entry-scoped
+  // canary would still read green.
+  //
+  // So this walks the module graph from `entry.js`, following BOTH static and
+  // dynamic import specifiers — a dynamically imported chunk is deferred, not
+  // absent, and it is still bytes on the consumer's disk and in their network
+  // waterfall. Chunks NOT reachable from the entry are excluded deliberately:
+  // esbuild materialises a chunk file for every `import()` it parses, including
+  // ones inside a function it subsequently tree-shakes away, so an orphan file
+  // in the output directory is dead output rather than a consumer cost. The
+  // discriminator is reachability, not existence.
+  const reachableCanaries = scenario.reachableCanaries ?? []
+  if (reachableCanaries.length > 0) {
+    const seen = new Set()
+    const queue = ['entry.js']
+    const sources = []
+    while (queue.length > 0) {
+      const file = queue.shift()
+      if (seen.has(file)) continue
+      seen.add(file)
+      let text
+      try { text = readFileSync(join(probeDir, file), 'utf8') } catch { continue }
+      sources.push([file, text])
+      for (const m of text.matchAll(/(?:from\s*|import\s*\(\s*)["'](\.\/[^"']+\.js)["']/g)) {
+        queue.push(m[1].slice(2))
+      }
+    }
+    for (const canary of reachableCanaries) {
+      const hit = sources.find(([, text]) => text.includes(canary))
+      if (hit !== undefined) leaks.push(`reachable:${canary} (in ${hit[0]})`)
+    }
+  }
 
   // Eager-import scan — extract the top-level `import { ... } from
   // "./chunk-…"` prologue and look for any banned symbol name. Under

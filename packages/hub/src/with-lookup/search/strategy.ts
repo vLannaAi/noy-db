@@ -16,13 +16,13 @@
  */
 import type { SearchContext } from './collection-facade.js'
 import type { SearchOptions, SearchResult } from './index.js'
-import type { RetrieveOptions, RetrieveHit } from './retrieve-types.js'
+import type { RetrieveOptions, RetrieveHit, SimilarToOptions } from './retrieve-types.js'
 import { SearchNotEnabledError } from '../../kernel/errors.js'
 
 export interface SearchStrategy {
   search<T>(ctx: SearchContext<T>, field: string, query: string, opts?: SearchOptions): Promise<SearchResult<T>[]>
   retrieve<T>(ctx: SearchContext<T>, query: string, opts?: RetrieveOptions<T>): Promise<RetrieveHit<T>[]>
-  similarTo<T>(ctx: SearchContext<T>, vector: Float32Array, opts?: { k?: number; minScore?: number; includeRecord?: boolean }): Promise<RetrieveHit<T>[]>
+  similarTo<T>(ctx: SearchContext<T>, vector: Float32Array, opts?: SimilarToOptions): Promise<RetrieveHit<T>[]>
   warmIndex<T>(ctx: SearchContext<T>): Promise<void>
   flushIndex<T>(ctx: SearchContext<T>): Promise<void>
   embedOnWrite<T>(ctx: SearchContext<T>, id: string, record: T, version: number): Promise<void>

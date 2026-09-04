@@ -1117,6 +1117,11 @@ export { EmbeddingDimMismatchError, EmbeddingModelMismatchError } from './kernel
 export type { EmbeddingDescriptor } from './with-lookup/embeddings/index.js'
 // #1360 sub-document chunking — span types for `descriptor.chunk` and `hit.chunk`
 export type { EmbeddingChunk, EmbeddingChunkSpan } from './with-lookup/embeddings/index.js'
+// #1360 part 2 — the approximate vector index. Opt-in and dynamically linked:
+// naming `withVectorIndex` here costs a consumer who never calls it nothing.
+export { withVectorIndex, DEFAULT_INDEX_MIN_VECTORS } from './with-lookup/embeddings/index.js'
+export type { VectorIndexOptions, VectorIndexConfig, VectorIndex, VectorIndexSearchOptions } from './with-lookup/embeddings/index.js'
+export type { SimilarToOptions } from './with-lookup/search/index.js'
 
 // magic-link-bridged cross-user KEK delegation
 export type {

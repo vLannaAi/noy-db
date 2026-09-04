@@ -651,6 +651,20 @@ const NO_SUBPATH_FACTORIES = new Set([
   // like a peer service of `/reduce`, which it is not — `.window()` is a
   // method on `Query`, gated by the reduce strategy.
   'withWindow',
+  // #1360 part 2 — the same class as `withWindow`, one layer further in:
+  // consumed as `embeddings: { …, index: withVectorIndex() }` on a COLLECTION,
+  // never as a `createNoydb` strategy slot, so it is not a service and owns no
+  // subpath. It ships from `@noy-db/hub/search` with the capability it
+  // extends, because an approximate vector index is meaningless without the
+  // search service that queries through it.
+  //
+  // And it is a separate factory for the same BUNDLE reason `withWindow` is:
+  // it is the seam that keeps `ivf-flat.js` out of a search consumer's build.
+  // `bundle-check`'s `search` scenario asserts that the index is unreachable
+  // from a `withSearch()`-only bundle, and its `search-ann` scenario is where
+  // the cost lands. Giving it its own subpath would advertise it as a peer
+  // service of `/search`, which it is not — it is a knob on one descriptor.
+  'withVectorIndex',
 ])
 // Subpath spellings that legitimately differ from the factory stem.
 const SUBPATH_ALIASES = new Map([

@@ -495,7 +495,9 @@
     "wrapPodStore",
     "wrapStore",
     "writeMagicLinkGrant",
-    "writePod"
+    "writePod",
+    "withVectorIndex",
+    "DEFAULT_INDEX_MIN_VECTORS"
   ],
   "types": [
     "AccessibleVault",
@@ -968,7 +970,12 @@
     "WriteHook",
     "WritePodOptions",
     "WriteQueue",
-    "YjsState"
+    "YjsState",
+    "VectorIndexOptions",
+    "VectorIndexConfig",
+    "VectorIndex",
+    "VectorIndexSearchOptions",
+    "SimilarToOptions"
   ],
   "retired": [
     "DeviceSealProvider",

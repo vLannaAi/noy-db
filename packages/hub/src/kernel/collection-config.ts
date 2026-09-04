@@ -1295,7 +1295,7 @@ export function resolveCollectionConfig<T>(opts: CollectionOpts<T>) {
     textIndexes: opts.textIndexes,
     textIndexPositions: opts.textIndexPositions,
     embeddings: opts.embeddings,
-    vectorSet: opts.embeddings ? new VectorSet() : undefined,
+    vectorSet: opts.embeddings ? new VectorSet(opts.embeddings.index) : undefined,
     dictKeyFields: effectiveViaFields.dictKeyFields,
     lookupFields: effectiveViaFields.lookupFields,
     // #650 Task 6 — the sync join-dressing hook (#626 retirement, spec §5);
