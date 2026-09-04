@@ -42,9 +42,21 @@
  * arithmetic. A 23-hour or 25-hour local day therefore needs no special case:
  * both ends of it format to the same local date.
  *
+ * ## A ZONELESS value is a civil date, and the timeZone does not apply to it
+ *
+ * `'2026-01-01'` — what `z.string().date()` produces — names a calendar day,
+ * not an instant. It is bucketed as written, in every zone. Applying a zone to
+ * it is a category error, and an expensive one: ECMA-262 resolves the ISO
+ * date-only form to UTC midnight, so before #1410 that value bucketed into
+ * **2025-12** for `America/New_York` — a wrong year, silently. The same holds
+ * for an offsetless date-time, which ECMA-262 would otherwise read as
+ * *host*-local. A `Date`, epoch millis, or a string carrying `Z` or an offset
+ * IS an instant and still converts through `timeZone`. See `civil-date.ts`.
+ *
  * Portability: `Intl` is a language global, so this file stays inside hub's
  * no-Node-built-ins boundary and adds no dependency.
  */
+import { civilDateOf } from './civil-date.js'
 
 /** Calendar units `dateTrunc()` can bucket into. */
 export type DateTruncUnit = 'day' | 'week' | 'month' | 'quarter' | 'year'
@@ -78,6 +90,10 @@ export interface DateTruncOptions {
   /**
    * IANA timezone the calendar is read in — REQUIRED. See the module note:
    * there is no safe default, so there is no default.
+   *
+   * It applies to values that ARE instants. A zoneless calendar string
+   * (`'2026-01-01'`, `'2026-01-01T08:30'`) has no instant to convert and is
+   * bucketed as written regardless of what is passed here (#1410).
    */
   timeZone: string
   /** Week-start convention for `unit: 'week'`. Default `'monday'`. */
@@ -180,14 +196,7 @@ export function describeGroupKey(key: GroupKey): string {
  */
 export function truncateDate(value: unknown, key: DateTruncKey): string | null | undefined {
   if (value === null || value === undefined) return value
-  const ms = toEpochMs(value)
-  if (ms === undefined) {
-    throw new Error(
-      `dateTrunc("${key.field}", "${key.unit}"): value ${JSON.stringify(value) ?? typeof value} ` +
-        `is not a timestamp. Expected a Date, epoch milliseconds, or a parseable date string.`,
-    )
-  }
-  const { y, m, d } = localCivilDate(ms, key.timeZone)
+  const { y, m, d } = resolveCivilDate(value, key)
   switch (key.unit) {
     case 'day':
       return ymd(y, m, d)
@@ -241,6 +250,37 @@ function readFieldPath(row: Record<string, unknown>, path: string): unknown {
     cur = (cur as Record<string, unknown>)[seg]
   }
   return cur
+}
+
+/**
+ * The civil date a value buckets on. Two paths, and which one a value takes is
+ * a property of the VALUE, never of the descriptor (#1410):
+ *
+ *   - a zoneless calendar string names no instant, so there is nothing to
+ *     convert — it is its own civil date, and `key.timeZone` is not applicable
+ *     to it. This is what stops `'2026-01-01'` bucketing into 2025 west of UTC;
+ *   - anything else IS an instant, and the calendar it falls on is read in
+ *     `key.timeZone`, exactly as before.
+ *
+ * See `civil-date.ts` for which shapes are zoneless and why.
+ */
+function resolveCivilDate(value: unknown, key: DateTruncKey): { y: number; m: number; d: number } {
+  const civil = civilDateOf(value)
+  if (civil === 'invalid') {
+    throw new Error(
+      `dateTrunc("${key.field}", "${key.unit}"): value ${JSON.stringify(value)} is a calendar ` +
+        `date shape but names no real day.`,
+    )
+  }
+  if (civil !== undefined) return civil
+  const ms = toEpochMs(value)
+  if (ms === undefined) {
+    throw new Error(
+      `dateTrunc("${key.field}", "${key.unit}"): value ${JSON.stringify(value) ?? typeof value} ` +
+        `is not a timestamp. Expected a Date, epoch milliseconds, or a parseable date string.`,
+    )
+  }
+  return localCivilDate(ms, key.timeZone)
 }
 
 function toEpochMs(value: unknown): number | undefined {
