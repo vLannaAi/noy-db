@@ -51,6 +51,12 @@
  * via a weaker chunk, with a lower score than exact search would give it. That
  * is a score difference, not only a membership difference, and it is why the
  * recall test compares folded RECORD results rather than raw points.
+ *
+ * ⚠️ **Ties do not order identically to the exact path**, even at `nprobe =
+ * nlist`. Both sort by score with a stable sort, but over different scan
+ * orders, so two records holding the SAME score can swap places. Neither path
+ * ever promised a tie-break order. A real embedding corpus has no exact ties;
+ * a test with a toy encoder is full of them, so compare by score there.
  */
 import type { EmbeddingChunk } from './chunks.js'
 import type { StoredVector, VectorHit } from './vector-set.js'
@@ -61,11 +67,24 @@ import type { VectorIndex, VectorIndexSearchOptions } from './vector-index.js'
  *
  * Build cost is `nlist` brute-force-query-equivalents and query cost is
  * roughly `(nlist + nprobe·n/nlist)/n` of one, so `nlist` trades build against
- * query *linearly in opposite directions*. `sqrt(n)/4` keeps lists around
- * 4·sqrt(n) points wide: measured at the #1360 gating scale that is a ~10x
- * query speedup for a build of ~50 query-equivalents. The cap matters more
- * than the formula — an uncapped `sqrt(n)` doubles the speedup and quadruples
- * the build, which is the wrong trade for a per-session index.
+ * query *linearly in opposite directions*.
+ *
+ * MEASURED (768d, 100,000 vectors, `nprobe: 8`; full table in
+ * `test-harnesses/benchmarks/src/vector-ann-index.bench.ts`):
+ *
+ * | nlist       | scan  | speedup | recall@10 | build         |
+ * |-------------|-------|---------|-----------|---------------|
+ * | 79 = √n/4   | 10.3% |  9.7x   | 0.895     |  56 queries   |
+ * | 316 = √n    |  3.0% | 33.8x   | 0.813     | 288 queries   |
+ *
+ * √n is the better index and the worse DEFAULT. This index is per-session —
+ * it is rebuilt from the decrypted sidecars every time the process starts and
+ * is never persisted — so a build has only this session's queries to amortise
+ * against, and 288 query-equivalents is a bad opening bid for a consumer who
+ * runs a dozen searches. `√n/4` costs ~56 and still cuts the scan by 10x.
+ * A long-lived query-heavy session should override it; that is what the knob
+ * is for. The CAP (256) matters as much as the formula: it bounds the build at
+ * the top end, where an uncapped √n grows without limit.
  */
 export function defaultNlist(n: number): number {
   return Math.max(4, Math.min(256, Math.round(Math.sqrt(n) / 4)))
@@ -138,6 +157,17 @@ export class IvfFlatIndex implements VectorIndex {
   private freeSlots: number[] = []
   private live = 0
   private builtAt = 0
+  /**
+   * Points actually scored by the last {@link search} — the deterministic
+   * measure of what the index bought.
+   *
+   * Wall-clock speedup is not reproducible on a loaded machine (measured: the
+   * same cell varied 100x across reps while other work ran), but the fraction
+   * of the corpus a query touches is exact arithmetic and identical on every
+   * machine. The benchmark reports both and treats this as the primary number;
+   * latency follows from it and the brute-force table's µs-per-vector.
+   */
+  lastProbedPoints = 0
 
   constructor(params: Partial<IvfParams> = {}) {
     this.params = { ...IVF_DEFAULTS, ...params }
@@ -230,11 +260,13 @@ export class IvfFlatIndex implements VectorIndex {
 
     const nprobe = Math.max(1, Math.min(opts.nprobe ?? this.params.nprobe, this.centroids.length))
     const probes = this.topCentroids(qn, nprobe)
+    this.lastProbedPoints = 0
 
     // Fold to one hit per RECORD by best chunk, exactly as the exact path does
     // — `k` counts records, never fragments.
     const best = new Map<number, { score: number; chunk: EmbeddingChunk | undefined }>()
     for (const c of probes) {
+      this.lastProbedPoints += this.lists[c]!.length
       for (const p of this.lists[c]!) {
         const v = this.pVec[p]
         if (v === undefined || v.length !== qn.length) continue

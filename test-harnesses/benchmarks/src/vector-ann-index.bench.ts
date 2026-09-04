@@ -5,15 +5,71 @@
  * approximate index. This one measures *what it bought*, on the same axis, so
  * the two tables can be read side by side:
  *
- *   - at what N does the index beat brute force, per dimension;
+ *   - at what N does the index beat brute force, per dimension — reported
+ *     primarily as `scan %`, the fraction of the corpus a query scores, which
+ *     is exact arithmetic and identical on every machine. Wall-clock columns
+ *     are kept but are SECONDARY: measured 2026-09-04 on a machine running ~90
+ *     other processes, the naive timing came out non-monotonic in `nprobe`
+ *     (an exhaustive scan "faster" than a single probe), which is a fact about
+ *     the machine and not about the index. Multiply `scan %` by the
+ *     brute-force table's µs-per-vector for a latency estimate that does not
+ *     depend on who else is on the box;
  *   - what the build costs, in seconds AND in brute-force-query-equivalents
  *     (the only unit in which a per-session index can be judged: the index
  *     dies with the process, so it must repay its build inside one session);
  *   - what it costs in memory;
  *   - what recall@10 it delivers at each `nprobe`, against exact brute force.
  *
- * ⚠️ Run with `--expose-gc` for the memory column to mean anything; without it
- * the delta is heap noise. `bench:ann` passes it.
+ * ⚠️ MEMORY: `heap MB` is a `heapUsed` delta around the build and needs
+ * `--expose-gc` (which `bench:ann` passes) — it still goes NEGATIVE on a busy
+ * machine, because a forced GC mid-run can free more than the build allocated.
+ * `struct MB` is the analytic figure and is the one to quote: centroids
+ * (`nlist·dim·4` bytes) plus ~32 bytes of bookkeeping per point. The index
+ * holds the caller's `Float32Array`s BY REFERENCE and never a normalised copy,
+ * so the vectors themselves are not charged to it — that is the design choice
+ * `struct MB` exists to show.
+ *
+ * ## MEASURED 2026-09-04 — clustered corpus, k=10, 40 queries per cell
+ *
+ * Machine was heavily loaded (a game at ~88% CPU plus ~90 concurrent vitest
+ * workers), so ONLY the deterministic columns are quoted here. The wall-clock
+ * columns from that run are in the noise — one cell reported an exhaustive
+ * scan as 300x faster than brute force, which is a fact about the scheduler.
+ *
+ * | dim  | vectors | nlist         | nprobe | scan % | work speedup | recall@10 |
+ * |------|---------|---------------|--------|--------|--------------|-----------|
+ * | 768  |  50,000 |  56 (default) | 4      |  7.77  | 12.9x        | 0.802     |
+ * | 768  |  50,000 |  56 (default) | **8**  | 14.86  |  6.7x        | **0.897** |
+ * | 768  |  50,000 |  56 (default) | 16     | 28.62  |  3.5x        | 0.972     |
+ * | 768  |  50,000 | 224 (√n)      | 8      |  4.24  | 23.6x        | 0.745     |
+ * | 768  | 100,000 |  79 (default) | 4      |  5.39  | 18.6x        | 0.795     |
+ * | 768  | 100,000 |  79 (default) | **8**  | 10.34  |  9.7x        | **0.895** |
+ * | 768  | 100,000 |  79 (default) | 16     | 20.82  |  4.8x        | 0.952     |
+ * | 768  | 100,000 |  79 (default) | 32     | 40.53  |  2.5x        | 0.995     |
+ * | 768  | 100,000 | 316 (√n)      | 8      |  2.96  | 33.8x        | 0.813     |
+ * | 768  | 100,000 | 316 (√n)      | 16     |  5.55  | 18.0x        | 0.887     |
+ * | 384  | 100,000 |  79 (default) | **8**  | 10.55  |  9.5x        | **0.942** |
+ * | 1536 |  50,000 |  56 (default) | **8**  | 16.42  |  6.1x        | **0.918** |
+ *
+ * BUILD, in brute-force-query-equivalents (the ratio survives contention even
+ * though the seconds do not): 56 at 768d/100k/nlist=79, 288 at nlist=316 —
+ * both close to the predicted `nlist`, which is the identity this scheme is
+ * chosen for. INCREMENTAL: ~79 µs per `upsert` and ~81 µs per `remove` at
+ * 768d/100k — roughly 290,000 puts before a `put()` has cost as much as one
+ * rebuild.
+ *
+ * MEMORY at 768d/100k/nlist=79: **3.4 MB** structural (centroids + ~32 B per
+ * point). The 307 MB of vectors is NOT charged to the index — it holds the
+ * caller's `Float32Array`s by reference and one `1/‖v‖` scalar per point.
+ *
+ * ⭐ WHY `defaultNlist` IS `√n/4` AND NOT `√n`. At 768d/100k the √n row reaches
+ * the same recall (0.887 vs 0.895) at HALF the scan (5.55% vs 10.34%) — and at
+ * FOUR TIMES the build (288 query-equivalents vs 56). For a per-session index
+ * with nothing to amortise against but this session's own queries, the cheap
+ * build wins below a few hundred queries. A consumer with a long-lived,
+ * query-heavy session should pass `nlist: Math.round(Math.sqrt(n))` and raise
+ * `nprobe` to 16 — that is what the knob is for, and this table is how to
+ * decide.
  *
  * Run: `pnpm --filter @noy-db/test-benchmarks bench:ann`
  * Deliberately outside `vitest run`'s `*.test.ts` include — a measurement, not
@@ -73,14 +129,30 @@ function corpus(n: number, dim: number, queries: number, seed = 4242): { vectors
   return { vectors, queries: qs }
 }
 
-/** Minimum, not median: on a shared machine a query cannot run faster than its own work. */
-function minMs(run: () => void, reps: number): number {
+/**
+ * Per-call minimum over FIXED-DURATION windows.
+ *
+ * ⚠️ The obvious version — time three calls, take the min of five reps — was
+ * measured to be worthless here: on a machine running other work, the same
+ * cell varied by ~100x between reps and the table came out non-monotonic in
+ * `nprobe` (an exhaustive scan "faster" than a single probe). A ~10 ms window
+ * is one scheduler preemption wide, so `min` was minimising over noise, not
+ * over work.
+ *
+ * So each window runs as many calls as fit in `windowMs` and divides. A long
+ * window averages contention INTO the sample instead of letting one preemption
+ * define it, and `min` across windows then picks the least-contended stretch.
+ * Wall clock is still the secondary number — `scan %` below is the primary.
+ */
+function perCallMs(run: () => void, windowMs = 250, reps = 7): number {
   for (let i = 0; i < 3; i++) run()
   let best = Infinity
-  for (let i = 0; i < reps; i++) {
+  for (let r = 0; r < reps; r++) {
+    let calls = 0
     const t0 = performance.now()
-    run()
-    best = Math.min(best, performance.now() - t0)
+    let dt = 0
+    do { run(); calls++; dt = performance.now() - t0 } while (dt < windowMs)
+    best = Math.min(best, dt / calls)
   }
   return best
 }
@@ -104,7 +176,8 @@ describe('#1360 part 2: IVF-flat vs brute force', () => {
       const c = corpus(n, dim, 40)
       const exact = new VectorSet()
       ;(exact as unknown as { vectors: StoredVector[] }).vectors = c.vectors
-      const bruteMs = minMs(() => { for (const q of c.queries.slice(0, 3)) exact.cosineTopK(q, K) }, 5) / 3
+      let qi = 0
+      const bruteMs = perCallMs(() => { exact.cosineTopK(c.queries[qi++ % c.queries.length]!, K) })
       const truth = c.queries.map((q) => new Set(exact.cosineTopK(q, K).map((h) => h.id)))
 
       for (const nlist of [defaultNlist(n), Math.round(Math.sqrt(n))]) {
@@ -117,23 +190,34 @@ describe('#1360 part 2: IVF-flat vs brute force', () => {
 
         for (const nprobe of [4, 8, 16, 32]) {
           if (nprobe > nlist) continue
-          const annMs = minMs(() => { for (const q of c.queries.slice(0, 3)) idx.search(q, K, { nprobe }) }, 5) / 3
+          let ai = 0
+          const annMs = perCallMs(() => { idx.search(c.queries[ai++ % c.queries.length]!, K, { nprobe }) })
           let rec = 0
+          let probed = 0
           for (let i = 0; i < c.queries.length; i++) {
             let hit = 0
             for (const h of idx.search(c.queries[i]!, K, { nprobe })) if (truth[i]!.has(h.id)) hit++
             rec += hit / K
+            probed += idx.lastProbedPoints
           }
           rec /= c.queries.length
+          // The DETERMINISTIC half: the fraction of the corpus a query scored,
+          // plus the centroid comparisons it paid to decide which lists those
+          // were. Identical on every machine, and the thing IVF actually
+          // changes — wall clock is this multiplied by a machine constant.
+          const scanFrac = (probed / c.queries.length + nlist) / n
           rows.push({
             dim, vectors: n, nlist, nprobe,
+            'scan %': +(scanFrac * 100).toFixed(2),
+            'work speedup': +(1 / scanFrac).toFixed(1),
+            'recall@10': +rec.toFixed(3),
             'brute ms': +bruteMs.toFixed(2),
             'ann ms': +annMs.toFixed(2),
-            speedup: +(bruteMs / annMs).toFixed(1),
-            'recall@10': +rec.toFixed(3),
+            'wall speedup': +(bruteMs / annMs).toFixed(1),
             'build s': +(buildMs / 1000).toFixed(2),
             'build = N queries': Math.round(buildMs / bruteMs),
-            'index MB': +memMB.toFixed(1),
+            'struct MB': +((nlist * dim * 4 + idx.size * 32) / 1e6).toFixed(1),
+            'heap MB': +memMB.toFixed(1),
           })
         }
       }

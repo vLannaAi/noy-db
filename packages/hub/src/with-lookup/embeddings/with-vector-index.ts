@@ -28,10 +28,11 @@ export interface VectorIndexOptions {
   /**
    * Stay exact below this many VECTORS. Default 20,000.
    *
-   * Chosen from `vector-ann-index.bench.ts`: below ~20k points the brute-force
-   * scan is comfortably inside an interactive budget at every dimension
-   * measured, and IVF's build (tens of brute-force-query-equivalents) has no
-   * query volume to amortise against. Counts POINTS, not records — #1360
+   * Chosen from `vector-brute-force.bench.ts`: below ~20k points the
+   * brute-force scan is inside a 100 ms interactive budget at every dimension
+   * measured (the tightest row, 1536d, crosses at ~18-48k depending on the
+   * machine), and IVF's build — tens of brute-force-query-equivalents — has no
+   * query volume to amortise against down there. Counts POINTS, not records — #1360
    * chunking puts one point per chunk, so 2,500 documents at 8 chunks each
    * already crosses this.
    */
@@ -39,11 +40,18 @@ export interface VectorIndexOptions {
   /**
    * Lists probed per query — **the recall dial**. Default 8.
    *
-   * Recall rises monotonically with `nprobe` and reaches `nlist` = exact.
-   * Measured recall@10 for the default is in the PR body and in
-   * `__tests__/embeddings-ivf-recall.test.ts`; raise it when a miss is more
-   * expensive than a millisecond, and prefer `{ exact: true }` on the query
-   * over `nprobe: nlist` when the answer must be exact.
+   * Recall rises monotonically with `nprobe`, and `nprobe = nlist` is
+   * exhaustive — the same answer as brute force, by construction.
+   *
+   * MEASURED recall@10 at this default, against exact brute force on a
+   * clustered corpus: **0.895** (768d, 100k vectors), **0.942** (384d, 100k),
+   * **0.918** (1536d, 50k), **0.928** (64d, 20k — the CI assertion in
+   * `__tests__/embeddings-ivf-recall.test.ts`). Raising it to 16 buys ~0.95
+   * for roughly double the scan.
+   *
+   * Raise it when a miss costs more than a millisecond — and prefer
+   * `{ exact: true }` on the query over `nprobe: nlist` when the answer must
+   * be exact, because that says what you mean and survives an `nlist` change.
    */
   readonly nprobe?: number
   /** Partitions. Default: derived from the corpus size — see `defaultNlist`. */
