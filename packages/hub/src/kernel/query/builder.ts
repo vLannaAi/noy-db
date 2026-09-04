@@ -3282,7 +3282,13 @@ function compareIds(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0
 }
 
-function sortRecords(
+/**
+ * Exported (#1342) for the cross-collection union read path: a union's sort
+ * runs AFTER the legs are concatenated, and it has to be the same comparator
+ * a single collection's `orderBy` uses or two queries over the same rows
+ * would order them differently.
+ */
+export function sortRecords(
   records: unknown[],
   orderBy: readonly OrderBy[],
   via?: ViaPipeline,

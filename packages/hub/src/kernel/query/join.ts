@@ -130,25 +130,32 @@ export interface JoinLeg {
    *    clauses the plan already carries. Pinned by
    *    `__tests__/query-partition-scope.test.ts`, which now pins BOTH paths.
    *
-   * 2. **Pruning only pays on the `scan()` path, and there it is a security
-   *    decision, not an optimisation.** `query()` runs over an in-memory,
-   *    already-decrypted cache, where `candidateRecords()`'s hash / sorted /
-   *    compound index dispatch (#1344, #1345) narrows better than a partition
-   *    ever could. `scan()` decrypts each `listPage()` page, so a partition
-   *    never fetched is real work saved — but `NoydbStore.listPage` takes no
-   *    filter, and it cannot usefully take one while the partition key lives
-   *    inside the ciphertext. Serving "only partition P" requires lifting the
-   *    key out into the storage key or cleartext metadata: a deliberate,
-   *    permanent metadata leak to the backend, and a change to the published
-   *    `@noy-db/hub/to` store contract. Not a planner refactor.
+   * 2. **The seam-change route was RULED OUT, and the pruning shipped
+   *    anyway** — ADR 0007, "partitioning is collection-shaped". Pruning only
+   *    pays on the `scan()` path (`query()` runs over an in-memory,
+   *    already-decrypted cache where `candidateRecords()`'s hash / sorted /
+   *    compound dispatch (#1344, #1345) narrows better than a partition ever
+   *    could). Buying it by teaching `NoydbStore.listPage` a filter would
+   *    have meant lifting the partition key out of the ciphertext into a
+   *    storage key or cleartext metadata — a permanent per-record
+   *    classification handed to the backend, and a change to the published
+   *    `@noy-db/hub/to` contract across every `to-*` adapter. **Ruled no.**
+   *    ⭐ The pruning was bought instead with information the store already
+   *    has: `listPage(vault, **collection**, …)` names the collection in
+   *    cleartext, so a partition modelled as its own collection is never
+   *    fetched because it is never asked for.
    *
-   * Whatever populates it must also be sound in one direction only: narrow
-   * ONLY on a whitelist of provable shapes (`==` / `in` on the declared key
-   * at the top level of the AND-ed clause list), and fall back to `'all'` for
-   * everything else — `or` groups, negations, callback clauses, and any
-   * Via-covered clause (its operand is in STORED form, not partition-key
-   * space, which is why `candidateRecords` refuses the index for it too). A
-   * partition wrongly excluded is silently missing data.
+   * ⭐ **THE SCOPE IS NOW DERIVED, IN THE EXECUTOR, AND THIS FIELD IS STILL
+   * DORMANT.** `kernel/query/partition.ts`'s `resolvePartitionScope()` is the
+   * one decision function — `with-store/partitioned/` and `explain()` both
+   * call it — and it takes the plan's top-level clause list, never a stored
+   * leg. It is sound in one direction only: narrow ONLY on a whitelist of
+   * provable shapes (`==` / `in` on the declared key at the top level of the
+   * AND-ed clause list), and fall back to `'all'` for everything else —
+   * `or` groups, negations, callback clauses, and any Via-covered clause
+   * (its operand is in STORED form, not partition-key space, which is why
+   * `candidateRecords` refuses the index for it too). A partition wrongly
+   * excluded is silently missing data.
    */
   readonly partitionScope: 'all' | readonly string[]
   /**
