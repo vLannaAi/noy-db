@@ -20,12 +20,22 @@
  *
  * Ops are buffered during the body. On body-return the hub:
  *
+ * 0. **Drain (#1420)** — waits out any plain `Collection.put()` /
+ *    `.delete()` already in flight on a key this commit touches, so
+ *    the pre-flight below reads a version that includes it. Without
+ *    this the pre-flight cannot see a write that has STARTED but not
+ *    yet reached the store, and one of the two writes vanishes with
+ *    both reporting success.
  * 1. **Pre-flight** — re-reads every touched envelope and enforces
  *    any caller-supplied `expectedVersion`. A mismatch throws
  *    `ConflictError` with *no* writes performed.
- * 2. **Execute** — calls `Collection.put()` / `.delete()` for each
- *    staged op in declaration order. History snapshots, ledger
- *    appends, and change events fire as normal per op.
+ * 2. **Execute** — re-validates each op's `expectedVersion` against
+ *    the CURRENT stored version (#1420 — the pre-flight's verdict is
+ *    otherwise unchecked all the way to the write, and this path
+ *    carries no store-level CAS the way the atomic one does), then
+ *    calls `Collection.put()` / `.delete()` for each staged op in
+ *    declaration order. History snapshots, ledger appends, and change
+ *    events fire as normal per op.
  * 3. **Unwind on failure** — if step 2 throws mid-batch, each
  *    already-committed op is reverted via the raw store (restoring
  *    the captured prior envelope, or deleting if none existed). The
@@ -86,6 +96,7 @@ import type { LedgerEntry } from '../history/ledger/entry.js'
 import type { TransactionInvariant } from './invariants.js'
 import type { GuardChange, GuardContext, ReadOnlyVaultFacade } from '../../with-audit/guards/types.js'
 import { bestEffortRevert } from '../../kernel/best-effort-revert.js'
+import { drainKeyedWrites } from '../../kernel/tx-write-gate.js'
 
 /** One op buffered inside a running `TxContext`. @internal */
 export interface StagedOp {
@@ -354,6 +365,16 @@ export async function runTransaction<T>(
   const priorEnvelopes = new Map<string, EncryptedEnvelope | null>()
   const store = db._store
 
+  // #1420 — before the first pre-flight read, wait out any plain
+  // `Collection.put()`/`.delete()` already in flight on a key this commit is
+  // about to touch. Without it the pre-flight's re-read cannot see a write
+  // that has started but not yet reached the store, so the check passes
+  // against a stale snapshot and one of the two writes vanishes with both
+  // reporting success. Draining makes the in-flight case behave exactly like
+  // the fully-awaited one, which the pre-flight below already handled
+  // correctly. Deadlock-free by construction — see `kernel/tx-write-gate.ts`.
+  await drainKeyedWrites(store, ctx._ops.map(keyOf))
+
   // Commit-time changeset invariants need PLAINTEXT prior records
   // for `before`, but `priorEnvelopes` holds ENCRYPTED envelopes. So for
   // ops in a watched scope we additionally decrypt the prior record here,
@@ -409,11 +430,31 @@ export async function runTransaction<T>(
       // One tracked unit, not one per op — the batch IS one logical write.
       await db._writeQueueTracker.track(() => commitAtomicBatch(db, ctx, priorEnvelopes))
     } else {
+      const writtenKeys = new Set<string>()
       try {
         for (const op of ctx._ops) {
           const coll = db.vault(op.vaultName).collection(op.collectionName)
           const key = keyOf(op)
           const prior = priorEnvelopes.get(key) ?? null
+          // #1420 — the per-op path replays through `Collection.put()`, which
+          // carries no CAS: whatever the pre-flight decided stands unchecked
+          // until the write lands. The atomic path re-validates by handing
+          // every leg an `expectedVersion` to `store.tx()`; this is that check
+          // for the path that has no store-level batch. Once THIS transaction
+          // has written the key its version has legitimately moved, so a
+          // second op on the same key is exempt — matching Phase 1, which
+          // snapshots (and checks) only the first occurrence per key.
+          if (op.expectedVersion !== undefined && !writtenKeys.has(key)) {
+            const current = await store.get(op.vaultName, op.collectionName, op.id)
+            const actual = current?._v ?? 0
+            if (actual !== op.expectedVersion) {
+              throw new ConflictError(
+                actual,
+                `Transaction execute: ${op.vaultName}/${op.collectionName}/${op.id} ` +
+                  `expected v${op.expectedVersion}, found v${actual}`,
+              )
+            }
+          }
           // Record the revert plan BEFORE the call so a mid-`coll.put` throw
           // (e.g. strict-mode derivation failure firing after `store.put`
           // has already committed the envelope) still has its source write
@@ -428,6 +469,7 @@ export async function runTransaction<T>(
           } else {
             await coll.delete(op.id)
           }
+          writtenKeys.add(key)
         }
       } catch (err) {
         // Phase 3 — best-effort revert. See helper docstring.
