@@ -27,7 +27,15 @@ export type { JoinOnSpec, JoinOnPlan, JoinOnOp } from './join-on.js'
 // Recursive traversal over a declared self-ref (#1352).
 export { runTraversal } from './traverse.js'
 export type { TraversalRow, TraverseOptions, TraverseDirection, TraverseSource, CyclePolicy } from './traverse.js'
-export { explainPlan } from './explain.js'
+export { explainPlan, renderExplainText } from './explain.js'
+// Partition pruning (#1342, ADR 0007) — shared by the executor and explain().
+export {
+  ALL_PARTITIONS,
+  describePartitionScope,
+  partitionsInScope,
+  resolvePartitionScope,
+} from './partition.js'
+export type { PartitionScope } from './partition.js'
 export type { QueryExplanation, ExplainNode, ExplainCap, ExplainDispatch, ExplainSource, ExplainIndexProbe } from './explain.js'
 export { buildLiveQuery } from './live.js'
 export type { LiveQuery, LiveUpstream, LiveBuildOptions } from './live.js'

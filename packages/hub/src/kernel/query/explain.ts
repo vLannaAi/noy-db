@@ -92,6 +92,22 @@ export type ExplainDispatch =
   | 'crossJoin'
   | 'sort'
   | 'page'
+  /**
+   * #1342 — a partitioned union read every declared partition, because the
+   * predicate proved no narrowing. The SOUND default: everything that is not
+   * on `resolvePartitionScope`'s whitelist lands here.
+   */
+  | 'partitions:all'
+  /**
+   * #1342 — a top-level AND-ed `==`/`in` on the declared partition key
+   * narrowed the set, so the excluded members were never asked for.
+   *
+   * ⚠️ Unlike every other label in this union, this one is NOT decided in
+   * this file. `resolvePartitionScope` (`query/partition.ts`) is called by
+   * the executor and by `explain()`, so there is nothing to keep in step —
+   * see that module's header for why a third mirror site was refused.
+   */
+  | 'partitions:pruned'
   // Keeps the labels above as autocomplete hints while leaving the type open
   // for a dispatch this build does not know about yet.
   | (string & {})
@@ -573,7 +589,7 @@ export function explainPlan(
 
   if (!runsPostJoin && !innerSplit) emitJoins()
 
-  return { nodes, caps, reducerRewrite, text: renderText(nodes) }
+  return { nodes, caps, reducerRewrite, text: renderExplainText(nodes) }
 }
 
 /** Why this clause fell to a scan — the sentence a consumer is actually after. */
@@ -730,8 +746,15 @@ function collectReducerRewrites(
   return out
 }
 
-/** One line per node, two spaces per level of depth. */
-function renderText(nodes: readonly ExplainNode[]): string {
+/**
+ * One line per node, two spaces per level of depth.
+ *
+ * Exported (#1342) so the partitioned union's `explain()` renders its
+ * partition line and the member's nodes with THIS renderer rather than a
+ * second one — a consumer diffing two `explain().text` outputs must not be
+ * reading two formatters.
+ */
+export function renderExplainText(nodes: readonly ExplainNode[]): string {
   const lines: string[] = []
   const walk = (ns: readonly ExplainNode[], depth: number): void => {
     for (const n of ns) {

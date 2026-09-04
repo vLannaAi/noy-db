@@ -30,7 +30,13 @@
  * omitted-at-default, so summarising it later (per #1389's rule) would move
  * every joined MV's hash at once for zero gain. Derive it in the EXECUTOR.
  *
- * These tests are expected to be EDITED, not deleted, when scoping lands.
+ * ⭐ **SCOPING LANDED (#1342, 2026-09-04) AND THIS FIELD IS STILL `'all'`.**
+ * ADR 0007 ruled partition-as-collection, so the scope is derived in the
+ * EXECUTOR by `kernel/query/partition.ts`'s `resolvePartitionScope()` from
+ * the plan's top-level clause list — nothing writes it onto a leg. So these
+ * tests did NOT need editing: they still pin the dormancy, and the reason
+ * they pass is the reason the design is right rather than an accident.
+ * Delete them only if `partitionScope` itself goes.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createNoydb, type Noydb } from '../src/kernel/noydb.js'

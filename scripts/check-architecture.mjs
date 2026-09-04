@@ -512,6 +512,15 @@ const SCHEMA_DECLARED_OR_INFRA_EXEMPT = new Set([
   // an undeclared bundle by the floor canaries in check-bundle.mjs, which is
   // the property a with*() gate exists to buy.
   'via/geo',
+  // #1342 / ADR 0007 — `partitioned(vault, spec)` is a DECLARATION factory in
+  // the same ③ bucket as money()/computed()/geo() above: it binds collections
+  // the caller already opened into one logical collection and returns a query
+  // helper. There is no strategy to swap and nothing to stub out — ADR 0007
+  // ruled the storage-layout policy (key prefixing) OUT, which is the only
+  // thing a with*() gate would have had to carry. Tree-shaken when the free
+  // function is never imported; it registers nothing on the SubsystemBus and
+  // no kernel path reaches it.
+  'with-store/partitioned',
 ])
 
 // Does any .ts file in `dir` (recursively) export a `with*()` factory —

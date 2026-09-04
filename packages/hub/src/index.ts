@@ -1233,6 +1233,8 @@ export {
   buildLiveQuery,
   explainPlan,
   ScanBuilder,
+  ALL_PARTITIONS,
+  resolvePartitionScope,
 } from './kernel/query/index.js'
 export type {
   QueryPlan,
@@ -1266,7 +1268,23 @@ export type {
   LiveUpstream,
   LiveBuildOptions,
   ScanPageProvider,
+  PartitionScope,
 } from './kernel/query/index.js'
+
+// Partitioned collections (#1342, ADR 0007 "partitioning is collection-shaped").
+// A partition IS a collection, so pruning costs no `@noy-db/hub/to` change:
+// `listPage` never fetches an excluded partition because it is never asked to.
+export {
+  partitioned,
+  PartitionedCollection,
+  PartitionedQuery,
+  PartitionedScan,
+  PartitionKeyError,
+  PARTITION_REGISTRY_COLLECTION,
+  defaultPartitionNamer,
+  unionPageProvider,
+} from './with-store/partitioned/index.js'
+export type { PartitionSpec, PartitionNamer } from './with-store/partitioned/index.js'
 
 // Query DSL helpers (escape-hatch types for consumers with dynamic field names)
 export type { QueryField, IndexFieldName } from './kernel/types.js'
