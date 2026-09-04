@@ -29,11 +29,29 @@ import { gzipSync } from 'node:zlib'
 import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const HUB_DIR = join(__dirname, '..')
 const MANIFEST_PATH = join(__dirname, '..', 'bundle-manifest.json')
+
+// Every runtime entry point the package publishes: subpath -> built file.
+// Derived from package.json rather than transcribed, because a hand-kept copy
+// of the exports map is a second thing to forget when a subpath is added, and
+// the failure is silent — esbuild resolves the unaliased specifier through
+// node_modules and measures whatever it finds there instead. `codemods/*.json`
+// is published DATA, not code, and is excluded.
+const HUB_EXPORT_TARGETS = Object.fromEntries(
+  Object.entries(JSON.parse(readFileSync(join(HUB_DIR, 'package.json'), 'utf8')).exports)
+    .filter(([, target]) => typeof target?.default === 'string' && target.default.endsWith('.js'))
+    .map(([subpath, target]) => [subpath, join(HUB_DIR, target.default)]),
+)
+
+// esbuild alias map: '@noy-db/hub', '@noy-db/hub/history', … -> the built file.
+const HUB_ALIAS = Object.fromEntries(
+  Object.entries(HUB_EXPORT_TARGETS)
+    .map(([subpath, file]) => [`@noy-db/hub${subpath === '.' ? '' : subpath.slice(1)}`, file]),
+)
 
 // Tolerance: real bundles wobble between builds by a few bytes due to
 // hash-based chunk naming. Allow a 5% upward drift before failing.
@@ -271,31 +289,193 @@ const SCENARIOS = [
   },
   {
     name: 'all-on',
-    description: 'every subsystem opted in (upper bound)',
+    description: 'every published with*() factory actually enabled (upper bound)',
+    // #1381 — this scenario is the one a reviewer reads to sanity-check total
+    // cost, so it has to be an honest upper bound rather than a hand-kept
+    // sample. Two properties make it that, and `assertAllOnCoversEveryFactory`
+    // below enforces the first mechanically:
+    //
+    //   1. EVERY `with*()` factory the package exports appears here. Before
+    //      #1381 twelve of forty-two did, so the row understated the cost of
+    //      "everything on" by more than half the catalog.
+    //   2. Each factory is CALLED and its result is WIRED IN — passed to
+    //      `createNoydb`, nested inside the strategy that consumes it, or
+    //      composed into the store. Re-exporting a factory retains that one
+    //      function; it does not link the engine a nested opt-in reaches.
+    //      `withReduce({ window: withWindow() })` is the case #1349 found, and
+    //      `withRollup` / `withDeferredNumbering` / the six store middlewares
+    //      are the same shape — a capability with no `createNoydb` slot of its
+    //      own can only be measured by writing the call a consumer writes.
+    //
+    // The program is never executed, only bundled, so the argument values are
+    // chosen to read like a real consumer's, not to be semantically meaningful.
     code: `
-      import { createNoydb } from '@noy-db/hub'
+      import {
+        createNoydb, memoryStore,
+        withArchive, withDeferredNumbering,
+      } from '@noy-db/hub'
+      import {
+        wrapStore,
+        withRetry, withLogging, withMetrics,
+        withCircuitBreaker, withCache, withHealthCheck,
+      } from '@noy-db/hub/store'
       import { withHistory } from '@noy-db/hub/history'
-      import { withI18n } from '@noy-db/hub/i18n'
-      import { withSession } from '@noy-db/hub/session'
-      import { withSync } from '@noy-db/hub/sync'
-      import { withBlobs } from '@noy-db/hub/blobs'
-      import { withIndexing } from '@noy-db/hub/indexing'
-      import { withReduce } from '@noy-db/hub/reduce'
+      import { withVaultHead } from '@noy-db/hub/vault-head'
       import { withCrdt } from '@noy-db/hub/crdt'
+      import { withSequence } from '@noy-db/hub/sequence'
+      import { withTransactions } from '@noy-db/hub/transactions'
+      import { withI18n } from '@noy-db/hub/i18n'
+      import { withBlobs } from '@noy-db/hub/blobs'
+      import { withClassified } from '@noy-db/hub/classified'
+      import { withIndexing } from '@noy-db/hub/indexing'
+      import { withReduce, withWindow } from '@noy-db/hub/reduce'
+      import { withSearch } from '@noy-db/hub/search'
+      import { withSession } from '@noy-db/hub/session'
+      import { withTeam } from '@noy-db/hub/team'
+      import { withBroker } from '@noy-db/hub/broker'
+      import { withCustody } from '@noy-db/hub/custody'
+      import { withSync } from '@noy-db/hub/sync'
       import { withConsent } from '@noy-db/hub/consent'
       import { withPeriods } from '@noy-db/hub/periods'
+      import { withForget } from '@noy-db/hub/forget'
+      import { withTiers } from '@noy-db/hub/tiers'
+      import { withAttestation } from '@noy-db/hub/attestation'
+      import { withSealedRecord } from '@noy-db/hub/sealed-record'
+      import { withPortability } from '@noy-db/hub/portability'
       import { withShadow } from '@noy-db/hub/shadow'
-      import { withTransactions } from '@noy-db/hub/transactions'
-      export {
-        createNoydb,
-        withHistory, withI18n, withSession, withSync,
-        withBlobs, withIndexing, withReduce, withCrdt,
-        withConsent, withPeriods, withShadow, withTransactions,
-      }
+      import { withSnapshots } from '@noy-db/hub/snapshots'
+      import { withLazy } from '@noy-db/hub/lazy'
+      import { withCargo } from '@noy-db/hub/cargo'
+      import { withFormats } from '@noy-db/hub/as'
+      import { withGuard } from '@noy-db/hub/guards'
+      import { withDerivation, withRollup } from '@noy-db/hub/derivations'
+      import { withMaterializedView } from '@noy-db/hub/materialized-views'
+      import { withOverlayedView } from '@noy-db/hub/overlay-views'
+
+      // Store middleware is opt-in capability with a real size, and it has no
+      // createNoydb slot — it is composed onto the store itself.
+      const store = wrapStore(
+        memoryStore(),
+        withRetry(), withLogging(), withMetrics(),
+        withCircuitBreaker(), withCache(), withHealthCheck(),
+      )
+
+      export const db = createNoydb({
+        store, user: 'u', secret: 's',
+        archiveStrategy: withArchive({ store: memoryStore() }),
+        blobsStrategy: withBlobs(),
+        indexingStrategy: withIndexing(),
+        // The nested opt-in #1349 introduced. Passing withReduce() alone
+        // measures a build with the window engine tree-shaken out.
+        reduceStrategy: withReduce({ window: withWindow() }),
+        searchStrategy: withSearch(),
+        crdtStrategy: withCrdt(),
+        tiersStrategy: withTiers(),
+        consentStrategy: withConsent(),
+        periodsStrategy: withPeriods(),
+        shadowStrategy: withShadow(),
+        snapshotsStrategy: withSnapshots({ store: memoryStore() }),
+        transactionsStrategy: withTransactions(),
+        historyStrategy: withHistory(),
+        vaultHeadStrategy: withVaultHead(),
+        forgetStrategy: withForget({ subjects: { people: 'subjectId' } }),
+        sessionStrategy: withSession(),
+        syncStrategy: withSync(),
+        attestationStrategy: withAttestation(),
+        classifiedStrategy: withClassified(),
+        sealedRecordStrategy: withSealedRecord(),
+        portabilityStrategy: withPortability(),
+        sequenceStrategy: withSequence(),
+        custodyStrategy: withCustody(),
+        teamStrategy: withTeam(),
+        brokerStrategy: withBroker({ brokerId: 'b', endpoint: 'https://broker.example.com' }),
+        lazyStrategy: withLazy(),
+        cargoStrategy: withCargo(),
+        i18nStrategy: withI18n(),
+        formatsStrategy: withFormats(),
+        // Declaration helpers: no strategy slot of their own, so they reach
+        // the vault only through one of these arrays.
+        guardStrategies: [withGuard({ collection: 'invoices' })],
+        numbering: [withDeferredNumbering({
+          series: 'inv', collection: 'invoices', field: 'number',
+        })],
+        derivationStrategies: [
+          withDerivation({ source: 'invoices', outputs: { lines: () => [] } }),
+          withRollup({
+            from: 'lines', key: 'invoiceId', into: 'invoices',
+            field: 'total', compute: () => 0,
+          }),
+        ],
+        materializedViewStrategies: [
+          withMaterializedView({ name: 'mv', projection: { from: 'invoices' } }),
+        ],
+        overlayedViewStrategies: [
+          withOverlayedView({ name: 'ov', base: 'mv' }),
+        ],
+      })
     `,
     leakCanaries: [],
   },
 ]
+
+/**
+ * #1381 guard — the `all-on` scenario must reference every `with*()` factory
+ * the package publishes.
+ *
+ * The class this closes is structural, not a one-off: a capability reachable
+ * only through a NESTED opt-in (`withReduce({ window: withWindow() })`,
+ * `derivationStrategies: [withRollup(...)]`, `wrapStore(store, withRetry())`)
+ * owns no `createNoydb` slot and no subpath of its own, so nothing about
+ * adding one forces anybody to touch this file. `all-on` then keeps reporting
+ * a number that is correct for what it builds and wrong for what it is named,
+ * and — worse — a capability invisible here cannot regress here.
+ *
+ * The authority is the built `dist` reached through the package's own
+ * `exports` map: what a consumer can actually import, measured rather than
+ * transcribed. A new factory that ships without being added to the scenario
+ * fails the bundle-check gate.
+ *
+ * There is deliberately NO allowlist. If a factory genuinely cannot be
+ * enabled alongside the rest, add the allowlist together with the first entry
+ * that needs it and record the reason on that entry — an empty escape hatch
+ * invites use before anyone has to justify one.
+ */
+async function assertAllOnCoversEveryFactory() {
+  const scenario = SCENARIOS.find((s) => s.name === 'all-on')
+  const factories = new Map() // factory name -> the subpath that publishes it
+  for (const [subpath, target] of Object.entries(HUB_EXPORT_TARGETS)) {
+    const mod = await import(pathToFileURL(target).href)
+    for (const name of Object.keys(mod)) {
+      if (!/^with[A-Z]/.test(name)) continue
+      // Prefer the dedicated subpath over the root barrel in the message.
+      if (!factories.has(name) || subpath === '.') factories.set(name, subpath)
+      if (subpath !== '.' && factories.get(name) === '.') factories.set(name, subpath)
+    }
+  }
+
+  const missing = [...factories]
+    .filter(([name]) => !new RegExp(`\\b${name}\\b`).test(scenario.code))
+    .map(([name, subpath]) => `${name}()  —  @noy-db/hub${subpath === '.' ? '' : subpath.slice(1)}`)
+
+  if (missing.length > 0) {
+    console.error(
+      `\n✗ The 'all-on' scenario does not enable every published capability (#1381).\n\n` +
+      `  Missing:\n` +
+      missing.map((m) => `    ${m}`).join('\n') +
+      `\n\n  'all-on' is the row a reviewer reads as "what a consumer pays with\n` +
+      `  everything enabled", so a factory absent from it makes that number\n` +
+      `  wrong for its own name — and makes the capability unable to regress\n` +
+      `  in any scenario. Add the factory to the scenario and CALL it, wiring\n` +
+      `  the result into createNoydb (or into whatever consumes it: a nested\n` +
+      `  strategy option, a declaration array, the store). Re-exporting the\n` +
+      `  factory retains one function and links none of its engine.\n\n` +
+      `  Then re-baseline: BUNDLE_BASELINE_UPDATE=1 pnpm --filter @noy-db/hub bundle-check\n`,
+    )
+    process.exit(1)
+  }
+
+  return factories.size
+}
 
 async function buildScenario(scenario) {
   const tmpDir = mkdtempSync(join(tmpdir(), 'noy-db-bundle-'))
@@ -326,25 +506,7 @@ async function buildScenario(scenario) {
     treeShaking: true,
     splitting: true,
     nodePaths: [join(HUB_DIR, '..', '..', 'node_modules')],
-    alias: {
-      '@noy-db/hub': join(HUB_DIR, 'dist', 'index.js'),
-      '@noy-db/hub/history': join(HUB_DIR, 'dist', 'history', 'index.js'),
-      '@noy-db/hub/classified': join(HUB_DIR, 'dist', 'classified', 'index.js'),
-      '@noy-db/hub/i18n': join(HUB_DIR, 'dist', 'i18n', 'index.js'),
-      '@noy-db/hub/session': join(HUB_DIR, 'dist', 'session', 'index.js'),
-      '@noy-db/hub/sync': join(HUB_DIR, 'dist', 'sync', 'index.js'),
-      '@noy-db/hub/blobs': join(HUB_DIR, 'dist', 'blobs', 'index.js'),
-      '@noy-db/hub/indexing': join(HUB_DIR, 'dist', 'indexing', 'index.js'),
-      '@noy-db/hub/reduce': join(HUB_DIR, 'dist', 'reduce', 'index.js'),
-      '@noy-db/hub/crdt': join(HUB_DIR, 'dist', 'crdt', 'index.js'),
-      '@noy-db/hub/consent': join(HUB_DIR, 'dist', 'consent', 'index.js'),
-      '@noy-db/hub/periods': join(HUB_DIR, 'dist', 'periods', 'index.js'),
-      '@noy-db/hub/shadow': join(HUB_DIR, 'dist', 'shadow', 'index.js'),
-      '@noy-db/hub/transactions': join(HUB_DIR, 'dist', 'transactions', 'index.js'),
-      '@noy-db/hub/team': join(HUB_DIR, 'dist', 'team', 'index.js'),
-      '@noy-db/hub/broker': join(HUB_DIR, 'dist', 'broker', 'index.js'),
-      '@noy-db/hub/lazy': join(HUB_DIR, 'dist', 'lazy', 'index.js'),
-    },
+    alias: HUB_ALIAS,
     logLevel: 'silent',
   })
 
@@ -371,25 +533,7 @@ async function buildScenario(scenario) {
     treeShaking: true,
     splitting: true,
     nodePaths: [join(HUB_DIR, '..', '..', 'node_modules')],
-    alias: {
-      '@noy-db/hub': join(HUB_DIR, 'dist', 'index.js'),
-      '@noy-db/hub/history': join(HUB_DIR, 'dist', 'history', 'index.js'),
-      '@noy-db/hub/classified': join(HUB_DIR, 'dist', 'classified', 'index.js'),
-      '@noy-db/hub/i18n': join(HUB_DIR, 'dist', 'i18n', 'index.js'),
-      '@noy-db/hub/session': join(HUB_DIR, 'dist', 'session', 'index.js'),
-      '@noy-db/hub/sync': join(HUB_DIR, 'dist', 'sync', 'index.js'),
-      '@noy-db/hub/blobs': join(HUB_DIR, 'dist', 'blobs', 'index.js'),
-      '@noy-db/hub/indexing': join(HUB_DIR, 'dist', 'indexing', 'index.js'),
-      '@noy-db/hub/reduce': join(HUB_DIR, 'dist', 'reduce', 'index.js'),
-      '@noy-db/hub/crdt': join(HUB_DIR, 'dist', 'crdt', 'index.js'),
-      '@noy-db/hub/consent': join(HUB_DIR, 'dist', 'consent', 'index.js'),
-      '@noy-db/hub/periods': join(HUB_DIR, 'dist', 'periods', 'index.js'),
-      '@noy-db/hub/shadow': join(HUB_DIR, 'dist', 'shadow', 'index.js'),
-      '@noy-db/hub/transactions': join(HUB_DIR, 'dist', 'transactions', 'index.js'),
-      '@noy-db/hub/team': join(HUB_DIR, 'dist', 'team', 'index.js'),
-      '@noy-db/hub/broker': join(HUB_DIR, 'dist', 'broker', 'index.js'),
-      '@noy-db/hub/lazy': join(HUB_DIR, 'dist', 'lazy', 'index.js'),
-    },
+    alias: HUB_ALIAS,
     logLevel: 'silent',
   })
   const probe = readFileSync(join(probeDir, 'entry.js'), 'utf8')
@@ -461,6 +605,11 @@ async function main() {
     process.exit(1)
   }
 
+  // Runs BEFORE any measurement, and before the baseline-update path: a
+  // manifest blessed from a scenario that is missing a capability writes the
+  // under-report into the repo as the new truth.
+  const factoryCount = await assertAllOnCoversEveryFactory()
+
   const manifest = existsSync(MANIFEST_PATH)
     ? JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'))
     : { scenarios: {} }
@@ -475,7 +624,8 @@ async function main() {
   // there.
   let leakFailures = 0
 
-  console.log('\n📦 Bundle-size invariants — v0.25 catalog\n')
+  console.log('\n📦 Bundle-size invariants — v0.25 catalog')
+  console.log(`   all-on enables all ${factoryCount} published with*() factories (#1381)\n`)
   console.log(
     `  ${'scenario'.padEnd(14)} ${'min'.padStart(8)} ${'gz'.padStart(8)}` +
     `   leaks    baseline (gz)   delta`,
