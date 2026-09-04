@@ -165,8 +165,12 @@ describe('CollectionIndexes — unit', () => {
       { id: 'd', record: { /* missing */ } },
     ])
     expect(idx.lookupEqual('status', 'open')?.size).toBe(1)
-    expect(idx.lookupEqual('status', null)?.size).toBe(0)
-    expect(idx.lookupEqual('status', undefined)?.size).toBe(0)
+    // #1402: a nullish PROBE now returns `null` ("no index answer — scan"),
+    // not an empty set. The empty set read as "no record matches", which is
+    // false: `b`/`c`/`d` all match `where('status','==',undefined)` on the
+    // scan path, so the indexed and unindexed answers disagreed.
+    expect(idx.lookupEqual('status', null)).toBeNull()
+    expect(idx.lookupEqual('status', undefined)).toBeNull()
   })
 
   it('11. supports number, boolean, and Date values via stringification', () => {

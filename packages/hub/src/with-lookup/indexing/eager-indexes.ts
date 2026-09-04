@@ -16,7 +16,7 @@
  */
 
 import { readPath } from '../../kernel/query/predicate.js'
-import { stringifyBucketKey } from '../../kernel/query/distinct-key.js'
+import { stringifyBucketKey, isProbeableBucketKey } from '../../kernel/query/distinct-key.js'
 import { SortedIndex, buildSortedIndex, type RangeOperator } from './sorted-indexes.js'
 import {
   CompoundIndex,
@@ -447,12 +447,19 @@ export class CollectionIndexes {
    * the given value. Returns `null` if no index covers the field — the
    * caller should fall back to a linear scan.
    *
+   * ⛔ ALSO `null` when the OPERAND has no bucket ADDRESS (#1402) — a
+   * nullish operand, or an object one, which every object-valued record in
+   * the collection shares. Answering those from the buckets returns rows
+   * the scan does not, silently, and only on the collections that happen to
+   * have an index. See `isProbeableBucketKey` for the two measurements.
+   *
    * The returned Set is a reference to the index's internal storage —
    * callers must NOT mutate it.
    */
   lookupEqual(field: string, value: unknown): ReadonlySet<string> | null {
     const idx = this.indexes.get(field)
     if (!idx) return null
+    if (!isProbeableBucketKey(value)) return null
     const key = stringifyKey(value)
     return idx.buckets.get(key) ?? EMPTY_SET
   }
@@ -460,10 +467,16 @@ export class CollectionIndexes {
   /**
    * Set lookup: return the union of record ids whose `field` matches any
    * of the given values. Returns `null` if no index covers the field.
+   *
+   * ⛔ ALSO `null` when ANY member of `values` has no bucket address
+   * (#1402) — one unaddressable member poisons the whole union, since the
+   * result is a union and there is no partial answer to hand back. Same
+   * measurement as {@link lookupEqual}.
    */
   lookupIn(field: string, values: readonly unknown[]): ReadonlySet<string> | null {
     const idx = this.indexes.get(field)
     if (!idx) return null
+    if (!values.every(isProbeableBucketKey)) return null
     const out = new Set<string>()
     for (const value of values) {
       const key = stringifyKey(value)

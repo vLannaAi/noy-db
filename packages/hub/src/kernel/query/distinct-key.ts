@@ -29,11 +29,52 @@
  * querying with object values is a code smell.
  */
 export function stringifyBucketKey(value: unknown): string {
-  if (value === null || value === undefined) return '\0NULL\0'
+  if (value === null || value === undefined) return NULLISH_BUCKET_KEY
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   if (value instanceof Date) return value.toISOString()
-  return '\0OBJECT\0'
+  return OBJECT_BUCKET_KEY
+}
+
+/** The key a nullish value maps to. Nullish values are never INSERTED, so this bucket is always empty. */
+const NULLISH_BUCKET_KEY = '\0NULL\0'
+/** The key EVERY non-Date object maps to — one shared bucket, not a per-object identity. */
+const OBJECT_BUCKET_KEY = '\0OBJECT\0'
+
+/**
+ * Is this OPERAND one a hash bucket can answer for? (#1402)
+ *
+ * ⛔ Two of {@link stringifyBucketKey}'s outputs are not addresses, and a
+ * probe that treats them as one returns wrong rows SILENTLY — the #1402
+ * failure mode, and measured on `main` for ordinary non-Via fields:
+ *
+ *  - `'\0OBJECT\0'` is a COLLISION BUCKET, not a sentinel. Every non-Date
+ *    object-valued record in the collection sits in it, so
+ *    `where('obj', '==', { k: 1 })` matched `[a, b]` from the index against
+ *    `[]` from the scan (the scan compares by reference and matches
+ *    neither). The doc above says *"objects produce a sentinel that no real
+ *    record will match"*; that was true of the OPERAND and false of the
+ *    stored values, which is exactly the half that decides the answer.
+ *  - `'\0NULL\0'` is an empty bucket, because nullish values are never
+ *    inserted. Probing it returns `EMPTY_SET`, which reads as "no matches"
+ *    rather than "I cannot answer" — so `where('tag', '==', undefined)`
+ *    returned `[]` from the index against the records that genuinely have
+ *    no `tag` from the scan. The doc above already claims this case *"falls
+ *    back to a linear scan"*; it did not.
+ *
+ * Both are fixed at the PROBE, never at the bucketing: a caller that gets
+ * `false` here must return `null` (= "no index answer, scan it"), not an
+ * empty set. Bucketing is untouched, so no stored data or persisted sidecar
+ * moves.
+ *
+ * ⚠️ EAGER MODE ONLY, deliberately. `PersistedCollectionIndex` (lazy) has
+ * no scan to fall back TO — refusing there converts wrong rows into an
+ * `IndexRequiredError`, which is a behaviour decision of its own and is
+ * left open rather than smuggled in here.
+ */
+export function isProbeableBucketKey(value: unknown): boolean {
+  const key = stringifyBucketKey(value)
+  return key !== NULLISH_BUCKET_KEY && key !== OBJECT_BUCKET_KEY
 }
 
 /**
