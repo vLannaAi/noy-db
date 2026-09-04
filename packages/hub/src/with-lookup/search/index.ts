@@ -12,8 +12,14 @@ export { InvertedIndex, type IndexDoc, type IndexHit, type QueryOptions, type In
 export { extractSnippet } from './snippet.js'
 export { MemoryIndexStore, type IndexStore } from './index-store.js'
 export { buildStringFieldEntries, type FieldEntry } from './build-docs.js'
-export type { RetrieveOptions, RetrieveHit } from './retrieve-types.js'
+export type { RetrieveOptions, RetrieveHit, SimilarToOptions } from './retrieve-types.js'
 export { fuseRetrieval, type FuseOptions } from './fuse.js'
+
+// #1360 part 2 — the approximate vector index opt-in. `withVectorIndex` is the
+// ONLY door to `ivf-flat.js`, and it opens it with a dynamic import, so a
+// consumer of this barrel who never calls it ships none of the algorithm.
+export { withVectorIndex, DEFAULT_INDEX_MIN_VECTORS, type VectorIndexOptions } from '../embeddings/with-vector-index.js'
+export type { VectorIndex, VectorIndexConfig, VectorIndexSearchOptions } from '../embeddings/vector-index.js'
 
 // Capability opt-in seam (S4): a collection's search / retrieve / similarTo /
 // warmIndex / flushIndex methods (and the embedding write-hook) route through

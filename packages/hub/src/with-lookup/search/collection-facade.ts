@@ -38,7 +38,7 @@ import type { PersistedIndexCallbacks } from './persisted-index-store.js'
 import { extractSnippet } from './snippet.js'
 import { buildStringFieldEntries, buildI18nFieldEntries, buildDictKeyFieldEntries, buildBlobFieldEntries } from './build-docs.js'
 import type { IndexDoc, IndexHit, IndexBuildOptions } from './inverted-index.js'
-import type { RetrieveOptions, RetrieveHit } from './retrieve-types.js'
+import type { RetrieveOptions, RetrieveHit, SimilarToOptions } from './retrieve-types.js'
 
 /** Everything the moving search/retrieval methods touched on `this.*`. */
 export interface SearchContext<T> {
@@ -475,18 +475,25 @@ async function retrieveSemantic<T>(ctx: SearchContext<T>, query: string, opts: R
     ...(opts.limit !== undefined ? { k: opts.limit } : {}),
     ...(opts.minScore !== undefined ? { minScore: opts.minScore } : {}),
     ...(opts.includeRecord ? { includeRecord: true } : {}),
+    ...(opts.exact !== undefined ? { exact: opts.exact } : {}),
+    ...(opts.nprobe !== undefined ? { nprobe: opts.nprobe } : {}),
   })
 }
 
 /** L2 — raw-vector kNN over the encrypted vector set (decrypted in the trusted tier).
  *  Snippet is '' for vector hits in v1 (semantic match isn't span-located). */
-export async function similarTo<T>(ctx: SearchContext<T>, vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
+export async function similarTo<T>(ctx: SearchContext<T>, vector: Float32Array, opts: SimilarToOptions = {}): Promise<RetrieveHit<T>[]> {
   if (!ctx.embeddings || !ctx.vectorSet) throw new Error(`Collection "${ctx.name}": similarTo() requires an embeddings config.`)
   if (ctx.lazy) throw new Error(`Collection "${ctx.name}": similarTo() requires eager mode (prefetch: true).`)
   await ctx.ensureHydrated()
   await ctx.vectorSet.ensureLoaded(buildVectorLoad(ctx))
-  const hits = ctx.vectorSet.cosineTopK(vector, opts.k ?? 10, {
+  // #1360 part 2: `topK` picks exact vs approximate from the collection's
+  // `embeddings.index` opt-in, the live vector count and this call's `exact`.
+  // With no opt-in it IS `cosineTopK` — same function, same numbers.
+  const hits = await ctx.vectorSet.topK(vector, opts.k ?? 10, {
     ...(opts.minScore !== undefined ? { minScore: opts.minScore } : {}),
+    ...(opts.exact !== undefined ? { exact: opts.exact } : {}),
+    ...(opts.nprobe !== undefined ? { nprobe: opts.nprobe } : {}),
     expectModel: ctx.embeddings.model,
   })
   return hits.map((h, i) => {
@@ -527,6 +534,7 @@ export async function embedOnWrite<T>(ctx: SearchContext<T>, id: string, record:
   // collection, no new plaintext surface.
   const chunks = await deriveChunkVectors(text, ctx.embeddings)
   let body: string
+  let writtenVec: Float32Array | undefined
   if (chunks.length > 0) {
     for (const c of chunks) {
       if (c.vec.length !== ctx.embeddings.dim) throw new EmbeddingDimMismatchError('embeddings', ctx.embeddings.dim, c.vec.length)
@@ -539,11 +547,23 @@ export async function embedOnWrite<T>(ctx: SearchContext<T>, id: string, record:
   } else {
     const vec = await ctx.embeddings.encode(text)
     if (vec.length !== ctx.embeddings.dim) throw new EmbeddingDimMismatchError('embeddings', ctx.embeddings.dim, vec.length)
+    writtenVec = vec
     body = JSON.stringify({ vec: Array.from(vec), model: ctx.embeddings.model, dim: ctx.embeddings.dim })
   }
   const vecEnv = await ctx.codec.encryptJsonString({ collection: '_vec', id: encodeVecId(ctx.name, id) }, body, version)
   await ctx.adapter.put(ctx.vault, '_vec', encodeVecId(ctx.name, id), vecEnv)
-  ctx.vectorSet?.markDirty()
+  // #1360 part 2 — hand the just-computed vectors to the in-memory set rather
+  // than dropping it. Equivalent to the old `markDirty()` by construction: the
+  // sidecar we just wrote is exactly what a reload would decrypt back, so the
+  // next query sees the same vectors either way. The difference is cost —
+  // `markDirty()` re-reads and re-decrypts every sidecar in the collection on
+  // the next query, and would additionally rebuild the approximate index from
+  // scratch after every single `put()`.
+  if (chunks.length > 0) {
+    ctx.vectorSet?.upsert({ id, model: ctx.embeddings.model, chunks: chunks.map((c) => ({ id: c.id, start: c.start, end: c.end, vec: c.vec })) })
+  } else {
+    ctx.vectorSet?.upsert({ id, model: ctx.embeddings.model, vec: writtenVec! })
+  }
 }
 
 /**
@@ -607,7 +627,7 @@ export async function syncTierSearch<T>(
   if (!ctx.searchIndexStore && !ctx.vectorSet) return
   if (record === null) {
     await ctx.adapter.delete(ctx.vault, '_vec', encodeVecId(ctx.name, id))
-    ctx.vectorSet?.markDirty()
+    ctx.vectorSet?.removeRecord(id)
   } else {
     await embedOnWrite(ctx, id, record, version ?? 1)
   }

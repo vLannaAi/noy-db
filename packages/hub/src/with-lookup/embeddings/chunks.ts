@@ -25,16 +25,19 @@
  *
  * ## What is deliberately NOT here
  *
- * No approximate index (HNSW / IVF / quantisation), and no bundled splitter.
- * The splitter is host-supplied like `encode` — chunking a legal clause, a
- * markdown section and a chat transcript are different problems and hub has no
- * business guessing. The approximate index stays gated behind a measurement:
- * brute force over the whole vector set is still the search (see
- * `VectorSet.cosineTopK`), and chunking multiplies the vector count by the
- * chunks-per-record factor — which is precisely the thing the gate measures.
- * ⛔ Managed plaintext vector backends (pgvector, Vectorize, Qdrant) are
- * excluded BY DECISION, not by absence of work: the backend would hold
- * plaintext vectors, and embedding inversion leaks the text back out.
+ * No bundled splitter. The splitter is host-supplied like `encode` — chunking
+ * a legal clause, a markdown section and a chat transcript are different
+ * problems and hub has no business guessing.
+ *
+ * The approximate index that was deferred here HAS since been built — it is
+ * `ivf-flat.ts`, opted into with `withVectorIndex()`, and it is OFF by default
+ * (see `vector-set.ts`'s `topK`). This file's own multiplier is what gated it:
+ * chunking stores one vector per chunk, so a corpus of R records at C chunks
+ * each brute-forces R·C vectors, and the index threshold counts VECTORS.
+ * ⛔ Managed plaintext vector backends (pgvector, Vectorize, Qdrant) remain
+ * excluded BY DECISION, and building an in-hub index does not reopen that: the
+ * backend would hold plaintext vectors, and embedding inversion leaks the text
+ * back out. The index built here never leaves the hub and is never persisted.
  */
 import type { EmbeddingDescriptor } from './descriptor.js'
 

@@ -6,36 +6,44 @@
     },
     "lazy": {
       "minifiedBytes": 1834,
-      "gzippedBytes": 609
+      "gzippedBytes": 608
     },
     "team": {
       "minifiedBytes": 2103,
-      "gzippedBytes": 711
+      "gzippedBytes": 716
     },
     "broker": {
       "minifiedBytes": 2830,
-      "gzippedBytes": 1156
+      "gzippedBytes": 1157
     },
     "history": {
       "minifiedBytes": 5442,
-      "gzippedBytes": 2007
+      "gzippedBytes": 2013
     },
     "classified": {
       "minifiedBytes": 3096,
-      "gzippedBytes": 1097
+      "gzippedBytes": 1096
     },
     "blobs": {
       "minifiedBytes": 1917,
-      "gzippedBytes": 671
+      "gzippedBytes": 673
     },
     "analytics": {
       "minifiedBytes": 2947,
-      "gzippedBytes": 1135
+      "gzippedBytes": 1132
+    },
+    "search": {
+      "minifiedBytes": 1788,
+      "gzippedBytes": 576
+    },
+    "search-ann": {
+      "minifiedBytes": 1817,
+      "gzippedBytes": 596
     },
     "all-on": {
       "minifiedBytes": 34787,
-      "gzippedBytes": 11007
+      "gzippedBytes": 11004
     }
   },
-  "updatedAt": "2026-09-03T20:29:47.838Z"
+  "updatedAt": "2026-09-04T00:16:02.959Z"
 }

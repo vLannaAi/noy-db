@@ -64,7 +64,7 @@ import { type IndexState } from '../with-lookup/indexing/strategy.js'
 import type { SearchOptions, SearchResult } from '../with-lookup/search/index.js'
 import { MemoryIndexStore, type IndexStore } from '../with-lookup/search/index-store.js'
 import { PersistedIndexStore } from '../with-lookup/search/persisted-index-store.js'
-import type { RetrieveOptions, RetrieveHit } from '../with-lookup/search/retrieve-types.js'
+import type { RetrieveOptions, RetrieveHit, SimilarToOptions } from '../with-lookup/search/retrieve-types.js'
 import { encodeVecId, type VectorSet, type EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
 import { buildUniqueConstraintSet, type UniqueConstraintSet } from '../with-lookup/indexing/unique-constraints.js'
 import type { RefDescriptor } from './refs.js'
@@ -2840,7 +2840,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   }
 
   /** Raw-vector kNN — gated behind `searchStrategy: withSearch()`. */
-  similarTo(vector: Float32Array, opts: { k?: number; minScore?: number; includeRecord?: boolean } = {}): Promise<RetrieveHit<T>[]> {
+  similarTo(vector: Float32Array, opts: SimilarToOptions = {}): Promise<RetrieveHit<T>[]> {
     return this.strategies.search.similarTo(this.searchContext(), vector, opts)
   }
 
@@ -3955,7 +3955,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
    *  Called by vault.ts forget() inside a resilient try/catch; residue is reported in ForgetResult. */
   async _purgeVector(id: string): Promise<void> {
     await this.adapter.delete(this.vault, '_vec', encodeVecId(this.name, id))
-    this.vectorSet?.markDirty()
+    this.vectorSet?.removeRecord(id) // #1360 part 2: drop this record, not the whole in-memory set
   }
 
   /** @internal #1359 — force an immediate sidecar write, cancelling the debounce. No-op when none opted in. */

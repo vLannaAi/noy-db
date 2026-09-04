@@ -49,6 +49,22 @@
  * Raw minima behind the 1536 row (the cleanest block): 1k → 1.85 ms,
  * 10k → 19.84 ms, 50k → 105.79 ms, 100k → 208.62 ms.
  *
+ * ✅ **THE GATE WAS MET, and the index exists** (#1360 part 2): IVF-flat,
+ * opt-in via `withVectorIndex()`, off below 20,000 vectors. What it bought —
+ * crossover, recall@10, build time, memory — is the sibling table in
+ * `vector-ann-index.bench.ts`. Keep this file: it is the DENOMINATOR that one
+ * is reported against, and re-running both on a consumer's hardware is how the
+ * trade is re-checked rather than re-argued.
+ *
+ * ⚠️ **Re-measured 2026-09-04 on a heavily loaded machine** (≈35 concurrent
+ * vitest workers). The 384 and 768 minima reproduced the table above to within
+ * ~10% (384: 39.15 ms @50k, 78.92 ms @100k; 768: 61.15 ms @50k, 128.43 ms
+ * @100k). The **1536 row did not** — 285 ms @50k against the 105.79 ms
+ * recorded here, ~2.7x. `min` filters scheduler noise but not sustained
+ * memory-BANDWIDTH contention, and 1536d is the row that is bandwidth-bound
+ * (50k × 1536 × 4B ≈ 300 MB per pass). Treat the 1536 crossover as the least
+ * portable number in this file.
+ *
  * ⭐ **THE GATE.** Build an approximate index when a consumer's corpus is
  * within ~2x of its row above — not before. Below it, brute force is not the
  * bottleneck and an HNSW would add ~600 LOC, an encrypted sidecar to keep

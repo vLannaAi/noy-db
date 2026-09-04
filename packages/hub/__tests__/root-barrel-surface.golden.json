@@ -480,7 +480,9 @@
     "writeMagicLinkGrant",
     "writePod",
     "UnsafePatternError",
-    "TraversalCycleError"
+    "TraversalCycleError",
+    "withVectorIndex",
+    "DEFAULT_INDEX_MIN_VECTORS"
   ],
   "types": [
     "AccessibleVault",
@@ -944,7 +946,12 @@
     "TraversalRow",
     "TraverseOptions",
     "TraverseDirection",
-    "CyclePolicy"
+    "CyclePolicy",
+    "VectorIndexOptions",
+    "VectorIndexConfig",
+    "VectorIndex",
+    "VectorIndexSearchOptions",
+    "SimilarToOptions"
   ],
   "retired": [
     "DeviceSealProvider",
