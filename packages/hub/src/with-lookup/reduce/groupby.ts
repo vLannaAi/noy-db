@@ -37,11 +37,13 @@
  * bucket from that. Consumers who want them merged can coalesce
  * upstream with `.filter()`.
  *
- * **Live mode:** `.groupBy().aggregate().live()` re-runs the full
- * grouping pipeline on every source change. Per-bucket incremental
- * delta maintenance is a future optimization — the reducer
- * protocol's `remove()` hook admits it, but ships naive
- * re-grouping for simplicity.
+ * **Live mode:** `.groupBy().aggregate().live()` maintains its buckets
+ * incrementally (#1341, grouped half). A change event patches the match set
+ * and then re-folds only the one or two buckets it touched; every other bucket
+ * serves the row it already computed. See `incremental-group.ts` — including
+ * why reducer states are re-folded rather than inverted through the protocol's
+ * `remove()` hook. A plan `canMaintainIncrementally()` refuses, and any
+ * notification arriving without a delta, still re-runs the whole pipeline.
  *
  * **Type-level stable-key narrowing:** when
  * `dictKey` lands, `groupBy<DictField>()` will narrow the group key
@@ -71,52 +73,32 @@ import type { ReducerBuilder } from './reducers.js'
 import { bindDistinctReducers, reducerBuilder } from './reducers.js'
 import { canonicalGroupKey } from './canonical-key.js'
 import { GroupCardinalityError } from '../../kernel/errors.js'
+import {
+  GROUPBY_MAX_CARDINALITY,
+  GROUPBY_WARN_CARDINALITY,
+  groupFieldLabel,
+  reduceGroupRow,
+  warnCardinalityApproaching,
+} from './group-core.js'
+import { GroupedMaintainer } from './incremental-group.js'
+import type { GroupMaintenanceStats } from './incremental-group.js'
+import type { GroupMaintenanceSource, SourceChange } from '../../kernel/query/incremental.js'
 import type { MoneyDescriptor } from '../../via/money/descriptor.js'
 import type { ViaPipeline } from '../../kernel/via/pipeline.js'
 import { viaBinder } from '../../kernel/via/index.js'
 import { applyI18nLocale, type I18nTextDescriptor } from '../../via/i18n/core.js'
 
 /**
- * Cardinality thresholds for `.groupBy()`. The warn threshold gives
- * consumers a heads-up before the hard error; the cap is a fixed
- * constant in (not overridable). A `{ maxGroups }` override
- * can be added later without a break if a real consumer asks.
+ * The cardinality guards and the warning-reset hook live in `group-core.ts`
+ * — shared verbatim with the incremental maintainer so the eager and
+ * delta-maintained paths cannot enforce different caps — and are re-exported
+ * here so every existing import site is unchanged.
  */
-export const GROUPBY_WARN_CARDINALITY = 10_000
-export const GROUPBY_MAX_CARDINALITY = 100_000
-
-/**
- * One-shot warning dedup per-field-set — reactive dashboards
- * re-executing the same grouped query should produce the warning
- * once, not once per re-fire. Keyed on the sorted JSON of grouping
- * field names so `.groupBy('a', 'b')` and `.groupBy('b', 'a')`
- * share the same dedup slot (their result tuples are isomorphic).
- */
-const warnedCardinalityFields = new Set<string>()
-function warnCardinalityApproaching(
-  fields: readonly string[],
-  observed: number,
-): void {
-  const key = JSON.stringify([...fields].sort())
-  if (warnedCardinalityFields.has(key)) return
-  warnedCardinalityFields.add(key)
-  const label = `[${fields.join(', ')}]`
-  console.warn(
-    `[noy-db] .groupBy(${label}) produced ${observed} distinct groups, ` +
-      `${Math.round((observed / GROUPBY_MAX_CARDINALITY) * 100)}% of the ` +
-      `${GROUPBY_MAX_CARDINALITY}-group ceiling. Narrow the query with ` +
-      `.where() before grouping, or switch to a lower-cardinality field.`,
-  )
-}
-
-/**
- * Test-only: clear the per-field cardinality warning dedup between
- * tests. Production code never calls this — matching the
- * `resetJoinWarnings` pattern in `join.ts`.
- */
-export function resetGroupByWarnings(): void {
-  warnedCardinalityFields.clear()
-}
+export {
+  GROUPBY_WARN_CARDINALITY,
+  GROUPBY_MAX_CARDINALITY,
+  resetGroupByWarnings,
+} from './group-core.js'
 
 /**
  * Result row shape for a grouped reduction. Each row carries the
@@ -184,6 +166,12 @@ abstract class GroupedQueryBase {
      * BigInt reducers when `.aggregate(spec)` is terminated.
      */
     protected readonly via?: ViaPipeline,
+    /**
+     * The #1341 delta-maintenance seam, supplied by `Query.groupBy()` when the
+     * plan admits incremental maintenance and withheld when it does not.
+     * `undefined` is the pre-#1341 behaviour: `.live()` re-runs in full.
+     */
+    protected readonly maintenance?: GroupMaintenanceSource,
   ) {
     this.fields =
       typeof fieldOrFields === 'string' ? [fieldOrFields] : [...fieldOrFields]
@@ -242,6 +230,8 @@ export class GroupedQuery<T, F extends string, S extends keyof T = never, M exte
       this.wrapSpec(spec),
       this.upstreams,
       this.dictLabelResolver,
+      NO_POST_GROUP,
+      this.maintenance,
     )
   }
 }
@@ -267,6 +257,8 @@ export class GroupedQueryN<T, F extends readonly string[], S extends keyof T = n
       this.wrapSpec(spec),
       this.upstreams,
       this.dictLabelResolver,
+      NO_POST_GROUP,
+      this.maintenance,
     )
   }
 }
@@ -324,7 +316,7 @@ export function groupAndReduce<R>(
   const buckets = new Map<string, Bucket>()
   // Field-label string for error messages — matches the variadic
   // surface (`[a, b]` for multi-key, `"k"` for single-key back-compat).
-  const fieldLabel = fields.length === 1 ? fields[0]! : `[${fields.join(', ')}]`
+  const fieldLabel = groupFieldLabel(fields)
 
   for (const record of records) {
     // Read each field's value into a row object, then canonicalise.
@@ -352,33 +344,15 @@ export function groupAndReduce<R>(
     warnCardinalityApproaching(fields, buckets.size)
   }
 
-  // Reduce each bucket through the spec. Same init/step/finalize
-  // pipeline as `reduceRecords` in aggregate.ts, but one state per
-  // bucket. Inlining the loop here keeps the per-bucket path tight
-  // — calling `reduceRecords` per bucket would recompute
-  // `Object.keys(spec)` once per bucket unnecessarily.
+  // Reduce each bucket through the spec — `reduceGroupRow` is the SAME fold
+  // the incremental maintainer runs for a dirty bucket, which is what makes an
+  // incrementally maintained row identical to this one rather than merely
+  // equal to it. `Object.keys(spec)` is hoisted out of the loop; calling
+  // `reduceRecords` per bucket would recompute it per bucket.
   const reducerKeys = Object.keys(spec)
   const out: R[] = []
   for (const bucket of buckets.values()) {
-    const state: Record<string, unknown> = {}
-    for (const rk of reducerKeys) {
-      state[rk] = spec[rk]!.init()
-    }
-    for (const record of bucket.records) {
-      for (const rk of reducerKeys) {
-        state[rk] = spec[rk]!.step(state[rk], record)
-      }
-    }
-    // Stamp grouped fields FIRST, in declaration order — this is
-    // tested via `Object.keys(row).slice(0, fields.length)`.
-    const row: Record<string, unknown> = {}
-    for (const f of fields) {
-      row[f] = bucket.keyValues[f]
-    }
-    for (const rk of reducerKeys) {
-      row[rk] = spec[rk]!.finalize(state[rk])
-    }
-    out.push(row as unknown as R)
+    out.push(reduceGroupRow<R>(fields, bucket.keyValues, bucket.records, spec, reducerKeys))
   }
   return out
 }
@@ -504,6 +478,24 @@ function applyPostGroup<R>(rows: R[], post: PostGroup): R[] {
  * UNFILTERED bucket count and `having` cannot buy headroom under them. Narrow
  * with `.where()` before `.groupBy()` for that.
  */
+/**
+ * What `GroupedReduction.live()` returns: a `LiveReduction` plus one window
+ * onto how it is being kept up to date (#1341).
+ */
+export interface LiveGroupedReduction<R> extends LiveReduction<R> {
+  /**
+   * Delta-maintenance counters for this live reduction, or `undefined` when
+   * the plan was refused and every change re-runs the whole grouping.
+   *
+   * `patches` counts change events folded in per group; `rebuilds` counts
+   * falls back to a full bucket rebuild. A live reduction that reports a
+   * maintainer but never patches is a live reduction whose fallback is
+   * swallowing everything — which is exactly the failure this exists to make
+   * visible.
+   */
+  maintenanceStats(): GroupMaintenanceStats | undefined
+}
+
 export class GroupedReduction<R> {
   private readonly fields: readonly string[]
 
@@ -527,6 +519,11 @@ export class GroupedReduction<R> {
      * executor — is unchanged.
      */
     private readonly post: PostGroup = NO_POST_GROUP,
+    /**
+     * The #1341 delta-maintenance seam (see `GroupedQueryBase`). Present only
+     * for a plan `canMaintainIncrementally()` admits.
+     */
+    private readonly maintenance?: GroupMaintenanceSource,
   ) {
     this.fields = typeof fields === 'string' ? [fields] : [...fields]
   }
@@ -540,6 +537,7 @@ export class GroupedReduction<R> {
       this.upstreams,
       this.dictLabelResolver,
       post,
+      this.maintenance,
     )
   }
 
@@ -671,27 +669,93 @@ export class GroupedReduction<R> {
   }
 
   /**
-   * Build a reactive `LiveReduction<R[]>` that re-runs the full
-   * group-and-reduce pipeline whenever any upstream source notifies
-   * of a change. Same error-isolation and idempotent-stop contract
-   * as `Reduction.live()` — the implementation delegates to the
-   * same `LiveAggregationImpl` class by threading a fresh
-   * recompute closure through the existing constructor.
+   * Build a reactive `LiveReduction<R[]>` that updates whenever any upstream
+   * source notifies of a change. Same error-isolation and idempotent-stop
+   * contract as `Reduction.live()` — the implementation delegates to the same
+   * `LiveAggregationImpl` class by threading a fresh recompute closure through
+   * the existing constructor.
    *
-   * uses naive full re-run on every change. Incremental
-   * per-bucket maintenance (apply `step` on inserted records,
-   * `remove` on deleted records, route by bucket key) is a future
-   * optimization — the reducer protocol admits it, but wiring
-   * delta-aware source subscriptions is a separate PR.
+   * **Incremental per-group maintenance (#1341, grouped half).** When
+   * `Query.groupBy()` supplied a maintenance seam — a plan
+   * `canMaintainIncrementally()` admits, over a source that can hand back a
+   * snapshot and an id lookup — a change no longer re-runs the pipeline. The
+   * delta patches the match set, then patches the ONE OR TWO buckets it
+   * touches; every other bucket serves the row it already computed. See
+   * `incremental-group.ts` for the correctness argument, including the three
+   * membership transitions (a record changing group, a group emptying, a group
+   * appearing) that a naive per-group patch gets wrong.
+   *
+   * Every other plan, and every notification that arrives without a delta,
+   * re-runs the whole grouping exactly as before. Either way the emitted rows
+   * are identical to `.run()`'s.
+   *
+   * ⚠️ `.run()` is deliberately NOT served from the maintained state: it is a
+   * one-shot terminal that may be called long after a `.live()` was stopped,
+   * and reading the snapshot is the only answer that cannot be stale.
    *
    * Always call `live.stop()` when finished.
    */
-  live(): LiveReduction<R[]> {
-    const recompute = (): R[] =>
-      applyPostGroup(
-        groupAndReduce<R>(this.executeRecords(), this.fields, this.spec),
-        this.post,
-      )
-    return buildLiveReduction<R[]>(recompute, this.upstreams)
+  live(): LiveGroupedReduction<R[]> {
+    const maintainer = this.maintenance
+      ? new GroupedMaintainer({
+          source: this.maintenance,
+          fields: this.fields,
+          spec: this.spec,
+        })
+      : undefined
+    if (!maintainer) {
+      const recompute = (): R[] =>
+        applyPostGroup(
+          groupAndReduce<R>(this.executeRecords(), this.fields, this.spec),
+          this.post,
+        )
+      return withStats(buildLiveReduction<R[]>(recompute, this.upstreams), undefined)
+    }
+
+    const recompute = (): R[] => applyPostGroup(maintainer.rows() as R[], this.post)
+    // The maintainer folds the delta in BEFORE the reduction reads, which is
+    // why the upstream is wrapped rather than subscribed separately —
+    // callback order would otherwise decide whether the read saw the change.
+    const upstreams: readonly ReductionUpstream[] = this.upstreams.map(upstream => ({
+      subscribe: (cb: () => void) => {
+        maintainer.attach()
+        const unsubscribe = upstream.subscribe((change?: SourceChange) => {
+          // A reducer or predicate that throws must not escape into the
+          // emitter — the maintainer drops its state and the recompute below
+          // raises the same error where `LiveReduction` can catch it.
+          try {
+            maintainer.apply(change)
+          } catch {
+            maintainer.invalidate()
+          }
+          cb()
+        })
+        // Detach on teardown: a maintainer with no subscription feeding it
+        // would go quietly out of date.
+        return () => {
+          maintainer.detach()
+          unsubscribe()
+        }
+      },
+    }))
+    return withStats(buildLiveReduction<R[]>(recompute, upstreams), maintainer)
   }
+}
+
+/**
+ * Stamp the #1341 maintenance counters onto a live reduction.
+ *
+ * ⭐ The fallback has to be OBSERVABLE, not merely correct: a
+ * correctness-preserving fallback that silently swallowed every case would
+ * pass every behavioural test while delivering nothing. `maintenanceStats()`
+ * is how a caller — and every test in `query-grouped-incremental*.test.ts` —
+ * asks which path actually ran.
+ */
+function withStats<R>(
+  live: LiveReduction<R>,
+  maintainer: GroupedMaintainer | undefined,
+): LiveGroupedReduction<R> {
+  return Object.assign(live, {
+    maintenanceStats: (): GroupMaintenanceStats | undefined => maintainer?.stats(),
+  })
 }

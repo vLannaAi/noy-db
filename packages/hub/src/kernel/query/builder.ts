@@ -19,7 +19,7 @@ import { normalizeJoinOn, type JoinOnSpec } from './join-on.js'
 import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError, RefNotDeclaredError } from '../errors.js'
 import type { LiveQuery, LiveUpstream } from './live.js'
 import { buildLiveQuery } from './live.js'
-import type { SourceChange } from './incremental.js'
+import type { GroupMaintenanceSource, SourceChange } from './incremental.js'
 import { LiveMaintainer, canMaintainIncrementally } from './incremental.js'
 import type { ReduceSpec, ReduceResult, ReductionUpstream, Reduction } from '../../with-lookup/reduce/reduction.js'
 import type { ReducerBuilder } from '../../with-lookup/reduce/reducers.js'
@@ -2000,12 +2000,20 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       ? executeRecords
       : (): readonly unknown[] => projectDateTruncKeys(executeRecords(), derived)
 
+    // #1341 (grouped half) — the upstream passes the DELTA through, not just a
+    // "something changed" ping, so `GroupedReduction.live()` can patch the one
+    // or two buckets a change touches instead of re-grouping everything. A cb
+    // that ignores the argument (every pre-#1341 caller) is unaffected.
     const upstreams: ReductionUpstream[] = []
     if (source.subscribe) {
       const subscribe = source.subscribe.bind(source)
-      upstreams.push({ subscribe: (cb: () => void) => subscribe(cb) })
+      upstreams.push({ subscribe: (cb: (change?: SourceChange) => void) => subscribe(cb) })
     }
     if (keyIsAliased) upstreams.push(...this.rightSideUpstreams())
+    // Withheld for a plan the whitelist refuses, and for an aliased key (which
+    // implies joins, which the whitelist refuses anyway) — `.live()` then
+    // re-runs the whole grouping, exactly as it did before.
+    const maintenance = keyIsAliased ? undefined : this.groupMaintenance(derived)
 
     // The pipeline the reducers are wrapped with: the right side's rewrite
     // when the legs run, the refusal when they do not (#1338).
@@ -2027,6 +2035,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
         upstreams,
         dictLabelResolver,
         reduceVia,
+        maintenance,
       )
     }
     return this.reduceStrategy.groupByN<T, readonly string[], S, M>(
@@ -2034,6 +2043,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       fields,
       upstreams,
       reduceVia,
+      maintenance,
     )
   }
 
@@ -2276,6 +2286,48 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
         ? { decode: (rows: readonly unknown[]) => this.decodeVia(rows) }
         : {}),
     })
+  }
+
+  /**
+   * Build the #1341 grouped-maintenance seam for this plan, or `undefined`
+   * when the plan shape or the source cannot support one (a grouped live
+   * reduction then re-runs in full, exactly as it did before).
+   *
+   * Same whitelist and the same three inputs `incrementalMaintainer('records')`
+   * uses, for the same reason: `.groupBy()`'s record pipeline IS
+   * `.aggregate()`'s — `candidateRecords` + `filterRecords`, with no sort, no
+   * window and no Via result decode — so `orderBy`/`limit` are stripped before
+   * the whitelist is asked. `matches` is the same `filterRecords` call the
+   * eager pipeline makes, which is what stops the two paths from drifting.
+   *
+   * The one addition is `project`: `.groupBy(dateTrunc(...))` (#1350) stamps a
+   * derived key onto each row AFTER filtering and before bucketing, and the
+   * maintainer has to stamp it too or it would bucket on a field that is not
+   * there. It is a pure per-record map, which is the only kind of projection
+   * this hook may carry.
+   */
+  private groupMaintenance(derived: readonly DateTruncKey[]): GroupMaintenanceSource | undefined {
+    const source = this.source
+    const snapshotEntries = source.snapshotEntries?.bind(source)
+    const lookupById = source.lookupById?.bind(source)
+    if (!snapshotEntries || !lookupById) return undefined
+    const indexes = source.getIndexes?.()
+    const probe = indexes
+      ? { covers: (f: string) => indexes.has(f), sorted: (f: string) => indexes.hasSorted(f) }
+      : null
+    if (!canMaintainIncrementally({ ...this.plan, orderBy: [], limit: undefined }, probe)) {
+      return undefined
+    }
+    const clauses = this.plan.clauses
+    const decodeForFns = fnViewDecoder(source)
+    return {
+      snapshotEntries,
+      lookupById,
+      matches: (record: unknown) => filterRecords([record], clauses, decodeForFns).length === 1,
+      ...(derived.length > 0
+        ? { project: (record: unknown) => projectDateTruncKeys([record], derived)[0] }
+        : {}),
+    }
   }
 
   /**

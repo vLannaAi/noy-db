@@ -35,7 +35,16 @@ export {
   GROUPBY_WARN_CARDINALITY,
   GROUPBY_MAX_CARDINALITY,
 } from './groupby.js'
-export type { GroupedRow, GroupedRowN } from './groupby.js'
+export type { GroupedRow, GroupedRowN, LiveGroupedReduction } from './groupby.js'
+
+/**
+ * #1341 (grouped half) — per-group delta maintenance for
+ * `.groupBy().aggregate().live()`. `GroupedMaintainer` is exported so the
+ * engine can be driven (and its fallback observed) directly; ordinary
+ * consumers reach it through `LiveGroupedReduction.maintenanceStats()`.
+ */
+export { GroupedMaintainer } from './incremental-group.js'
+export type { GroupMaintenanceStats, GroupedMaintainerConfig } from './incremental-group.js'
 
 export { count, countDistinct, sum, avg, min, max, moneySum, moneyMin, moneyMax, reducerBuilder, bindDistinctReducers } from './reducers.js'
 export type { Reducer, ReducerOptions, ReducerBuilder, CountDistinctState } from './reducers.js'
