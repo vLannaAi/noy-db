@@ -55,11 +55,11 @@ export function withReduce(opts?: ReduceOptions): ReduceStrategy {
     aggregate(executeRecords, spec, upstreams) {
       return new Reduction(executeRecords, spec as unknown as ReduceSpec, upstreams) as unknown as Reduction<ReduceResult<typeof spec>>
     },
-    groupBy(executeRecords, field, upstreams, dictLabelResolver, via) {
-      return new GroupedQuery(executeRecords, field, upstreams, dictLabelResolver, via)
+    groupBy(executeRecords, field, upstreams, dictLabelResolver, via, maintenance) {
+      return new GroupedQuery(executeRecords, field, upstreams, dictLabelResolver, via, maintenance)
     },
-    groupByN(executeRecords, fields, upstreams, via) {
-      return new GroupedQueryN(executeRecords, fields, upstreams, undefined, via)
+    groupByN(executeRecords, fields, upstreams, via, maintenance) {
+      return new GroupedQueryN(executeRecords, fields, upstreams, undefined, via, maintenance)
     },
     window(executeRecords, spec, upstreams, via) {
       // ⛔ Deliberately NOT `new WindowedQuery(...)`. Naming the class here

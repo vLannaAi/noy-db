@@ -49,6 +49,17 @@
  * (payload-less) change event, an error thrown mid-patch, or a plan shape
  * `canMaintainIncrementally()` refuses. **The fallback is the default** —
  * `canMaintainIncrementally` is a whitelist, not a blacklist.
+ *
+ * ## Stacking on top of it
+ *
+ * `apply()` reports what it did as a `PatchOutcome`, and `maintainedEntries()`
+ * exposes the set with its snapshot sequence numbers. Together those let a
+ * DERIVED maintainer mirror this one without forking its membership logic —
+ * which is exactly what per-group maintenance for
+ * `groupBy().aggregate().live()` does (`with-lookup/reduce/incremental-group.ts`).
+ * A layer built that way inherits the whitelist and the fallback rather than
+ * re-deciding them, so there is one answer to "can this plan be maintained"
+ * rather than two that drift.
  */
 
 import type { Clause } from './predicate.js'
@@ -67,6 +78,79 @@ import type { OrderBy } from './builder.js'
 export interface SourceChange {
   readonly id: string
   readonly action: 'put' | 'delete'
+}
+
+/**
+ * One side of a patch: a record that entered or left the maintained set, with
+ * the snapshot sequence number it occupies. `seq` is what makes a patch
+ * composable — a layer built ON TOP of the match set (grouped aggregation,
+ * #1341's second half) can place the record in its own ordering without
+ * re-deriving snapshot position, and sequence numbers are stable across an
+ * update because `Map.set` on an existing key keeps its slot.
+ */
+export interface PatchDelta {
+  readonly seq: number
+  readonly record: unknown
+}
+
+/**
+ * What `apply()` did, so a layer stacked on the maintained set can mirror it.
+ *
+ * `'rebuilt'` is the honest answer for everything that is NOT a clean patch —
+ * a payload-less event, a detached maintainer, an already-stale one. A
+ * consumer reading it must invalidate its own derived state; it must never
+ * read `'rebuilt'` as "nothing happened".
+ *
+ * A `'patched'` outcome with neither `removed` nor `inserted` DID happen: a
+ * non-member changed and stayed a non-member. That is a no-op for every
+ * derived layer, which is exactly why it is reported as a patch rather than a
+ * rebuild.
+ */
+export type PatchOutcome =
+  | { readonly kind: 'rebuilt' }
+  | {
+      readonly kind: 'patched'
+      readonly id: string
+      readonly removed?: PatchDelta
+      readonly inserted?: PatchDelta
+    }
+
+/** An id-paired member of the maintained set, in maintained order. */
+export interface MaintainedEntry {
+  readonly id: string
+  readonly seq: number
+  readonly record: unknown
+}
+
+/**
+ * The subset of a query source a DERIVED maintainer needs (#1341, grouped
+ * half). Deliberately a kernel type even though its only consumer today is
+ * the reduce service: everything in it is a kernel concept, and declaring it
+ * here is what lets `kernel/query/builder.ts` hand one to the service without
+ * a new spine to service import specifier.
+ */
+export interface GroupMaintenanceSource {
+  /**
+   * Id-paired snapshot, in snapshot (Map insertion) order.
+   *
+   * ⚠️ Declared as function-typed PROPERTIES, not methods: every member here
+   * is a standalone closure the query builder binds before handing it over,
+   * and property syntax says so — a method declaration would invite a `this`
+   * these closures do not have.
+   */
+  readonly snapshotEntries: () => readonly { id: string; record: unknown }[]
+  /** O(1) current-state lookup for the AFTER state of a change. */
+  readonly lookupById: (id: string) => unknown
+  /** The plan's membership test — the same one the eager path runs. */
+  readonly matches: (record: unknown) => boolean
+  /**
+   * Per-record projection the eager grouping pipeline applies AFTER filtering
+   * and before bucketing — today only `projectDateTruncKeys` (#1350). Applied
+   * per record here because the eager path applies it per record too; a
+   * projection that read across records could not be maintained and must not
+   * be plumbed through this hook.
+   */
+  readonly project?: (record: unknown) => unknown
 }
 
 /** Everything the maintainer needs, supplied by the query builder. */
@@ -104,6 +188,9 @@ export interface MaintainerConfig {
 }
 
 const EMPTY_KEY: readonly unknown[] = []
+
+/** Shared 'you cannot patch from this' answer — allocation-free on the hot path. */
+const REBUILT: PatchOutcome = { kind: 'rebuilt' }
 
 interface Entry {
   readonly id: string
@@ -286,14 +373,14 @@ export class LiveMaintainer {
    * payload (the source could not say which record moved) invalidates
    * instead — the next read pays for a full rebuild.
    */
-  apply(change: SourceChange | undefined): void {
-    if (!this.attached || this.stale) return
+  apply(change: SourceChange | undefined): PatchOutcome {
+    if (!this.attached || this.stale) return REBUILT
     if (!change) {
       this.stale = true
-      return
+      return REBUILT
     }
     try {
-      this.patch(change)
+      return this.patch(change)
     } catch (err) {
       // A predicate threw mid-patch: the maintained set may be half-updated,
       // so drop it rather than serve a set we can no longer vouch for. The
@@ -314,6 +401,20 @@ export class LiveMaintainer {
       window.push(this.entries[i]!.record)
     }
     return this.cfg.decode ? this.cfg.decode(window) : window
+  }
+
+  /**
+   * The whole maintained set — every matching record, in maintained order,
+   * paired with its id and snapshot sequence. Ignores `offset`/`limit`/
+   * `decode` on purpose: this is the input a DERIVED maintainer rebuilds from,
+   * and grouped aggregation reduces the full match set, never a window.
+   *
+   * Rebuilds first when detached or stale, exactly as `rows()` does, so a
+   * caller can read it at any time.
+   */
+  maintainedEntries(): readonly MaintainedEntry[] {
+    if (!this.attached || this.stale) this.rebuild()
+    return this.entries
   }
 
   /**
@@ -340,7 +441,7 @@ export class LiveMaintainer {
     this.stale = false
   }
 
-  private patch(change: SourceChange): void {
+  private patch(change: SourceChange): PatchOutcome {
     const { id } = change
     const previous = this.memberById.get(id)
     const record = change.action === 'delete' ? undefined : this.cfg.lookupById(id)
@@ -350,7 +451,9 @@ export class LiveMaintainer {
       // appends to the cache's Map, so it must earn a fresh sequence number.
       this.seqById.delete(id)
       if (previous) this.removeEntry(previous)
-      return
+      return previous
+        ? { kind: 'patched', id, removed: { seq: previous.seq, record: previous.record } }
+        : { kind: 'patched', id }
     }
 
     let seq = this.seqById.get(id)
@@ -363,11 +466,16 @@ export class LiveMaintainer {
 
     const matches = this.cfg.matches(record)
     if (previous) this.removeEntry(previous)
-    if (!matches) return
+    const removed = previous ? { seq: previous.seq, record: previous.record } : undefined
+    if (!matches) {
+      return removed ? { kind: 'patched', id, removed } : { kind: 'patched', id }
+    }
 
     const entry: Entry = { id, seq, record, key: this.keyOf(record) }
     this.entries.splice(this.lowerBound(entry), 0, entry)
     this.memberById.set(id, entry)
+    const inserted = { seq, record }
+    return removed ? { kind: 'patched', id, removed, inserted } : { kind: 'patched', id, inserted }
   }
 
   private removeEntry(entry: Entry): void {

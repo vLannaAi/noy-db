@@ -19,6 +19,11 @@
  *     array a re-run would fold makes the incremental value bit-identical
  *     to the eager one, while inverting a float `sum` does not.
  *
+ * `GroupedReduction.live()` goes one step further (#1341, grouped half): its
+ * BUCKETS are maintained too, so a change re-folds only the groups it touched.
+ * See `incremental-group.ts`. The reasoning above is why neither path inverts
+ * a reducer state.
+ *
  * The `Reduction<R>` wrapper is deliberately tiny — it exists so
  * `.aggregate(spec)` can be chained with either `.run()` or `.live()`
  * without the builder needing two separate terminal methods. It
@@ -32,6 +37,7 @@
  */
 
 import type { Reducer } from './reducers.js'
+import type { SourceChange } from '../../kernel/query/incremental.js'
 
 /**
  * A named set of reducers, keyed by output field name. Each key
@@ -134,7 +140,14 @@ export interface LiveReduction<R> {
  * query's source and wires them into a single re-run trigger.
  */
 export interface ReductionUpstream {
-  subscribe(cb: () => void): () => void
+  /**
+   * `cb` MAY be handed the delta that caused the notification (#1341), which
+   * is what lets `GroupedReduction.live()` patch the buckets a change touches
+   * instead of re-grouping. Calling it with NO argument is always valid and
+   * always correct — it means "something changed, I can't say what", and every
+   * consumer answers that with a full re-run.
+   */
+  subscribe(cb: (change?: SourceChange) => void): () => void
 }
 
 /**

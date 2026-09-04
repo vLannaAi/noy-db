@@ -20,6 +20,7 @@ import type {
   ReductionUpstream,
 } from './reduction.js'
 import type { GroupedQuery, GroupedQueryN } from './groupby.js'
+import type { GroupMaintenanceSource } from '../../kernel/query/incremental.js'
 import type { WindowFactory, WindowSpec, WindowedQuery } from './window.js'
 /**
  * Re-exported so `kernel/query/builder.ts` can name `.window()`'s spec and
@@ -73,6 +74,12 @@ export interface ReduceStrategy {
       fallback?: string | readonly string[],
     ) => Promise<string | undefined>,
     via?: ViaPipeline,
+    /**
+     * #1341 (grouped half) — the delta-maintenance seam. Supplied by
+     * `Query.groupBy()` only for a plan `canMaintainIncrementally()` admits;
+     * omitted, `.groupBy().aggregate().live()` re-runs in full as before.
+     */
+    maintenance?: GroupMaintenanceSource,
   ): GroupedQuery<T, F, S, M>
 
   /**
@@ -86,6 +93,8 @@ export interface ReduceStrategy {
     fields: F,
     upstreams: readonly ReductionUpstream[],
     via?: ViaPipeline,
+    /** #1341 (grouped half) — see `groupBy` above. */
+    maintenance?: GroupMaintenanceSource,
   ): GroupedQueryN<T, F, S, M>
 
   /**
