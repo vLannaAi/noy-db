@@ -1,5 +1,5 @@
 // packages/hub/__tests__/search-persisted-index-store.test.ts
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { PersistedIndexStore, type Fingerprint } from '../src/with-lookup/search/persisted-index-store.js'
 import type { IndexDoc } from '../src/with-lookup/search/inverted-index.js'
 import { PersistedIndexCompensationError } from '../src/kernel/errors.js'
@@ -51,13 +51,27 @@ describe('PersistedIndexStore (#308 L1.5)', () => {
   })
 
   it('markDirty debounces a single flush; flush() is immediate', async () => {
-    const { store, state } = harness()
-    await store.ensureBuilt(() => docs)        // saves=1
-    store.markDirty(); store.markDirty(); store.markDirty()
-    await new Promise((r) => setTimeout(r, 30)) // debounce window (10ms) elapses
-    expect(state.saves).toBe(2)                 // one coalesced flush
-    store.markDirty(); await store.flush()
-    expect(state.saves).toBe(3)                 // explicit immediate
+    // Both assertions are exact counts — "exactly one flush, not two" — so the
+    // 10ms debounce is driven with fake timers rather than raced against a real
+    // sleep. Under load the real-timer version could let the debounce land
+    // *and* the explicit flush land, reading saves === 4 (the #1382 class).
+    vi.useFakeTimers()
+    try {
+      const { store, state } = harness()
+      await store.ensureBuilt(() => docs)        // saves=1
+      store.markDirty(); store.markDirty(); store.markDirty()
+      expect(state.saves).toBe(1)                 // nothing flushed inside the window
+      await vi.advanceTimersByTimeAsync(10)       // debounce window elapses
+      expect(state.saves).toBe(2)                 // one coalesced flush
+      store.markDirty(); await store.flush()
+      expect(state.saves).toBe(3)                 // explicit immediate
+      // The explicit flush cancelled the armed debounce: advancing further
+      // adds nothing.
+      await vi.advanceTimersByTimeAsync(100)
+      expect(state.saves).toBe(3)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('removePersisted deletes the blob + marks dirty', async () => {

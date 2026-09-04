@@ -65,6 +65,17 @@ function toMemory(): NoydbStore {
 
 const SECRET = 'cap-grant-test-secret-2026'
 
+/**
+ * Drain the microtask queue. `collection.subscribe()` delivers through a
+ * promise chain (record hydration), never a timer — so a few microtask
+ * turns are enough, and no wall-clock sleep is needed.
+ */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 10; i++) await Promise.resolve()
+  await nextTick()
+  for (let i = 0; i < 10; i++) await Promise.resolve()
+}
+
 let db: Noydb
 
 async function freshDb(): Promise<Noydb> {
@@ -150,28 +161,37 @@ describe('useCapabilityGrant', () => {
   })
 
   it('3. TTL expiry flips state to idle and calls onRelease with cause: expired', async () => {
-    const vault = await db.openVault('V1')
-    void vault
-    const releases: string[] = []
-    const scope = effectScope()
-    const grant = scope.run(() =>
-      useCapabilityGrant('export:plaintext', {
-        vault: 'V1',
-        ttlMs: 30,
-        approver: 'owner',
-        reason: 'short ttl',
-        onRelease: ({ cause }) => { releases.push(cause) },
-      }),
-    )!
-    await grant.request()
-    await grant.approve()
-    expect(grant.state.value).toBe('granted')
+    vi.useFakeTimers()
+    try {
+      const vault = await db.openVault('V1')
+      void vault
+      const releases: string[] = []
+      const scope = effectScope()
+      const grant = scope.run(() =>
+        useCapabilityGrant('export:plaintext', {
+          vault: 'V1',
+          ttlMs: 30,
+          approver: 'owner',
+          reason: 'short ttl',
+          onRelease: ({ cause }) => { releases.push(cause) },
+        }),
+      )!
+      await grant.request()
+      await grant.approve()
+      expect(grant.state.value).toBe('granted')
 
-    await new Promise((r) => setTimeout(r, 60))
-    expect(grant.state.value).toBe('idle')
-    expect(releases).toEqual(['expired'])
+      // Fake timers: `releases` is an EXACT-COUNT assertion, and a real 30ms
+      // TTL raced against a loaded box can deliver the expiry twice (the
+      // timer fires, then a late change-stream event re-grants and expires
+      // again) — the `['expired', 'expired']` shape seen in #1382.
+      await vi.advanceTimersByTimeAsync(60)
+      expect(grant.state.value).toBe('idle')
+      expect(releases).toEqual(['expired'])
 
-    scope.stop()
+      scope.stop()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('4. onGrant callback fires on approve, onRelease on voluntary release', async () => {
@@ -265,28 +285,85 @@ describe('useCapabilityGrant', () => {
     scope.stop()
   })
 
-  it('8. scope dispose clears the expiry timer + change subscription', async () => {
+  it('8a. scope dispose cancels the expiry timer (fake timers: dispose, THEN advance)', async () => {
+    // The claim is causal — dispose CANCELS the timer — so the ordering is
+    // stated with fake timers instead of raced against wall-clock: the scope
+    // is stopped first, and only then is the clock advanced past the TTL.
+    // Racing a real 30ms timer against a loaded CI box is what made this
+    // test flaky (#1382).
+    vi.useFakeTimers()
+    try {
+      const releases: string[] = []
+      // Baseline: timers already pending from anything but this composable.
+      const baselineTimers = vi.getTimerCount()
+      const scope = effectScope()
+      const grant = scope.run(() =>
+        useCapabilityGrant('export:plaintext', {
+          vault: 'V1',
+          ttlMs: 30,
+          approver: 'owner',
+          reason: 'r',
+          onRelease: ({ cause }) => { releases.push(cause) },
+        }),
+      )!
+      await grant.request()
+      await grant.approve()
+      expect(grant.state.value).toBe('granted')
+      // Non-vacuous: the expiry timeout (and the 1s tick interval) really
+      // are pending at this point.
+      expect(vi.getTimerCount()).toBeGreaterThan(baselineTimers)
+
+      scope.stop()
+      // The cancellation itself, asserted directly: dispose clears them.
+      // Deleting `clearExpiryTimer()`/`clearInterval` from the teardown
+      // fails HERE — the behavioural assertion below is also guarded by
+      // the composable's `stopped` flag, so on its own it would survive
+      // that break.
+      expect(vi.getTimerCount()).toBe(baselineTimers)
+      // And the consequence: advancing far past the TTL fires nothing.
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(releases).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('8b. scope dispose cancels the change subscription', async () => {
     const vault = await db.openVault('V1')
-    void vault
-    const releases: string[] = []
+    const coll = vault.collection<CapabilityGrantRecord>(CAPABILITY_REQUESTS_COLLECTION)
+
+    // Positive control: while the scope is live, a foreign write to this
+    // grant's record IS observed (status released → state idle). Without
+    // this half, the dispose assertion below could pass vacuously.
+    const liveScope = effectScope()
+    const live = liveScope.run(() =>
+      useCapabilityGrant('export:plaintext', {
+        vault: 'V1', ttlMs: 60_000, approver: 'owner', reason: 'r',
+      }),
+    )!
+    await live.request()
+    await live.approve()
+    const liveId = (await coll.list()).find((r) => r.status === 'granted')!.id
+    await coll.put(liveId, { ...(await coll.get(liveId))!, status: 'released' })
+    await flushMicrotasks()
+    expect(live.state.value).toBe('idle')
+    liveScope.stop()
+
+    // The claim: after dispose, the same write is NOT observed.
     const scope = effectScope()
     const grant = scope.run(() =>
       useCapabilityGrant('export:plaintext', {
-        vault: 'V1',
-        ttlMs: 30,
-        approver: 'owner',
-        reason: 'r',
-        onRelease: ({ cause }) => { releases.push(cause) },
+        vault: 'V1', ttlMs: 60_000, approver: 'owner', reason: 'r',
       }),
     )!
     await grant.request()
     await grant.approve()
+    const id = (await coll.list()).find((r) => r.status === 'granted')!.id
 
     scope.stop()
-    // Without the scope-dispose teardown, the expiry timer would still
-    // fire and onRelease would be called. With the teardown, neither.
-    await new Promise((r) => setTimeout(r, 60))
-    expect(releases).toEqual([])
+    await coll.put(id, { ...(await coll.get(id))!, status: 'released' })
+    await flushMicrotasks()
+    expect(grant.state.value).toBe('granted') // unchanged — subscription gone
   })
 
   it('9. composable is a no-op in non-browser hosts (window undefined)', async () => {

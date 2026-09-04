@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { NO_SNAPSHOTS } from '../src/with-fork/snapshots/strategy.js'
 import type { SnapshotMeta, RetentionPolicy, SnapshotIndex } from '../src/with-fork/snapshots/strategy.js'
 import { SnapshotNotFoundError } from '../src/kernel/errors.js'
@@ -498,9 +498,21 @@ describe('Noydb auto-cadence wiring', () => {
     })
     const v = await db.openVault('cad3')
     const c = v.collection<{ id: string; n: number }>('items')
-    await c.put('a', { id: 'a', n: 1 })
-    db.close()
-    await new Promise(r => setTimeout(r, 80))
-    expect(store.blobs.has('cad3__auto')).toBe(false)
+    // The claim is causal — close() CANCELS the armed debounce — so the
+    // ordering is stated with fake timers rather than raced: a real 50ms
+    // debounce can fire before a loaded runner reaches close() (#1382 class).
+    vi.useFakeTimers()
+    try {
+      const baseline = vi.getTimerCount()
+      await c.put('a', { id: 'a', n: 1 })
+      // Non-vacuous: the debounce really is armed at this point.
+      expect(vi.getTimerCount()).toBeGreaterThan(baseline)
+      db.close()
+      expect(vi.getTimerCount()).toBe(baseline)   // the cancellation itself
+      await vi.advanceTimersByTimeAsync(500)      // and its consequence
+      expect(store.blobs.has('cad3__auto')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
