@@ -32,6 +32,9 @@ export function buildJsonSchema(desc: CollectionDescription, base?: Record<strin
     if (f.unit !== undefined) prop['x-unit'] = f.unit
     if (f.semanticType !== undefined) prop['x-semanticType'] = f.semanticType
     if (f.sensitivity !== undefined) prop['x-sensitivity'] = f.sensitivity
+    // Read-shape sensitivity (#1363). Orthogonal to x-sensitivity: a field can
+    // be 'public' and still belong to a corpus whose coverage is protected.
+    if (f.bulk !== undefined) prop['x-bulk'] = f.bulk
     if (f.widget !== undefined) prop['x-widget'] = f.widget
     if (f.editable === false) prop['x-readonly'] = true
     if (f.money !== undefined) prop['x-money'] = f.money

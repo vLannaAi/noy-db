@@ -72,6 +72,12 @@ export interface DescribedField {
   readonly semanticType?: string
   readonly unit?: string
   readonly sensitivity?: 'public' | 'pii' | 'secret'
+  /**
+   * Read-shape sensitivity (#1363) — orthogonal to {@link DescribedField.sensitivity}.
+   * Telemetry plumbing, never a control: it tells a sensor which collections
+   * have a coverage worth accounting for. See `FieldMeta.bulk`.
+   */
+  readonly bulk?: 'sensitive'
   readonly aggregate?: 'sum' | 'count' | 'distinct' | 'none'
   readonly aliases?: readonly string[]
   readonly ref?: { target: string; mode: string; isArray?: true }
@@ -192,7 +198,7 @@ export interface ZodFieldSlot {
 // Unknown .meta() keys (not in this set) are ignored.
 const ZOD_META_KEYS = new Set<string>([
   'label', 'description', 'unit', 'semanticType', 'sensitivity', 'aggregate', 'aliases', 'displayFor',
-  'group', 'order',
+  'group', 'order', 'bulk',
 ])
 
 // ─── deriveZodFields ──────────────────────────────────────────────────────
@@ -685,6 +691,7 @@ export function buildDescription(input: BuildDescriptionInput): CollectionDescri
       ...(resolved.semanticType !== undefined ? { semanticType: resolved.semanticType } : {}),
       ...(resolved.unit !== undefined ? { unit: resolved.unit } : {}),
       ...(resolved.sensitivity !== undefined ? { sensitivity: resolved.sensitivity } : {}),
+      ...(resolved.bulk !== undefined ? { bulk: resolved.bulk } : {}),
       ...(resolved.aggregate !== undefined ? { aggregate: resolved.aggregate } : {}),
       ...(resolved.aliases !== undefined ? { aliases: resolved.aliases } : {}),
       ...(resolved.displayFor !== undefined ? { displayFor: resolved.displayFor } : {}),

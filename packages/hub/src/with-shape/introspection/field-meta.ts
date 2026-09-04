@@ -24,6 +24,24 @@ export interface FieldMeta {
   unit?: string
   /** Data classification driving redaction/inspector masking. */
   sensitivity?: 'public' | 'pii' | 'secret'
+  /**
+   * Sensitivity that is a property of the READ SHAPE, not the value (#1251).
+   *
+   * ⚠️ Declaring this prevents nothing. Against an insider holding the device
+   * and local keys it is TELEMETRY: it lets an opt-in sensor make bulk
+   * extraction visible early, attributable and loud. The real remediation is
+   * key custody — tiers and per-collection DEKs — not this label.
+   *
+   * Reads as: *this field's collection is a corpus whose COVERAGE is a
+   * protected quantity.* Deliberately ORTHOGONAL to {@link FieldMeta.sensitivity}:
+   * a company tax id stays `'public'` (it is public by law) and is still
+   * `bulk: 'sensitive'`, because the book of business is the set, not the value.
+   *
+   * The kernel does NOTHING with it beyond carrying it through introspection
+   * (`describe()` / `dumpSchema()`), so a sensor can discover which
+   * collections to account for. Zero runtime cost when unused.
+   */
+  bulk?: 'sensitive'
   /** Default aggregation for this field. */
   aggregate?: 'sum' | 'count' | 'distinct' | 'none'
   /** Canonical search synonyms (data vocabulary, not UI). */
@@ -92,6 +110,7 @@ export function resolveFieldMeta(key: string, inputs: MergeInputs): ResolvedMeta
   const semanticType = pick('semanticType')
   const unit = pick('unit')
   const sensitivity = pick('sensitivity')
+  const bulk = pick('bulk')
   const aggregate = pick('aggregate')
   const aliases = pick('aliases')
   const displayFor = pick('displayFor')
@@ -104,6 +123,7 @@ export function resolveFieldMeta(key: string, inputs: MergeInputs): ResolvedMeta
     ...(semanticType !== undefined ? { semanticType } : {}),
     ...(unit !== undefined ? { unit } : {}),
     ...(sensitivity !== undefined ? { sensitivity } : {}),
+    ...(bulk !== undefined ? { bulk } : {}),
     ...(aggregate !== undefined ? { aggregate } : {}),
     ...(aliases !== undefined ? { aliases } : {}),
     ...(displayFor !== undefined ? { displayFor } : {}),

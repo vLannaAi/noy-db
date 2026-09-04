@@ -35,6 +35,16 @@ export interface FieldDescriptor {
   readonly optional?: boolean
   /** Foreign-key target as `<collection>.<field>` when declared. */
   readonly references?: string
+  /**
+   * Read-shape sensitivity, declared as `FieldMeta.bulk` (#1363). Present only
+   * when the collection is live in this process (the declaration lives in the
+   * `fieldMeta` channel, which is not persisted with the schema).
+   *
+   * ⚠️ Telemetry, never a control: it tells a coverage sensor which
+   * collections have a corpus worth accounting for. Against an insider holding
+   * the device and local keys it prevents nothing — key custody does.
+   */
+  readonly bulk?: 'sensitive'
 }
 
 export interface CollectionStats {
