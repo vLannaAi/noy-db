@@ -14,6 +14,7 @@
  * it exists to catch the memo being removed, not to police milliseconds.
  */
 import { describe, it, expect } from 'vitest'
+import { Query, type QuerySource } from '../src/kernel/query/index.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { memoryStore } from '../src/kernel/memory-store.js'
 import { GenerationMap } from '../src/kernel/generation-map.js'
@@ -252,17 +253,63 @@ describe('#1417 — GenerationMap is the invalidation mechanism', () => {
 })
 
 describe('#1417 — the walk is no longer linear in the collection', () => {
-  it('paging 2000 rows costs far less than one sort per page', async () => {
-    const { col } = await seed(2000)
+  /**
+   * ⛔ COUNTED, NOT TIMED, AND THE ROUTE HERE IS WORTH KEEPING.
+   *
+   * v1 asserted `perPage < 0.5 ms`. That is the flake class #1437 was filed
+   * about, and its sibling in #1418 duly passed standalone and failed under
+   * `turbo run test --concurrency=2`.
+   *
+   * v2 replaced it with a SCALE comparison — per-page cost at 500 rows vs
+   * 2000. Stable, and VACUOUS: it passed with the memo disabled, because at
+   * these sizes fixed overhead dominates the sort and the ratio never reaches
+   * 4x. A stable assertion that cannot fail is worse than a flaky one that can,
+   * because nothing announces it.
+   *
+   * v3 counts the thing the memo actually removes. `executeKeyset`
+   * materialises the id-paired snapshot only on a memo MISS, so a walk of N
+   * pages calls `snapshotEntries()` once with the memo and N times without.
+   * That is exact, and no machine load can change it.
+   */
+  it('materialises the snapshot ONCE per walk, not once per page', () => {
+    const rows = Array.from({ length: 400 }, (_, i) => ({
+      id: `r${String(i).padStart(3, '0')}`,
+      cycle: `c${String(i % 7)}`,
+      n: i,
+    }))
+    let snapshotEntriesCalls = 0
+    let version = 1
+    const source: QuerySource<Row> = {
+      snapshot: () => rows,
+      identity: 'probe/rows',
+      snapshotVersion: () => version,
+      lookupById: (id: string) => rows.find(r => r.id === id),
+      snapshotEntries: () => {
+        snapshotEntriesCalls++
+        return rows.map(r => ({ id: r.id, record: r }))
+      },
+    }
 
-    const t0 = performance.now()
-    const ids = walk(col, 50)
-    const perPage = (performance.now() - t0) / (ids.length / 50)
+    const out: string[] = []
+    let cursor: string | null = null
+    let pages = 0
+    do {
+      const q = new Query<Row>(source).orderBy('n').limit(20)
+      const p = (cursor === null ? q : q.after(cursor)).page()
+      out.push(...p.rows.map(r => r.id))
+      cursor = p.nextCursor
+      pages++
+    } while (cursor !== null && pages < 100)
 
-    expect(ids).toHaveLength(2000)
-    // Before the memo this was ~1 ms/page at this size and grew with the
-    // collection. The bound is deliberately generous — a loaded CI box is
-    // slow, and the point is the ORDER of the cost, not its value.
-    expect(perPage).toBeLessThan(0.5)
+    expect(out).toHaveLength(400)
+    expect(pages).toBe(20)
+    // Before the memo: once per page. After: once for the whole walk.
+    expect(snapshotEntriesCalls).toBe(1)
+
+    // And a mutation still forces a rebuild — the memo is invalidated, not
+    // merely warmed once and trusted forever.
+    version++
+    new Query<Row>(source).orderBy('n').limit(20).page()
+    expect(snapshotEntriesCalls).toBe(2)
   })
 })
