@@ -1,6 +1,7 @@
 import type { StrategyBag } from '../port/with/strategies.js'
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView, VdigFieldPolicy, ClassifiedVerdict } from './types.js'
 import type { PreparedPut, PreparedDelete } from './prepared-write.js'
+import { memoizePresent, presentVariantKey } from './present-cache.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import { resolveClassifiedFields, guardClassifiedCompat, type ClassifiedEntry, type ClassifiedFieldSpec, type ResolvedClassified, type ClassifiedGuardCtx, type ClassifiedVerifyCtx } from '../port/with/classified-strategy.js'
@@ -3900,17 +3901,17 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
     const locale = localeOpts?.locale ?? this.defaultLocale
     const layer = localeOpts?._layer ?? 'read'
 
-    let result = record as unknown as Record<string, unknown>
-
     // Money decode + i18nText/dictKey/computed(virtual) resolution all run through
     // the compiled Via pipeline: money decode is unconditional (virtuals gated on
     // `locale !== 'raw'` inside the money binding); the i18n binding's `present`
-    // hook (the i18n via-shape's `runI18nPresent`) applies the SAME locale-active /
-    // static-display-hinge / dict-label / densify-marker-strip logic this method
-    // used to run inline; `this.via` is already known truthy (the guard above).
-    result = await this.via.present(result, { locale, ...(localeOpts?.fallback !== undefined ? { fallback: localeOpts.fallback } : {}), layer })
-
-    return result as T
+    // hook applies the SAME locale-active / static-display-hinge / dict-label /
+    // densify-marker-strip logic this method used to run inline; `this.via` is
+    // already known truthy (the guard above).
+    // #1419 — memoized per (record identity, variant). See `present-cache.ts`
+    // for why the key is the record OBJECT and not a generation stamp.
+    const via = this.via
+    return memoizePresent(record as object, presentVariantKey(locale, layer, localeOpts?.fallback), async () =>
+      await via.present(record as unknown as Record<string, unknown>, { locale, ...(localeOpts?.fallback !== undefined ? { fallback: localeOpts.fallback } : {}), layer }) as T)
   }
 
   /**
