@@ -233,6 +233,18 @@ export interface QuerySource<T> {
    * against another collection is refused rather than silently mis-paged.
    */
   identity?: string
+  /**
+   * #1417 — monotonic mutation counter for the backing cache. Two reads
+   * returning the same number means nothing changed between them, which is
+   * what lets `page()`/`after()` reuse one sort across a page walk instead of
+   * re-sorting the whole collection per page.
+   *
+   * Optional, and absence is safe: a source that does not supply it simply
+   * gets no memo. It is a CHANGE COUNTER, never a content hash — see
+   * `kernel/generation-map.ts` for why it is maintained by the container
+   * rather than at the mutation sites.
+   */
+  snapshotVersion?(): number
 }
 
 interface InternalSource {
@@ -244,6 +256,7 @@ interface InternalSource {
   snapshotEntries?(): readonly { id: string; record: unknown }[]
   hydration?: HydrationGate
   identity?: string
+  snapshotVersion?(): number
 }
 
 /**
@@ -1576,40 +1589,76 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
           'Page the left side, then join per page.',
       )
     }
-    const entries = this.source.snapshotEntries?.()
-    if (entries === undefined) {
+    // #1417 — the PRESENCE check, not the call. Materializing the id-paired
+    // snapshot is O(n) and allocates a fresh array plus an object per row; on
+    // a memo hit nothing below needs it, and paying for it here made the fast
+    // path linear in the collection again. Arrow-bound so `this` cannot drift
+    // (same discipline as `candidateRecords`).
+    const source = this.source
+    const snapshotEntries = source.snapshotEntries === undefined
+      ? undefined
+      : (): readonly { id: string; record: unknown }[] => source.snapshotEntries!()
+    if (snapshotEntries === undefined) {
       throw new Error(
         'Query.page()/after(): the query source has no snapshotEntries(); keyset pagination ' +
           'requires a collection-backed query (collection.query()).',
       )
     }
-    const refToId = new Map<unknown, string>()
-    for (const { id, record } of entries) refToId.set(record, id)
+    // ⛔ #1417 — EVERY LINE BELOW USED TO RUN PER PAGE. Building `refToId`,
+    // re-matching, computing an order key per row, and sorting the whole
+    // collection are each O(n) or worse, so a 100-page walk of a 10k
+    // collection paid ~100 full sorts: measured 4.4 ms/page against a 0.3 ms
+    // first page, which is the opposite of what keyset paging is for. Nothing
+    // here was seeking linearly by design — the linear seek below was merely
+    // the cheapest of four O(n) passes.
+    //
+    // The order is a pure function of (matched set, order spec, locale), and
+    // the cache tells us when the matched set can have moved, so the whole
+    // block is memoized on the source's mutation counter. `after()` then
+    // BISECTS a run it already holds.
+    const memoKey = keysetMemoKey(this.source, plan, opts?.locale)
+    const cached = memoKey === null ? undefined : readKeysetMemo(memoKey)
+    let sorted: KeysetRow[]
+    let keyPlan: OrderKeyPlan
+    if (cached) {
+      sorted = cached.sorted
+      keyPlan = cached.keyPlan
+    } else {
+      const refToId = new Map<unknown, string>()
+      for (const { id, record } of snapshotEntries()) refToId.set(record, id)
 
-    // Match without ordering or paging — this path owns both.
-    const matched = executePlanWithSource(
-      this.source,
-      { ...plan, orderBy: [], limit: undefined, offset: 0, after: undefined },
-      this.joinContext,
-      opts?.locale,
-    )
+      // Match without ordering or paging — this path owns both.
+      const matched = executePlanWithSource(
+        this.source,
+        { ...plan, orderBy: [], limit: undefined, offset: 0, after: undefined },
+        this.joinContext,
+        opts?.locale,
+      )
 
-    const labelMaps = buildOrderLabelMaps(plan.orderBy, this.joinContext, opts?.locale, this.source.via)
-    const keyPlan = buildOrderKeyPlan(plan.orderBy, this.source.via, labelMaps)
-    const sorted = matched
-      .map(record => ({ record, id: refToId.get(record) ?? '', key: orderKeyOf(keyPlan, record) }))
-      .sort((a, b) => compareOrderKeys(keyPlan, a.key, b.key) || compareIds(a.id, b.id))
+      const labelMaps = buildOrderLabelMaps(plan.orderBy, this.joinContext, opts?.locale, this.source.via)
+      keyPlan = buildOrderKeyPlan(plan.orderBy, this.source.via, labelMaps)
+      sorted = matched
+        .map(record => ({ record, id: refToId.get(record) ?? '', key: orderKeyOf(keyPlan, record) }))
+        .sort((a, b) => compareOrderKeys(keyPlan, a.key, b.key) || compareIds(a.id, b.id))
+      if (memoKey !== null) writeKeysetMemo(memoKey, { sorted, keyPlan })
+    }
 
     const shape = keysetShape(this.source.identity, plan.orderBy)
     let start = 0
     if (plan.after !== undefined) {
       const cursor = decodeCursor(plan.after, shape)
       // Strictly after the cursor's position. The row itself may be gone —
-      // that is exactly the case an offset cannot survive.
-      start = sorted.findIndex(
+      // that is exactly the case an offset cannot survive, and a bisect
+      // survives it for the same reason a scan did: the predicate is
+      // "ordered strictly after this key", not "equals this row".
+      //
+      // `sorted` is totally ordered by (key, id) — the sort comparator above
+      // breaks every tie on the id — so the predicate is monotone and a
+      // binary search finds the same index `findIndex` did, in O(log n).
+      start = lowerBound(
+        sorted,
         r => (compareOrderKeys(keyPlan, r.key, cursor.values) || compareIds(r.id, cursor.id)) > 0,
       )
-      if (start < 0) start = sorted.length
     }
 
     const end = plan.limit === undefined ? sorted.length : start + plan.limit
@@ -3431,6 +3480,131 @@ interface OrderKeyPlan {
     readonly via: ViaPipeline | undefined
     readonly viaField: string
   }[]
+}
+
+/**
+ * One row of a keyset page order: the record, its id, and its precomputed
+ * order key. Held by the #1417 memo so a page walk sorts once, not per page.
+ */
+interface KeysetRow {
+  readonly record: unknown
+  readonly id: string
+  readonly key: readonly unknown[]
+}
+
+interface KeysetMemoEntry {
+  readonly sorted: KeysetRow[]
+  readonly keyPlan: OrderKeyPlan
+}
+
+/**
+ * #1417 — the keyset page order, remembered between `after()` calls.
+ *
+ * Keyed by source identity + the source's mutation counter + a fingerprint of
+ * everything the order depends on. A cache MISS is always safe (it just
+ * re-sorts); a stale HIT would serve rows from before a write, so the counter
+ * is maintained by the cache container itself rather than at its eleven write
+ * sites — see `kernel/generation-map.ts`.
+ *
+ * ⚠️ Bounded to a handful of entries, evicted oldest-first. It holds record
+ * REFERENCES, which the collection cache holds anyway, so a live entry costs
+ * an array; an unbounded map keyed on a string would instead pin one array per
+ * collection ever paged, for the life of the process.
+ */
+const KEYSET_MEMO_LIMIT = 8
+const keysetMemo = new Map<string, KeysetMemoEntry>()
+
+function readKeysetMemo(key: string): KeysetMemoEntry | undefined {
+  const hit = keysetMemo.get(key)
+  if (hit) {
+    // Refresh recency: re-inserting moves it to the end of the iteration order.
+    keysetMemo.delete(key)
+    keysetMemo.set(key, hit)
+  }
+  return hit
+}
+
+function writeKeysetMemo(key: string, entry: KeysetMemoEntry): void {
+  keysetMemo.set(key, entry)
+  while (keysetMemo.size > KEYSET_MEMO_LIMIT) {
+    const oldest = keysetMemo.keys().next()
+    if (oldest.done === true) break
+    keysetMemo.delete(oldest.value)
+  }
+}
+
+/**
+ * A key that is EQUAL only when the sorted order provably is, and `null` when
+ * that cannot be decided cheaply.
+ *
+ * ⛔ Returning `null` is the safe answer and the default for anything not
+ * explicitly understood. A memo that guesses is a stale-read bug; a memo that
+ * declines is merely the old cost. So: no source identity or no mutation
+ * counter, a callback/predicate/group clause (whose identity lives in a
+ * closure this cannot see), or an operand that is not a primitive, Date, or
+ * array of those — no key, no memo.
+ *
+ * `clause.via` is deliberately absent from the fingerprint: it is derived by
+ * the source's own pipeline from (field, op, value), all three of which ARE in
+ * the key, so including it would add closure identity without adding
+ * discrimination.
+ */
+function keysetMemoKey(
+  source: InternalSource,
+  plan: QueryPlan,
+  locale: string | undefined,
+): string | null {
+  const identity = source.identity
+  const version = source.snapshotVersion?.()
+  if (identity === undefined || version === undefined) return null
+
+  const parts: string[] = [identity, String(version), locale ?? '']
+  for (const clause of plan.clauses) {
+    if (clause.type !== 'field') return null
+    const value = fingerprintOperand(clause.value)
+    if (value === null) return null
+    parts.push(`w:${clause.field}:${clause.op}:${value}`)
+  }
+  for (const o of plan.orderBy) parts.push(`o:${o.field}:${o.direction}:${o.by ?? 'value'}`)
+  return parts.join('\u0000')
+}
+
+/** A stable spelling of an operand, or `null` when there is no safe one. */
+function fingerprintOperand(value: unknown): string | null {
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  if (value instanceof Date) return `D${value.getTime()}`
+  // A number's spelling is TAGGED so it cannot collapse into the string of the
+  // same digits — that collapse is exactly what #1415 was about, and a memo
+  // key that reintroduced it would serve `pin == 1` the page for `pin == '1'`.
+  if (typeof value === 'string') return `s${value}`
+  if (typeof value === 'number') return `n${value}`
+  if (typeof value === 'bigint') return `g${value}`
+  if (typeof value === 'boolean') return `b${value}`
+  if (Array.isArray(value)) {
+    const each = value.map(fingerprintOperand)
+    if (each.some(e => e === null)) return null
+    return `[${each.join(',')}]`
+  }
+  return null
+}
+
+/**
+ * First index where `pred` becomes true, or `arr.length` if it never does.
+ *
+ * Requires `pred` to be MONOTONE over `arr` — false for a prefix, then true
+ * for the rest. `executeKeyset`'s predicate is "ordered strictly after the
+ * cursor" over an array totally ordered by (key, id), which is exactly that.
+ */
+function lowerBound<T>(arr: readonly T[], pred: (item: T) => boolean): number {
+  let lo = 0
+  let hi = arr.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (pred(arr[mid]!)) hi = mid
+    else lo = mid + 1
+  }
+  return lo
 }
 
 function buildOrderKeyPlan(

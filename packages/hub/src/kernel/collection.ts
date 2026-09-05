@@ -1,6 +1,7 @@
 import type { StrategyBag } from '../port/with/strategies.js'
 import type { NoydbStore, EncryptedEnvelope, ChangeEvent, HistoryConfig, HistoryOptions, HistoryEntry, PruneOptions, ListPageResult, LocaleReadOptions, CollectionConflictResolver, PutManyItemOptions, PutManyOptions, PutManyResult, DeleteManyResult, SealedView, VdigFieldPolicy, ClassifiedVerdict } from './types.js'
 import type { PreparedPut, PreparedDelete } from './prepared-write.js'
+import { GenerationMap } from './generation-map.js'
 import { memoizePresent, presentVariantKey } from './present-cache.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
@@ -201,7 +202,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   // In-memory cache of decrypted records (eager mode only). Lazy mode
   // uses `lru` instead. Both fields exist so a single Collection instance
   // doesn't need a runtime branch on every cache access.
-  private readonly cache = new Map<string, { record: T; version: number }>()
+  private readonly cache = new GenerationMap<string, { record: T; version: number }>()
   private hydrated = false
 
   /**
@@ -3071,7 +3072,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       lookupById: (id: string) => this.cache.get(id)?.record,
       snapshotEntries: () => [...this.cache.entries()].map(([id, e]) => ({ id, record: e.record })),
       // Binds a keyset cursor to this collection (#1346).
-      identity: `${this.vault}/${this.name}`, hydration: { label: `${this.vault}/${this.name}`, collection: this.name, isHydrated: () => this.hydrated, hydrate: () => this.ensureHydrated() }, // #1414 — a never-read eager collection answers by ABSENCE; the gate makes every terminal await-able and refuse a synchronous read (query/hydration.ts)
+      identity: `${this.vault}/${this.name}`, snapshotVersion: () => this.cache.generation /* #1417 — the cache's own mutation stamp, maintained by the container (generation-map.ts) so none of the eleven write sites can forget it */, hydration: { label: `${this.vault}/${this.name}`, collection: this.name, isHydrated: () => this.hydrated, hydrate: () => this.ensureHydrated() }, // #1414 — a never-read eager collection answers by ABSENCE; the gate makes every terminal await-able and refuse a synchronous read (query/hydration.ts)
       ...(this.via ? { via: this.via } : {}),
     }
     // Build a JoinContext if the vault passed a join resolver.
