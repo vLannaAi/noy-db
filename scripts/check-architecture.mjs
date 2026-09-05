@@ -1219,7 +1219,14 @@ const KERNEL_SURFACE_BUDGET = {
   // in emit-memo.ts, next to the code that would otherwise simplify the
   // predicate away. This ceiling caught a first attempt that put 25 lines of it
   // in the kernel; moving it out is what the ratchet is for.
-  'packages/hub/src/kernel/collection.ts': 4380,
+  // Bumped 4380→4384 (2026-09-06): #1439. `_cacheStamp` no longer answers the
+  // gate question; `_derivedWriteGated(record)` does, per ROW, via the bus's
+  // new scoped `gateAppliesTo`. The old predicate asked whether any handler was
+  // registered — a vault-wide fact — so one guard on one collection disabled
+  // the #1418 memo for every MV output in the vault. Rationale lives in
+  // `service-bus.ts#GateScope`, which is where it would otherwise be simplified
+  // away.
+  'packages/hub/src/kernel/collection.ts': 4384,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
@@ -1528,7 +1535,11 @@ const KERNEL_SURFACE_BUDGET = {
   // itself is ~250 LOC in src/with-sync/change-broadcast.ts. What lands here is only the
   // re-read seam it cannot reach from outside — Vault._applyRemoteSignal, a one-line forward. There is no bus
   // socket for "invalidate one cached record": that is the kernel's own cache.
-  'packages/hub/src/kernel/vault.ts': 3747,
+  // Bumped 3747→3750 (2026-09-06): #1439. A one-line `_periodCouldGovern`
+  // delegator plus its doc — the sync superset test that lets a caller rule the
+  // period gate out for a row carrying none of the closed periods' date fields.
+  // The logic is in `with-audit/periods/vault-facade.ts#couldGovern`.
+  'packages/hub/src/kernel/vault.ts': 3750,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
   // summary dirty and push carries it. The decision (which reserved collections push and
@@ -1709,7 +1720,13 @@ const KERNEL_SURFACE_BUDGET = {
   // itself is ~250 LOC in src/with-sync/change-broadcast.ts. What lands here is only the
   // re-read seam it cannot reach from outside — Noydb._applyRemoteSignal + the _storeName getter. There is no bus
   // socket for "invalidate one cached record": that is the kernel's own cache.
-  'packages/hub/src/kernel/noydb.ts': 2232,  // see the #1121 note above
+  // Bumped 2232→2240 (2026-09-06): #1439. Both `beforePut` registrants now
+  // declare a `scope` — the guard gate hoists its own first two early-returns,
+  // the period gate defers to `couldGovern`. Each is the handler's existing
+  // logic made ASKABLE from outside rather than new behaviour; without it the
+  // only question available was "is anything registered anywhere", which is
+  // never what a caller means.
+  'packages/hub/src/kernel/noydb.ts': 2240,  // see the #1121 note above
   // Lowered 2407→2345 (#834 vault() cache-only, 2026-07-26): deleting the two drifted
   // fallback Vault constructors from vault() removed ~80 lines of duplicated option block.
   // A test now asserts noydb.ts contains exactly ONE `new Vault(` site — that invariant,

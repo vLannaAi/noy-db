@@ -664,7 +664,16 @@ export const MaterializedViewExecutor = {
       // needs an entry for every row the transaction could revert, and a row we
       // never wrote has nothing to revert TO. Rather than reason about partial
       // journals, the memo stands down inside a transaction entirely.
-      if (contentKey !== null && txCtx === null && priorEmitted?.get(id) === contentKey) {
+      // #1439 — and only when no `beforePut` gate can fire FOR THIS ROW. Asking
+      // the bus "is anything registered" instead disabled the skip for every
+      // collection in any vault carrying a guard or a periods strategy —
+      // measured by the reporter at 54 redundant writes per source write with
+      // guards alone, which is close to every real consumer.
+      if (
+        contentKey !== null && txCtx === null
+        && !outputColl._derivedWriteGated(record)
+        && priorEmitted?.get(id) === contentKey
+      ) {
         skipped++
         emitted.set(id, contentKey)
         continue

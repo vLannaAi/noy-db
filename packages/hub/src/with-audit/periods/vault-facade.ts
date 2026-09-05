@@ -624,6 +624,33 @@ export class VaultPeriods {
     return all.find((p) => p.name === name && samePartition(p.partition, options?.partition))
   }
 
+  /**
+   * #1439 — could a closed period govern this record? Synchronous, and
+   * deliberately a SUPERSET of what {@link assertTsWritable} would refuse.
+   *
+   * Exists so a caller can tell "the period gate is registered" from "the
+   * period gate can fire for this row". Those were conflated, and the cost was
+   * that installing `withPeriods()` disabled an unrelated optimisation for
+   * every collection in the vault — with no period closed and no collection
+   * registered as a subject (#1439, measured: 0 → 250 redundant MV writes per
+   * source write).
+   *
+   * ⛔ Answers `true` whenever it cannot rule the gate out: the cache is not
+   * loaded yet, a closed period has no `dateField` to test against, or no row
+   * was supplied. A predicate that exists to permit an optimisation must fail
+   * towards "the gate applies", never away from it.
+   */
+  couldGovern(record?: Record<string, unknown>): boolean {
+    if (this.periodCache === null) return true
+    const now = new Date().toISOString()
+    for (const p of this.periodCache) {
+      if (p.kind !== 'closed' || isEffectivelyReopened(p, now)) continue
+      if (!p.dateField || record === undefined) return true
+      if (typeof record[p.dateField] === 'string') return true
+    }
+    return false
+  }
+
   /** Called by the gate bus before put/delete. `collection` selects the subject mapping (#1005). */
   async assertTsWritable(
     existing: { ts: string | null; record: Record<string, unknown> | null } | null,
