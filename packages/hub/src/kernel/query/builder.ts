@@ -2889,11 +2889,28 @@ function compoundCandidates(
   if (indexes.compoundSize(pick.fields) !== source.snapshot().length) return null
   const ids = indexes.lookupCompound(pick.fields, pick.values, pick.range)
   if (!ids) return null
-  const remaining: Clause[] = []
-  for (let j = 0; j < clauses.length; j++) {
-    if (!pick.consumed.has(j)) remaining.push(clauses[j]!)
-  }
-  return { candidates: materializeIds(ids, lookupById), remainingClauses: remaining }
+  // ⛔ #1425: A TUPLE MATCH IS A SUPERSET, NOT AN ANSWER — #1415's defect, one
+  // dispatch over. Compound keys ARE type-tagged, so none of #1415's
+  // string↔number↔boolean coercion reaches here; what still leaks is Date
+  // object identity, because two `Date`s at the same instant encode to the
+  // same key and the scan compares with `===`. Measured on #1415's branch:
+  //
+  //   where('d','==',new Date(D1.getTime())).where('k','==','x')
+  //   index:compound → ['a']        scan → []
+  //
+  // So EVERY consumed clause stays in the plan and `filterRecords` re-applies
+  // the very predicate the scan applies — the two answers are then equal BY
+  // CONSTRUCTION, not by a type rule that has to enumerate what the tuple
+  // encoder happens to collapse. Same posture as `prefixCandidates` below,
+  // and for the same reason.
+  //
+  // ⚠️ This makes the compound arm a pure candidate NARROWER: it consumes
+  // nothing. That is the point — the narrowing is where the win was, and the
+  // re-filter runs over a set the executor has already materialized. Do not
+  // "optimise" it back by dropping the clauses the tuple matched exactly;
+  // exactness is a property of the operand against the STORED values, which
+  // the probe cannot see.
+  return { candidates: materializeIds(ids, lookupById), remainingClauses: clauses }
 }
 
 /**
@@ -2932,9 +2949,38 @@ function compoundOrderedRows(source: InternalSource, plan: QueryPlan): unknown[]
   // Arrow-bound so `this` can't drift (same discipline as `candidateRecords`).
   const lookupById = (id: string): unknown => source.lookupById?.(id)
   const out: unknown[] = []
-  for (let i = plan.offset; i < ids.length && out.length < limit; i++) {
+  // ⛔ #1425: this path returns rows NOTHING ELSE FILTERS, so it cannot take
+  // `compoundCandidates`' fix of pushing the clauses back into the plan —
+  // there is no later filter here to push them into. Nor can it re-filter
+  // AFTER the limit: that would drop rows from a page the scan would have
+  // kept, trading a wrong-rows bug for a wrong-page-size bug.
+  //
+  // It re-applies the predicate INSIDE the walk instead, and counts the
+  // offset in MATCHING rows rather than in index positions — which is what
+  // `offset` means everywhere else. Cost is bounded by the equality-prefix
+  // run the index already narrowed to, and in the overwhelming case (no
+  // superset row) the loop still stops at `offset + limit`, exactly as
+  // before. Declining the fast path outright was the alternative and would
+  // have cost the headline `where(a,'==',x).orderBy(b).limit(n)` shape its
+  // whole reason for existing.
+  //
+  // Safe to evaluate bare: the guards above already require every clause to
+  // be a via-free `==` on a distinct field, so there is no callback clause
+  // needing the decoded view `filterRecords` builds.
+  let matched = 0
+  for (let i = 0; i < ids.length && out.length < limit; i++) {
     const record = lookupById(ids[i]!)
-    if (record !== undefined) out.push(record)
+    if (record === undefined) continue
+    let hit = true
+    for (const clause of plan.clauses) {
+      if (!evaluateClause(record, clause)) {
+        hit = false
+        break
+      }
+    }
+    if (!hit) continue
+    if (matched++ < plan.offset) continue
+    out.push(record)
   }
   return out
 }
