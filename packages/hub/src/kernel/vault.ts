@@ -2556,13 +2556,13 @@ export class Vault {
   /**
    * Manual re-materialize for a single registered MV (`refresh: 'manual'` consumers,
    * stale-bit recovery on vault reopen, bulk-recompute escape hatch after a strategy
-   * change). Returns `{ written, deleted, failed, residueUndecodable, residueDeclined }` (`deleted`
-   * always 0 without tombstoning; #785 splits the #782 leftovers — undecodable vs #718-declined). Throws if not registered.
+   * change). Returns `{ written, skipped, deleted, failed, residueUndecodable, residueDeclined }` (`skipped` counts rows whose
+   * content was unchanged since the last refresh, #1418; `deleted` always 0 without tombstoning; #785 splits the #782 leftovers — undecodable vs #718-declined). Throws if not registered.
    */
-  async refreshView(name: string): Promise<{ written: number; deleted: number; failed: number; residueUndecodable: string[]; residueDeclined: string[] }> {
+  async refreshView(name: string): Promise<{ written: number; skipped: number; deleted: number; failed: number; residueUndecodable: string[]; residueDeclined: string[] }> {
     const registry = this.materializedViewRegistry
     if (registry === null) {
-      return { written: 0, deleted: 0, failed: 0, residueUndecodable: [], residueDeclined: [] }
+      return { written: 0, skipped: 0, deleted: 0, failed: 0, residueUndecodable: [], residueDeclined: [] }
     }
     await registry.resolvePendingPlans() // #1139 — a parked strategy is not in `byName` yet
     const reg = registry.byName(name)

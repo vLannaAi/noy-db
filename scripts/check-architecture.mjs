@@ -1210,7 +1210,16 @@ const KERNEL_SURFACE_BUDGET = {
   // conflicted here. Resolved by ADDING, which is the only correct resolution
   // for a ratchet: taking either side alone would have left the file one line
   // over a ceiling that read as deliberate.
-  'packages/hub/src/kernel/collection.ts': 4373,
+  // Bumped 4373→4380 (2026-09-05): #1418 MV output re-writes. A `_cacheStamp`
+  // accessor over the #1417 `GenerationMap`, answering two questions the MV
+  // emit memo (with-formula/materialized-views/emit-memo.ts) cannot ask from
+  // outside: "has anyone written this collection since I last looked", and
+  // "would re-writing an identical row be observable to anyone".
+  // ⚠️ The second question's RATIONALE deliberately does not live here — it is
+  // in emit-memo.ts, next to the code that would otherwise simplify the
+  // predicate away. This ceiling caught a first attempt that put 25 lines of it
+  // in the kernel; moving it out is what the ratchet is for.
+  'packages/hub/src/kernel/collection.ts': 4380,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

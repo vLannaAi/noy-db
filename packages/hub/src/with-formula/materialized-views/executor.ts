@@ -14,6 +14,7 @@ import { canonicalizeMoneyFieldsAsDecimal, decodeMoneyFields } from '../../via/m
 import { exactMath } from '../../via/money/exact.js'
 import { putDerivedOutput, type PutDerivedOutputCtx } from '../../kernel/via/dispatch.js'
 import { isCollectLeg, resolveLegOwner, type RefLookup } from './projection-legs.js' // #1140
+import { emitMemoKey, readEmitMemo, writeEmitMemo, rowContentKey } from './emit-memo.js' // #1418
 
 /**
  * Accessor shape passed in from the owning Vault. Mirrors v1's
@@ -46,6 +47,14 @@ export interface MVExecutorAccessor {
 export interface RefreshResult {
   /** Rows newly written / overwritten. */
   written: number
+  /**
+   * #1418 — rows whose content was byte-identical to what this MV last wrote,
+   * so the encrypt-and-store round trip was skipped. Counted separately from
+   * `written` on purpose: `written` means "a row was persisted", and reporting
+   * a skip as a write would make the two indistinguishable to anyone
+   * diagnosing whether a refresh actually did anything.
+   */
+  skipped: number
   /** Rows tombstoned via `_internalDelete` (only when `onEmpty: 'delete'`). */
   deleted: number
   /** Failed row writes (non-strict mode). */
@@ -630,10 +639,36 @@ export const MaterializedViewExecutor = {
       enrichedRows.push({ id, record: { ...row, _materializedFrom: meta } })
     }
 
-    // 4. Write the new rows.
+    // 4. Write the new rows — skipping any whose content is unchanged (#1418).
+    //
+    // ⛔ THE OUTPUT ROW COUNT, NOT THE SOURCE SCAN, IS WHAT MADE THIS EXPENSIVE.
+    // This loop used to encrypt-and-store EVERY row of the view on EVERY source
+    // write, so per-write cost tracked the size of the view: measured 23 ms at
+    // 250 output rows and 41.6 ms at 450, for source writes the MV's own `map`
+    // dropped entirely. Comparing against what this MV last wrote turns "one
+    // source write rewrites the whole view" into "one source write rewrites the
+    // groups that moved". See `emit-memo.ts` for why this, and not a
+    // predict-whether-the-refresh-is-needed short circuit.
+    const memoKey = emitMemoKey(vaultName, spec.name, reg.outputCollection)
+    // Read the stamp BEFORE writing: it has to describe the collection as this
+    // refresh found it, so a write by anyone else since last time invalidates.
+    const priorEmitted = readEmitMemo(memoKey, outputColl._cacheStamp)
+    const emitted = new Map<string, string>()
+
     let written = 0
+    let skipped = 0
     let failed = 0
     for (const { id, record } of enrichedRows) {
+      const contentKey = rowContentKey(record, reg.queryHash)
+      // ⚠️ A txCtx changes what a "skip" means: the rollback journal below
+      // needs an entry for every row the transaction could revert, and a row we
+      // never wrote has nothing to revert TO. Rather than reason about partial
+      // journals, the memo stands down inside a transaction entirely.
+      if (contentKey !== null && txCtx === null && priorEmitted?.get(id) === contentKey) {
+        skipped++
+        emitted.set(id, contentKey)
+        continue
+      }
       try {
         if (txCtx !== null) {
           const prior = await adapter.get(vaultName, reg.outputCollection, id)
@@ -642,12 +677,21 @@ export const MaterializedViewExecutor = {
             priorEnvelope: prior,
           })
         }
+        let landed = false
         if (accessor.dispatchCtx) {
-          if (await putDerivedOutput(outputColl, id, record, accessor.dispatchCtx) === 'written') written++
+          if (await putDerivedOutput(outputColl, id, record, accessor.dispatchCtx) === 'written') {
+            written++
+            landed = true
+          }
         } else {
           await outputColl.put(id, record)
           written++
+          landed = true
         }
+        // ⛔ ONLY a write that actually landed is remembered. `putDerivedOutput`
+        // declines inside a frozen period, and recording that row would make
+        // every later refresh skip a row that is not there.
+        if (landed && contentKey !== null) emitted.set(id, contentKey)
       } catch (err) {
         failed++
         if (strict) throw err
@@ -720,7 +764,13 @@ export const MaterializedViewExecutor = {
       }
     }
 
-    return { written, deleted, failed, residueUndecodable, residueDeclined }
+    // Record the stamp AFTER every write and tombstone, so the next refresh's
+    // check means "nothing has happened to this collection since I finished".
+    // A row that failed, was declined, or was tombstoned is simply absent from
+    // `emitted` and will be written again.
+    writeEmitMemo(memoKey, outputColl._cacheStamp, emitted)
+
+    return { written, skipped, deleted, failed, residueUndecodable, residueDeclined }
   },
 }
 

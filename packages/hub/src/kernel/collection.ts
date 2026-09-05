@@ -203,6 +203,13 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   // uses `lru` instead. Both fields exist so a single Collection instance
   // doesn't need a runtime branch on every cache access.
   private readonly cache = new GenerationMap<string, { record: T; version: number }>()
+  /** #1418 — mutation stamp for a derived-output memo, or `null` when one must NOT be used because a redundant re-write would still be observable (gate handler, history, sync, search) or there is no eager cache to stamp. The rules and their measured rationale live with the consumer, `with-formula/materialized-views/emit-memo.ts`. `_`-prefixed deliberately: `kernel-api-surface-golden` freezes the PUBLIC surface and this is an executor seam. @internal */
+  get _cacheStamp(): number | null {
+    if (this.lazy || this.subsystemBus?.hasGateHandlers('beforePut') === true) return null
+    if (this.historyConfigExplicit && this.historyConfig.enabled !== false) return null
+    if (this.onDirty !== undefined || this.searchIndexStore !== undefined) return null
+    return this.cache.generation
+  }
   private hydrated = false
 
   /**
