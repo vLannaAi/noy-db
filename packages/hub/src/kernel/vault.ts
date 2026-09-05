@@ -3186,6 +3186,9 @@ export class Vault {
     return this.periods.assertTsWritable(existing, incoming, collection)
   }
 
+  /** #1439 — sync superset test: could a closed period govern this row? See `periods/vault-facade.ts#couldGovern`. @internal */
+  _periodCouldGovern(record?: Record<string, unknown>): boolean { return this.periods.couldGovern(record) }
+
   /** List all collection names in this vault. */
   async collections(): Promise<string[]> {
     const snapshot = await this.adapter.loadAll(this.name)
