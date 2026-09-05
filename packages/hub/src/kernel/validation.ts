@@ -77,6 +77,12 @@ export interface SecretPolicy {
    * {@link assertStrongSecret} dispatches on — `ok: true` accepts;
    * `ok: false` throws `WeakSecretError` with the supplied reason.
    *
+   * ⚠️ Also supply `suggestion` on a rejection (#1430). Because this
+   * knob replaces every default rule, the hub's built-in remediation
+   * copy no longer describes anything true about your vault — so it is
+   * deliberately NOT used here. Omitting `suggestion` yields a bare
+   * `Weak secret (<reason>).`, which is less helpful but never wrong.
+   *
    */
   readonly customValidator?: (phrase: string) => SecretValidationResult
 }
@@ -89,6 +95,19 @@ export type SecretValidationResult =
       readonly reason: WeakSecretReason
       readonly minimum?: number
       readonly got?: number
+      /**
+       * Remediation copy for THIS failure, overriding the hub's built-in
+       * `SUGGESTIONS` map (#1430).
+       *
+       * Only a {@link SecretPolicy.customValidator} has any business
+       * setting it: the built-in copy describes the hub's default rules
+       * ("lowercase letters and single spaces", "at least 6 words"), and
+       * a vault that replaced those rules gets advice contradicting the
+       * format it actually accepts. Supply the copy your rules justify —
+       * and note that a validator returning no `suggestion` produces a
+       * bare `Weak secret (<reason>).` rather than false advice.
+       */
+      readonly suggestion?: string
     }
 
 /**
@@ -98,12 +117,20 @@ export type SecretValidationResult =
  */
 export class WeakSecretError extends NoydbError {
   readonly reason: WeakSecretReason
+  /**
+   * Remediation copy. Empty string when no truthful advice was
+   * available — a `customValidator` rejected the phrase and supplied
+   * none, so the hub has no rules to describe (#1430). Never populated
+   * with the built-in copy in that case: wrong advice is worse than
+   * none, especially for a vault whose own credentials violate it.
+   */
   readonly suggestion: string
-  constructor(reason: WeakSecretReason, suggestion: string) {
-    super('WEAK_SECRET', `Weak secret (${reason}). ${suggestion}`)
+  constructor(reason: WeakSecretReason, suggestion?: string) {
+    const advice = suggestion ?? ''
+    super('WEAK_SECRET', advice ? `Weak secret (${reason}). ${advice}` : `Weak secret (${reason}).`)
     this.name = 'WeakSecretError'
     this.reason = reason
-    this.suggestion = suggestion
+    this.suggestion = advice
   }
 }
 
@@ -196,6 +223,30 @@ export function validateSecret(
  * loosens the cryptographic key derivation; it only relaxes the
  * structural-strength gate.
  */
+/**
+ * Pick the remediation copy for a failed check (#1430).
+ *
+ * The built-in `SUGGESTIONS` map describes the hub's DEFAULT rules. A
+ * `customValidator` replaces those rules wholesale, so quoting the map
+ * then tells the user to do something the vault will reject — the
+ * reported case was a vault accepting `ann-saraphia1-2026`-shaped
+ * phrases being advised "no digits, no punctuation, six English words".
+ * The rejection was right and the advice was the opposite of the truth.
+ *
+ * Precedence: the validator's own copy, else nothing when a validator
+ * owns the rules, else the built-in map. Same rationale as
+ * {@link promptSuggestion}, which already overrides the map where it
+ * would misdirect.
+ */
+function resolveSuggestion(
+  result: Extract<SecretValidationResult, { ok: false }>,
+  customValidatorInUse: boolean,
+): string | undefined {
+  if (result.suggestion !== undefined) return result.suggestion
+  if (customValidatorInUse) return undefined
+  return SUGGESTIONS[result.reason]
+}
+
 export function assertStrongSecret(
   s: string,
   opts?: SecretPolicy & { allowWeakSecret?: boolean },
@@ -203,7 +254,10 @@ export function assertStrongSecret(
   if (opts?.allowWeakSecret) return
   const result = validateSecret(s, opts)
   if (result.ok) return
-  throw new WeakSecretError(result.reason, SUGGESTIONS[result.reason])
+  throw new WeakSecretError(
+    result.reason,
+    resolveSuggestion(result, opts?.customValidator !== undefined),
+  )
 }
 
 /**
@@ -343,9 +397,17 @@ export function assertStrongEchoSecret(
   if (result.ok) return
 
   const promptMinWords = opts?.prompt?.minWords ?? DEFAULT_ECHO_PROMPT_MIN_WORDS
-  const suggestion = failedCheck === 'prompt'
-    ? promptSuggestion(result.reason, promptMinWords)
-    : SUGGESTIONS[result.reason]
+  // #1430 — a validator-supplied suggestion outranks both the prompt copy
+  // and the map, and the half that failed decides which validator is the
+  // one that owns the rules here.
+  const customInUse = failedCheck === 'prompt'
+    ? opts?.prompt?.customValidator !== undefined
+    : opts?.combined?.customValidator !== undefined
+  const suggestion = result.suggestion !== undefined
+    ? result.suggestion
+    : failedCheck === 'prompt' && !customInUse
+      ? promptSuggestion(result.reason, promptMinWords)
+      : resolveSuggestion(result, customInUse)
 
   throw new WeakSecretError(result.reason, suggestion)
 }
