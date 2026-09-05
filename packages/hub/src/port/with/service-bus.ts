@@ -104,9 +104,39 @@ export type GateHandler<P extends GatePoint> = (event: GateEventMap[P]) => void 
  */
 export interface GateRegisterOptions {
   readonly needsPrior?: boolean
+  /**
+   * #1439 — declare when this handler provably CANNOT fire, so a caller can
+   * tell "no gate applies here" from "some gate exists somewhere".
+   *
+   * ⛔ The distinction is not academic. `hasGateHandlers` answers a question
+   * about the BUS, and the bus is shared by every collection in the vault —
+   * both `beforePut` registrants decide per event (guards by collection,
+   * periods by the record's date field), so "is anything registered" was read
+   * as "this write is gated" and installing `withPeriods()` anywhere disabled
+   * an unrelated optimisation for every collection. Measured: an MV output
+   * went from 0 to 250 redundant writes per source write with no period closed
+   * and no collection registered as a subject.
+   *
+   * Returning `true`, or omitting this entirely, means "may fire" — the safe
+   * answer, and the default. Only return `false` for a case the handler can
+   * rule out cheaply and completely.
+   */
+  readonly scope?: GateScope
 }
 
-type GateEntry = { readonly fn: AnyHandler; readonly needsPrior: boolean }
+/**
+ * Asks a gate handler whether it could fire for this target. `record` is the
+ * row about to be written when the caller has one — a period gate can rule
+ * itself out for a row carrying none of its closed periods' date fields, which
+ * a collection-level question could never answer.
+ */
+export type GateScope = (target: {
+  readonly vault: string
+  readonly collection: string
+  readonly record?: Record<string, unknown>
+}) => boolean
+
+type GateEntry = { readonly fn: AnyHandler; readonly needsPrior: boolean; readonly scope: GateScope | undefined }
 
 export class ServiceBus {
   readonly #handlers = new Map<LifecyclePoint, AnyHandler[]>()
@@ -179,7 +209,7 @@ export class ServiceBus {
   registerGate<P extends GatePoint>(point: P, handler: GateHandler<P>, opts?: GateRegisterOptions): Unsubscribe {
     let arr = this.#gateHandlers.get(point)
     if (!arr) { arr = []; this.#gateHandlers.set(point, arr) }
-    const entry: GateEntry = { fn: handler as AnyHandler, needsPrior: opts?.needsPrior !== false }
+    const entry: GateEntry = { fn: handler as AnyHandler, needsPrior: opts?.needsPrior !== false, scope: opts?.scope }
     arr.push(entry)
     return () => {
       const a = this.#gateHandlers.get(point)
@@ -193,6 +223,30 @@ export class ServiceBus {
   hasGateHandlers(point: GatePoint): boolean {
     const a = this.#gateHandlers.get(point)
     return a !== undefined && a.length > 0
+  }
+
+  /**
+   * #1439 — could a gate at `point` fire for THIS target?
+   *
+   * ⚠️ This is the question callers almost always mean, and
+   * {@link hasGateHandlers} is not it. That one is about the bus, which is
+   * shared by the whole vault; this one consults each handler's declared
+   * {@link GateScope}. A handler that declares none counts as "may fire", so a
+   * registrant which has not thought about scope keeps today's behaviour.
+   *
+   * ⛔ A scope that throws is treated as "may fire". A predicate whose job is
+   * to permit an optimisation must never be able to disable a gate by failing.
+   */
+  gateAppliesTo(
+    point: GatePoint,
+    target: { readonly vault: string; readonly collection: string; readonly record?: Record<string, unknown> },
+  ): boolean {
+    const a = this.#gateHandlers.get(point)
+    if (a === undefined || a.length === 0) return false
+    return a.some((e) => {
+      if (e.scope === undefined) return true
+      try { return e.scope(target) } catch { return true }
+    })
   }
 
   /**

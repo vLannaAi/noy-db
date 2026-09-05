@@ -424,6 +424,11 @@ export class Noydb {
       for (const g of guards) {
         await GuardExecutor.checkFrozenFields(g, e.docId, existing, incoming, e.computedFieldNames)
       }
+    }, {
+      // #1439 — this handler's own first two early-returns, hoisted so a caller can ask
+      // "could a guard fire HERE" without writing. See `ServiceBus.gateAppliesTo`.
+      scope: ({ vault, collection }) =>
+        (this.vaultCache.get(vault)?._getGuardRegistry()?.guardsFor(collection).length ?? 0) > 0,
     })
     this.subsystemBus.registerGate('beforeDelete', async (e) => {
       const v = this.vaultCache.get(e.vault)
@@ -470,6 +475,9 @@ export class Noydb {
         ? null
         : { ts: e.existingTs ?? null, record: (e.existing ?? null) as Record<string, unknown> | null }
       await v._assertTsWritable(existing, e.incoming as Record<string, unknown>, e.collection)
+    }, {
+      // #1439 — a period governs a row only through its `dateField`; see `couldGovern`.
+      scope: ({ vault, record }) => this.vaultCache.get(vault)?._periodCouldGovern(record) ?? true,
     })
     this.subsystemBus.registerGate('beforeDelete', async (e) => {
       if (e.internal) return
