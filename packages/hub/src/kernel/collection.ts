@@ -35,7 +35,7 @@ import {
   rebuildEagerIndexesFromCache as rebuildEagerIndexesFromCacheImpl, rebuildUniqueConstraintsFromCache as rebuildUniqueConstraintsFromCacheImpl, rebuildIndexes as rebuildIndexesImpl,
   reconcileIndex as reconcileIndexImpl, maintainPersistedIndexesOnPut as maintainPersistedIndexesOnPutImpl, maintainPersistedIndexesOnDelete as maintainPersistedIndexesOnDeleteImpl,
   purgePersistedIndexes as purgePersistedIndexesImpl, syncTierIndexes as syncTierIndexesImpl, type IndexingContext,
-  createPersistedFieldIndexes as createPersistedFieldIndexesImpl, hydrateEagerIndexes as hydrateEagerIndexesImpl, type PersistedFieldIndexes, checkUniqueOnPut as checkUniqueOnPutImpl,
+  createPersistedFieldIndexes as createPersistedFieldIndexesImpl, hydrateEagerIndexes as hydrateEagerIndexesImpl, type PersistedFieldIndexes, checkUniqueOnPut as checkUniqueOnPutImpl, resolveDeclaredIndexes,
 } from '../with-lookup/indexing/collection-facade.js'
 import { ReadOnlyError, ClassifiedConfigError, ClassifiedRevealError, ClassifiedVerifyError } from './errors.js'
 import type { GhostRecord, TierMode, CrossTierAccessEvent } from './types.js'
@@ -833,7 +833,7 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       defs: opts.indexes ?? [],
       lazy: this.lazy,
     })
-    this.declaredIndexes = normalizeIndexDefs(opts.indexes ?? [])
+    this.declaredIndexes = resolveDeclaredIndexes(opts.indexes ?? [], this.name, this.indexState.isEnabled) // #1421: normalizes, and warns when the strategy will silently discard the declaration
     // #1359: `null` unless an index opted in; thunk resolves lazily (pre-`this.codec`, as the search bridge does).
     this.fieldIndexStore = createPersistedFieldIndexesImpl(() => this.indexingContext(), this.indexes)
     this.indexes?.setCanonicalizer((f, v) => this.via?.canonicalizeIndexKey(f, v)) // #672 review C1: one-time canonicalizer registration; lazy `this.via` read survives late `_setVia` (#666)

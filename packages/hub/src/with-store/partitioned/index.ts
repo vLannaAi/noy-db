@@ -545,6 +545,12 @@ export class PartitionedScan<T> {
     return (await this.builder()).aggregate(spec)
   }
 
+  /**
+   * **ASYNC here, unlike `Query.toArray()` (#1413).** Same method name, a
+   * different contract, because the surface underneath differs: this one
+   * genuinely fetches across every partition leg, so it genuinely awaits. `Query`'s terminal reads an
+   * already-decrypted in-memory cache and returns `T[]` synchronously.
+   */
   async toArray(): Promise<T[]> {
     const out: T[] = []
     for await (const record of this) out.push(record)

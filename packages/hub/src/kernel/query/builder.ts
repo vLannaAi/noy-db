@@ -247,21 +247,6 @@ interface InternalSource {
 }
 
 /**
- * The chainable builder. All methods return a new Query — the original
- * remains unchanged. Terminal methods (`toArray`, `first`, `count`,
- * `subscribe`) execute the plan against the source.
- *
- * Type parameter T flows through the public API for ergonomics, but the
- * internal storage uses `unknown` so Collection<T> stays covariant.
- *
- * The optional `joinContext` is attached when the Query is constructed
- * via `Collection.query()` (Collection passes in a context built from
- * the Vault's join resolver). A Query constructed via `new Query`
- * directly — e.g. from tests with a plain-object source — has no
- * joinContext, and calling `.join()` on it throws with an actionable
- * error. See `query/join.ts` for the full design.
- */
-/**
  * Declared deterministic predicate. Carries the consumer's
  * stable `hash` (for function-body identity), the function itself,
  * and is keyed by name when registered on a `Query<T>` via
@@ -272,6 +257,62 @@ export interface DeclaredPredicate {
   fn: (record: unknown, ctx?: unknown) => boolean
 }
 
+/**
+ * The chainable query builder over an eager collection's decrypted cache.
+ *
+ * ## Its terminals are SYNCHRONOUS (#1413)
+ *
+ * `toArray()`, `ids()`, `page()`, `first()`, `count()` and `exists()` return
+ * their value directly — `T[]`, `string[]`, `{ rows, nextCursor }`, `T | null`,
+ * `number`, `boolean` — **not** a `Promise` of it. That is the architecture
+ * showing through, not an oversight: `Query` runs over `source.snapshot()`, an
+ * already-decrypted in-memory view. Decryption happened at hydration, so by the
+ * time a plan executes there is nothing left to await. Making these async would
+ * break every call site and erase the one property that distinguishes a cached
+ * query from a fetch.
+ *
+ * ⚠️ **So `.catch()` / `.then()` on a terminal's result is not part of the
+ * contract.** `query().toArray().catch(fn)` fails with *"catch is not a
+ * function"* on a loaded collection. Handle errors with `try` / `catch` around
+ * the call.
+ *
+ * `await` is always safe, though — awaiting a plain array yields the array —
+ * and on an unhydrated collection it is REQUIRED. See below.
+ *
+ * ## The one exception, and it is not an async terminal (#1414)
+ *
+ * On a collection that has never been loaded, a terminal cannot answer: the
+ * snapshot is empty by ABSENCE, not by content. Rather than return a confident
+ * `[]` / `0` / `false`, it returns a **pending result** — a thenable that
+ * hydrates and re-runs the terminal when awaited, and throws
+ * {@link CollectionNotHydratedError} on any other use. It is deliberately NOT a
+ * promise-shaped array: the moment the collection is hydrated the very same
+ * call returns the plain synchronous value again. Write
+ * `await collection.query().toArray()` — correct in both states — or
+ * `await collection.list()` first and then read synchronously.
+ * See `query/hydration.ts`.
+ *
+ * ## Where the same name IS async
+ *
+ * `PartitionedQuery.toArray()` (`with-store/partitioned/index.ts`) and the lazy
+ * builder's `LazyQuery.toArray()` (`with-lookup/indexing/lazy-builder.ts`)
+ * return `Promise<T[]>`. Both genuinely fetch — across partition legs, or
+ * through the persisted `_idx/` side-car — so both genuinely await. Same
+ * method name, different contract, because the surface underneath differs.
+ *
+ * ---
+ *
+ * All non-terminal methods return a NEW Query — the original is unchanged.
+ * Type parameter T flows through the public API for ergonomics, but the
+ * internal storage uses `unknown` so `Collection<T>` stays covariant.
+ *
+ * The optional `joinContext` is attached when the Query is constructed via
+ * `Collection.query()` (Collection passes in a context built from the Vault's
+ * join resolver). A Query constructed via `new Query` directly — e.g. from
+ * tests with a plain-object source — has no joinContext, and calling `.join()`
+ * on it throws with an actionable error. See `query/join.ts` for the full
+ * design.
+ */
 export class Query<T, S extends keyof T = never, Q extends keyof T & string = never, M extends keyof T & string = never> {
   private readonly source: InternalSource
   private readonly plan: QueryPlan
@@ -394,6 +435,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * Requires a collection-backed query (`collection.query()`); a `crossJoin`
    * plan is refused, because it produces new row objects and there is no id
    * to recover.
+   *
+   * **Synchronous** (#1413) — returns `string[]`, not a promise; the cache it reads is
+   * already decrypted. `await` is safe and is REQUIRED on an unhydrated collection
+   * (#1414); `.catch()` is not available. See the {@link Query} class doc.
    */
   ids(): string[] {
     const _h = this.source.hydration
@@ -1222,6 +1267,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * `join` layer to that locale; without it, the owning collection's default
    * locale applies, and a locale-less query leaves joined i18n fields raw.
    * (Left/base i18n fields are resolved by `get`/`list`, not here.)
+   *
+   * **Synchronous** (#1413) — returns `T[]`, not a promise; the cache it reads is
+   * already decrypted. `await` is safe and is REQUIRED on an unhydrated collection
+   * (#1414); `.catch()` is not available. See the {@link Query} class doc.
    */
   toArray(opts?: { locale?: string }): T[] {
     const _h = this.source.hydration
@@ -1487,6 +1536,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    *
    * Same requirements as `.after()`: at least one `orderBy(...)`, an id-paired
    * (collection-backed) source, no join legs, no `offset()`.
+   *
+   * **Synchronous** (#1413) — returns `{ rows, nextCursor }`, not a promise; the cache it reads is
+   * already decrypted. `await` is safe and is REQUIRED on an unhydrated collection
+   * (#1414); `.catch()` is not available. See the {@link Query} class doc.
    */
   page(opts?: { locale?: string }): { rows: T[]; nextCursor: string | null } {
     const _h = this.source.hydration
@@ -1569,7 +1622,14 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     return { rows: this.decodeVia(window.map(r => r.record)) as T[], nextCursor }
   }
 
-  /** Return the first matching record, or null. Joins are applied. `opts.locale` resolves joined i18n fields. */
+  /**
+   * Return the first matching record, or null. Joins are applied. `opts.locale`
+   * resolves joined i18n fields.
+   *
+   * **Synchronous** (#1413) — returns `T | null`, not a promise; the cache it reads is
+   * already decrypted. `await` is safe and is REQUIRED on an unhydrated collection
+   * (#1414); `.catch()` is not available. See the {@link Query} class doc.
+   */
   first(opts?: { locale?: string }): T | null {
     const _h = this.source.hydration
     if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'first', () => this.first(opts))
@@ -1592,6 +1652,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * A strict-mode `DanglingReferenceError` becomes reachable from `count()`
    * in exactly that case, which is acceptable: the caller asked to filter on
    * the joined side, so they asked for the join.
+   *
+   * **Synchronous** (#1413) — returns `number`, not a promise; the cache it reads is
+   * already decrypted. `await` is safe and is REQUIRED on an unhydrated collection
+   * (#1414); `.catch()` is not available. See the {@link Query} class doc.
    */
   count(): number {
     const _h = this.source.hydration
@@ -1744,6 +1808,10 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * back to it, because both must materialize the relation before anything
    * can be tested: a `crossJoin` expansion, and a `where` clause addressing a
    * join alias (#1030). Both still answer correctly.
+   *
+   * **Synchronous** (#1413) — returns `boolean`, not a promise; the cache it reads is
+   * already decrypted. `await` is safe and is REQUIRED on an unhydrated collection
+   * (#1414); `.catch()` is not available. See the {@link Query} class doc.
    */
   exists(): boolean {
     const _h = this.source.hydration
