@@ -17,6 +17,8 @@ export type {
 } from './types.js'
 export type { RegisteredMV } from './registry.js'
 export type { MVExecutorAccessor, RefreshResult } from './executor.js'
+// #1418 — the emit-diff counters carried on every RefreshResult.
+export type { MvMaintenanceStats } from './emit-cache.js'
 
 // Re-export errors so `@noy-db/hub/materialized-views` is self-contained
 // (matches the v1 derivations subpath pattern).

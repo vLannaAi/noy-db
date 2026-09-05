@@ -14,6 +14,7 @@ import { canonicalizeMoneyFieldsAsDecimal, decodeMoneyFields } from '../../via/m
 import { exactMath } from '../../via/money/exact.js'
 import { putDerivedOutput, type PutDerivedOutputCtx } from '../../kernel/via/dispatch.js'
 import { isCollectLeg, resolveLegOwner, type RefLookup } from './projection-legs.js' // #1140
+import { cachedVersionReader, emitCacheFor, fingerprintRow, type MvMaintenanceStats } from './emit-cache.js' // #1418
 
 /**
  * Accessor shape passed in from the owning Vault. Mirrors v1's
@@ -59,6 +60,13 @@ export interface RefreshResult {
    *  `_internalDelete` declined (the #718 tier-elevation gate) — ownership CONFIRMED, a real
    *  silent survival, surfaced rather than dropped. Only populated when `onEmpty: 'delete'`. */
   residueDeclined: string[]
+  /**
+   * #1418 — cumulative per-MV emit-diff counters, so a caller (and a test) can
+   * see WHICH path ran rather than only that the answer was right. `written`
+   * above counts THIS pass's real store writes; these accumulate across every
+   * refresh of this MV in this session. See `emit-cache.ts`.
+   */
+  maintenance: MvMaintenanceStats
 }
 
 /** Default cost ceiling — overridable per-MV via `spec.maxRows`. */
@@ -616,8 +624,12 @@ export const MaterializedViewExecutor = {
 
     // 3. Compute the post-refresh id set so we can diff against the
     //    prior-emitted id set for tombstoning (when onEmpty === 'delete').
+    //    #1418 — each row also carries the fingerprint of its PRE-STAMP form.
+    //    The stamp cannot be part of it: `materializedAt` is a fresh timestamp
+    //    on every pass, so a row that changed in nothing but its clock would
+    //    look changed forever, which is the whole cost this is removing.
     const newIds = new Set<string>()
-    const enrichedRows: Array<{ id: string; record: Record<string, unknown> }> = []
+    const enrichedRows: Array<{ id: string; record: Record<string, unknown>; fingerprint: string | null }> = []
     for (const row of rows) {
       const id = spec.rowKey(row)
       newIds.add(id)
@@ -627,13 +639,21 @@ export const MaterializedViewExecutor = {
         sourceVersions: {},
         materializedAt: new Date().toISOString(),
       }
-      enrichedRows.push({ id, record: { ...row, _materializedFrom: meta } })
+      enrichedRows.push({ id, record: { ...row, _materializedFrom: meta }, fingerprint: fingerprintRow(row) })
     }
 
-    // 4. Write the new rows.
+    // 4. Write the new rows. #1418 — a row whose content is unchanged AND
+    //    whose stored version is still the one our last write produced is not
+    //    re-encrypted and not re-put. `rows` above is the full recompute, so
+    //    the materialised RESULT is unchanged by construction; only the
+    //    redundant writes go away.
+    const emitCache = emitCacheFor(reg)
+    const pass = emitCache.begin()
+    const versionOf = cachedVersionReader(outputColl)
     let written = 0
     let failed = 0
-    for (const { id, record } of enrichedRows) {
+    for (const { id, record, fingerprint } of enrichedRows) {
+      if (pass.trySkip(id, fingerprint, versionOf(id))) continue
       try {
         if (txCtx !== null) {
           const prior = await adapter.get(vaultName, reg.outputCollection, id)
@@ -643,12 +663,22 @@ export const MaterializedViewExecutor = {
           })
         }
         if (accessor.dispatchCtx) {
-          if (await putDerivedOutput(outputColl, id, record, accessor.dispatchCtx) === 'written') written++
+          if (await putDerivedOutput(outputColl, id, record, accessor.dispatchCtx) === 'written') {
+            written++
+            pass.wrote(id, fingerprint, versionOf(id))
+          } else {
+            // A `putDerivedOutput` decline (frozen period) left the stored row
+            // as it was. It is not ours to vouch for, so it stays unskippable
+            // and is retried on the next refresh exactly as before.
+            pass.notEmitted(id)
+          }
         } else {
           await outputColl.put(id, record)
           written++
+          pass.wrote(id, fingerprint, versionOf(id))
         }
       } catch (err) {
+        pass.notEmitted(id)
         failed++
         if (strict) throw err
          
@@ -663,8 +693,23 @@ export const MaterializedViewExecutor = {
     let deleted = 0
     const residueUndecodable: string[] = []
     const residueDeclined: string[] = []
+    let scannedFully = false
     if (onEmpty === 'delete') {
-      const priorIds = await listOutputIds(outputColl)
+      // #1418 — the scope. `null` means "we cannot vouch for what we emitted",
+      // which is every FIRST refresh of a session: list the whole output
+      // collection, exactly as before, and sweep residue an earlier session
+      // left behind. Once one such pass has completed, the candidates are the
+      // ids THIS MV emitted — normally a handful, usually none — instead of
+      // one adapter read plus one record DECRYPT per row in the view, on every
+      // single source write.
+      const scope = pass.tombstoneScope()
+      let priorIds: Iterable<string>
+      if (scope === null) {
+        priorIds = await listOutputIds(outputColl)
+        scannedFully = true
+      } else {
+        priorIds = [...scope]
+      }
       for (const priorId of priorIds) {
         if (newIds.has(priorId)) continue
         // #762 — a same-collection partition MV (`output: { collection: <source>, partition }`,
@@ -674,7 +719,10 @@ export const MaterializedViewExecutor = {
         // `invalidateMVAtRest` uses (stale.ts:151-162). An unstamped row, or one stamped by a
         // different MV, is never this MV's to delete.
         const priorEnvelope = await adapter.get(vaultName, reg.outputCollection, priorId)
-        if (priorEnvelope === null) continue
+        // #1418 — in the scoped path this is an id we emitted whose row is now
+        // gone (someone else erased it). Nothing to tombstone, and nothing left
+        // to track.
+        if (priorEnvelope === null) { pass.removed(priorId); continue }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const priorDecoded = await (outputColl as any)._decodeEnvelope(priorEnvelope, priorId)
         if (priorDecoded === null) {
@@ -689,7 +737,9 @@ export const MaterializedViewExecutor = {
           typeof priorDecoded === 'object'
             ? (priorDecoded as Record<string, unknown>)._materializedFrom as { mvName?: string } | undefined
             : undefined
-        if (priorStampedBy?.mvName !== spec.name) continue
+        // #1418 — a row we emitted that now carries someone else's stamp is no
+        // longer ours to tombstone or to remember.
+        if (priorStampedBy?.mvName !== spec.name) { pass.removed(priorId); continue }
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const outAny = outputColl as any
@@ -699,6 +749,7 @@ export const MaterializedViewExecutor = {
             // erasure happened), and that must not inflate the tombstone count.
             if (await outAny._internalDelete(priorId, txCtx)) {
               deleted++
+              pass.removed(priorId)
             } else {
               // #782 part b — decoded AND stamp-owned, but erasure was declined (#718
               // tier-elevation gate). Ownership IS confirmed here — a real silent survival,
@@ -710,9 +761,13 @@ export const MaterializedViewExecutor = {
             // every Collection has `_internalDelete`.
             await outputColl.delete(priorId)
             deleted++
+            pass.removed(priorId)
           }
         } catch (err) {
           failed++
+          // A tombstone we could not complete leaves an id whose fate we do not
+          // know; refuse to narrow the next scan on a set we cannot vouch for.
+          pass.lostTrack()
           if (strict) throw err
 
           console.warn(`[mv] "${spec.name}" tombstone failed for id="${priorId}":`, err)
@@ -720,7 +775,10 @@ export const MaterializedViewExecutor = {
       }
     }
 
-    return { written, deleted, failed, residueUndecodable, residueDeclined }
+    // #1418 — publish only on a clean finish. A throw anywhere above skips this
+    // and the next refresh scans fully again.
+    pass.commit(scannedFully)
+    return { written, deleted, failed, residueUndecodable, residueDeclined, maintenance: emitCache.stats() }
   },
 }
 
