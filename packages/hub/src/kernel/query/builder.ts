@@ -3290,6 +3290,53 @@ function fnViewDecoder(source: InternalSource): ((r: unknown) => unknown) | unde
   return r => via.decodeResults(r)
 }
 
+/** A clause compiled to a per-row test. `fnView` is the decoded record, when one was built. */
+type CompiledClause = (record: unknown, fnView: unknown) => boolean
+
+/**
+ * #1437 — compile the two clause shapes that dominate the indexed read path,
+ * once per query instead of interpreting them once per row.
+ *
+ * ⛔ THIS IS PAYING BACK A COST #1415 INTRODUCED ON PURPOSE. Before #1415 an
+ * `==` served from the hash index left the plan entirely; now it stays and
+ * `filterRecords` re-checks every candidate, which is what makes the index and
+ * the scan agree by construction. Correct, and it halved the index's advantage:
+ * measured 4.94x over a linear scan at `e43c1c7a~1`, 2.34x on main — against a
+ * DoD guard asserting `> 2`, so the regression landed green and first surfaced
+ * as an unrelated PR failing three retries.
+ *
+ * The re-check itself is not the expense; reaching it is. Per candidate row the
+ * generic path is `evaluateClause`'s switch, `evaluateFieldClause`, `readPath`
+ * (which tests the field for a `.` on every call), then `evaluateOperator`'s
+ * switch — five calls and two switches to perform one `===`.
+ *
+ * ⚠️ The specialisations must be OBSERVATIONALLY IDENTICAL to the generic path,
+ * including its edge cases, or this reintroduces the #1402 class from the other
+ * side: a nullish record reads as `undefined` rather than throwing, exactly as
+ * `readPath` does, and `in` keeps `Array.isArray` gating and SameValueZero
+ * membership (a `Set` matches `includes` on `NaN` and on object identity
+ * alike). Anything else — a via-covered clause, a dotted path, any other
+ * operator — falls through to the interpreter unchanged.
+ */
+function compileClause(clause: Clause): CompiledClause {
+  if (clause.type === 'field' && clause.via === undefined && !clause.field.includes('.')) {
+    const field = clause.field
+    const value = clause.value
+    if (clause.op === '==') {
+      return (r) => (r === null || r === undefined ? undefined : (r as Record<string, unknown>)[field]) === value
+    }
+    if (clause.op === 'in') {
+      // A non-array operand matches nothing under `in`, same as `includes`.
+      const set = Array.isArray(value) ? new Set(value as readonly unknown[]) : null
+      if (set !== null) {
+        return (r) => set.has(r === null || r === undefined ? undefined : (r as Record<string, unknown>)[field])
+      }
+      return () => false
+    }
+  }
+  return (r, fnView) => evaluateClause(r, clause, fnView)
+}
+
 function filterRecords(
   records: readonly unknown[],
   clauses: readonly Clause[],
@@ -3298,12 +3345,14 @@ function filterRecords(
   if (clauses.length === 0) return [...records]
   // Decode once per record, and only when a callback clause will consume it.
   const needsFnView = decodeForFns !== undefined && hasFnClause(clauses)
+  // Compile once per QUERY, not once per row (#1437).
+  const compiled = clauses.map(compileClause)
   const out: unknown[] = []
   for (const r of records) {
     const fnView = needsFnView ? decodeForFns(r) : undefined
     let matches = true
-    for (const clause of clauses) {
-      if (!evaluateClause(r, clause, fnView)) {
+    for (const test of compiled) {
+      if (!test(r, fnView)) {
         matches = false
         break
       }
