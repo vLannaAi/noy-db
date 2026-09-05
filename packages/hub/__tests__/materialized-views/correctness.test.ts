@@ -217,11 +217,18 @@ describe('MV correctness (#152)', () => {
       expect(first.written).toBe(2)
       expect(first.deleted).toBe(0)
 
-      // Flip 'a' to blue → next refresh writes 1 (b) + tombstones 1 (a).
+      // Flip 'a' to blue → next refresh tombstones 1 (a). 'b' is unchanged, so
+      // since #1418 it is SKIPPED rather than re-written: the executor no
+      // longer re-encrypts every output row on every refresh. `deleted` is what
+      // this test is about and is unmoved; `written + skipped` is the row count
+      // the refresh accounted for.
       await vault.collection<Item>('items').put('a', { id: 'a', tag: 'blue' })
       const second = await vault.refreshView('red-items')
-      expect(second.written).toBe(1) // 'b' re-emitted
+      expect(second.written).toBe(0)
+      expect(second.skipped).toBe(1) // 'b' unchanged — not re-emitted
       expect(second.deleted).toBe(1) // 'a' tombstoned
+      // The point the counters exist to serve: the view is right either way.
+      expect((await vault.collection<Item>('red-items').list()).map(r => r.id)).toEqual(['b'])
     })
 
     it('tombstone leg counts honestly: a #718 elevated-skip on the output row is NOT counted as deleted (#776 part b)', async () => {
