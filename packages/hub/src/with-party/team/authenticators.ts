@@ -63,6 +63,7 @@ export async function enrollAuthenticator(
   keyring: UnlockedKeyring,
   options: EnrollAuthenticatorOptions,
 ): Promise<UnlockedKeyring> {
+  assertSlotListVisible(keyring, 'enrollAuthenticator', vault)
   const existing = keyring.authenticators.find((a) => a.id === options.id)
   if (existing) {
     throw new ValidationError(
@@ -142,6 +143,7 @@ export async function updateAuthenticator(
     )
   }
 
+  assertSlotListVisible(keyring, 'updateAuthenticator', vault)
   const idx = keyring.authenticators.findIndex((a) => a.id === slotId)
   if (idx === -1) {
     throw new NoAccessError(
@@ -178,8 +180,51 @@ export async function updateAuthenticator(
 }
 
 /**
+ * Refuse any slot-list decision taken from a keyring that cannot be
+ * persisted (#1426).
+ *
+ * `UnlockedKeyring.authenticators` is a snapshot, and a tier-3
+ * PIN-resumed / session-restored keyring carries an EMPTY one
+ * alongside `kek === null` — not because the vault has no slots, but
+ * because that session never unwrapped the KEK and so never read
+ * them. Deciding "the slot isn't there" from that snapshot answers a
+ * question the session cannot see the answer to.
+ *
+ * `persistKeyring` already refuses a null KEK, so every write path
+ * here ends in a throw regardless. What this guard buys is that the
+ * throw happens BEFORE the decision instead of after it — otherwise
+ * `removeAuthenticator` short-circuits on the empty list and returns
+ * a successful no-op, and `updateAuthenticator` reports the slot as
+ * "not found" when the truthful answer is "not visible from here".
+ *
+ * Same class as the `echo` / `granted_by` / `expires_at` carry-forward
+ * comments in `persistKeyring`: an UnlockedKeyring is a partial view,
+ * and treating an absent field as a known-empty one silently destroys
+ * or misreports state.
+ */
+function assertSlotListVisible(
+  keyring: UnlockedKeyring,
+  op: string,
+  vault: string,
+): void {
+  if (keyring.kek) return
+  throw new ValidationError(
+    `${op}: keyring.kek is null, so the authenticator slot list for vault ` +
+      `"${vault}" is not readable from this session and no slot decision can ` +
+      'be made. This typically means the keyring was opened via tier-3 PIN ' +
+      'resume, session restore, or a wrap-DEKs tier-2 unlock. Re-authenticate ' +
+      'at tier 1 (secret) before enrolling, updating or removing a slot.',
+  )
+}
+
+/**
  * Drop a slot by id. No-op if the slot doesn't exist (idempotent —
  * removing a non-existent slot is a recoverable retry, not an error).
+ *
+ * ⚠️ Idempotency is only sound when the slot list is actually
+ * visible — see {@link assertSlotListVisible} (#1426).
+ *
+ * @throws `ValidationError` when the session cannot see the slot list.
  */
 export async function removeAuthenticator(
   store: NoydbStore,
@@ -187,6 +232,7 @@ export async function removeAuthenticator(
   keyring: UnlockedKeyring,
   slotId: string,
 ): Promise<UnlockedKeyring> {
+  assertSlotListVisible(keyring, 'removeAuthenticator', vault)
   const filtered = keyring.authenticators.filter((a) => a.id !== slotId)
   if (filtered.length === keyring.authenticators.length) {
     return keyring // idempotent — nothing to do
