@@ -9,7 +9,8 @@
  * the vault.
  *
  * Measured by the reporter on their own shape, counting real `store.put` calls
- * over 100 dropped source writes (their MV output has 54 rows):
+ * over 100 dropped source writes (their MV output holds 61 rows; 54 of them are
+ * rewritten per source write, the rest being tombstone/no-op traffic):
  *
  *     periods  guards   output puts/write
  *       yes      yes         54.00
