@@ -385,6 +385,20 @@ function pageOf(total: number, offset: number, limit: number): number {
   return Math.min(Math.max(0, total - offset), limit)
 }
 
+/**
+ * Does this dispatch hand back a CANDIDATE set that the clause still filters,
+ * rather than the answer?
+ *
+ * `index:range` is the one index label that is exact — `lookupRange` is served
+ * by the sorted index, whose comparisons are the scan's own (#1344, measured
+ * on #1415: `!=`, `startsWith` and the range operators never disagreed).
+ */
+function isSupersetDispatch(dispatch: ExplainDispatch, clause: Clause): boolean {
+  if (dispatch === 'index:prefix' || dispatch === 'index:compound') return true
+  if (dispatch !== 'index:hash') return false
+  return clause.type === 'field' && (clause.op === '==' || clause.op === 'in')
+}
+
 /** `op`-free one-line description of a clause. */
 function describeClause(clause: Clause): { op: string; detail: string } {
   switch (clause.type) {
@@ -540,11 +554,20 @@ export function explainPlan(
       if (dispatch !== null) {
         const { op, detail } = describeClause(clause)
         if (pick) rows = pick.rows
-        // #1355 — the one index label whose clause is not consumed. Say so,
-        // or `estimatedRows` reads as the answer's size when it is the
-        // candidate set's.
-        const notes = dispatch === 'index:prefix'
-          ? ['prefix cover is a superset: the clause still filters the candidates exactly']
+        // Index labels whose clause is NOT consumed. Say so, or
+        // `estimatedRows` reads as the answer's size when it is the candidate
+        // set's.
+        //
+        // #1355 started this list with `index:prefix`. #1415 and #1425 then
+        // added the equality arms for the same reason from the other end: a
+        // hash bucket and a tuple match are both supersets (bucket keys
+        // collapse `1`/`'1'`, tuple keys collapse two Dates at one instant),
+        // so those clauses stay in the plan and re-filter the candidates.
+        // ⚠️ Keeping this list in step is not cosmetic — an explain that says
+        // "consumed" for a clause the executor still evaluates is precisely
+        // #1375's mirror defect, and it is how a superset arm looks correct.
+        const notes = isSupersetDispatch(dispatch, clause)
+          ? [`${dispatch === 'index:prefix' ? 'prefix cover' : 'index match'} is a superset: the clause still filters the candidates exactly`]
           : []
         nodes.push({ op, dispatch, detail, estimatedRows: rows, notes, children: [] })
         return
