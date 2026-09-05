@@ -253,9 +253,18 @@ export class TeamFacade {
   }
 
   /**
-   * Remove a tier-2 authenticator slot. Idempotent — removing a
-   * non-existent slot is a successful no-op. Gated by
+   * Remove a tier-2 authenticator slot. Idempotent — removing a slot
+   * that is not in the keyring is a successful no-op. Gated by
    * `remove-authenticator`.
+   *
+   * ⚠️ Idempotency needs the slot list to be VISIBLE, and a tier-3
+   * PIN-resumed / session-restored keyring carries an empty one
+   * (#1426). Such a session throws `ValidationError` rather than
+   * reporting a removal it did not perform — re-authenticate at tier 1
+   * first.
+   *
+   * @throws `ValidationError` when the active keyring cannot see its
+   *   slot list (`kek === null`).
    */
   async removeAuthenticator(
     vault: string,
