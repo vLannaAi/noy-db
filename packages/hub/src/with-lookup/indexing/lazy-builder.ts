@@ -166,6 +166,12 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
     return new LazyQuery<T, S, Q>(this.source, { ...this.plan, offset: n })
   }
 
+  /**
+   * **ASYNC here, unlike `Query.toArray()` (#1413).** Same method name, a
+   * different contract, because the surface underneath differs: this one
+   * genuinely fetches through the persisted `_idx/` side-car, so it genuinely awaits. `Query`'s terminal reads an
+   * already-decrypted in-memory cache and returns `T[]` synchronously.
+   */
   async toArray(): Promise<T[]> {
     await this.source.ensurePersistedIndexesLoaded()
 

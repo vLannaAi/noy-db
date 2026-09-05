@@ -24,7 +24,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { RecordCodec } from '../../kernel/enclave/index.js'
 import type { NoydbEventEmitter } from '../../kernel/events.js'
 import { IndexWriteFailureError, UniqueConstraintError } from '../../kernel/errors.js'
-import type { CollectionIndexes } from './eager-indexes.js'
+import { normalizeIndexDefs, type CollectionIndexes, type IndexDef } from './eager-indexes.js'
 import type { UniqueConstraintSet } from './unique-constraints.js'
 import { encodeIdxId, decodeIdxId, compositeKey, type PersistedCollectionIndex, type PersistedIndexDef } from './persisted-indexes.js'
 import {
@@ -698,4 +698,39 @@ async function resolveTierSyncPrior<T>(ctx: IndexingContext<T>, id: string, prio
   if (cached !== undefined) return cached
   if (!ctx.lazy || !priorEnvelope || (priorEnvelope._tier ?? 0) > 0) return null
   return await ctx.codec.decryptRecord({ collection: ctx.name, id }, priorEnvelope, { skipValidation: true })
+}
+
+/**
+ * #1421 — `indexes:` declared while the indexing service is not opted in.
+ *
+ * `indexes:` is accepted and recorded whatever the strategy is; with
+ * `NO_INDEXING` nothing builds them, so every lookup scans. Results stay
+ * correct and performance is quietly wrong, which is how the reporting
+ * consumer's production lookups had been scans without anything saying so.
+ *
+ * ⚠️ **Warn, never throw.** Declaring `indexes:` without opting in is
+ * legitimate — one collection definition can be shared between a full app and
+ * a lightweight script that deliberately skips the index engine. Refusing
+ * would break that. But silence is the wrong default when a declaration the
+ * caller wrote has no effect.
+ *
+ * Normalizes the declared defs and, on the way past, warns. Called once from the
+ * `Collection` constructor, so the warning is once per collection
+ * (`vault.collection()` caches the handle) and never per query.
+ */
+export function resolveDeclaredIndexes(
+  defs: readonly IndexDef[],
+  collectionName: string,
+  indexingEnabled: boolean,
+): ReadonlyArray<{ readonly fields: readonly string[]; readonly unique?: boolean }> {
+  const declared = normalizeIndexDefs(defs)
+  if (indexingEnabled || declared.length === 0) return declared
+  const fields = [...new Set(declared.flatMap((d) => [...d.fields]))]
+  console.warn(
+    `[noy-db] collection "${collectionName}" declares indexes ${JSON.stringify(fields)} but no ` +
+    `indexingStrategy was passed to createNoydb() — every query on it will scan. Pass ` +
+    `\`indexingStrategy: withIndexing()\` from "@noy-db/hub/indexing", or drop the \`indexes:\` ` +
+    `declaration if a scan is intended.`,
+  )
+  return declared
 }
