@@ -1194,14 +1194,23 @@ const KERNEL_SURFACE_BUDGET = {
   // late, which is exactly the window the defect lived in. The logic itself is
   // in its own module (`kernel/tx-write-gate.ts`); what is here is the split
   // plus its rationale.
-  // Bumped 4371→4372 (2026-09-05): #1417 keyset paging. ONE LINE, and it is an
-  // import — the cache is now a `GenerationMap` (kernel/generation-map.ts), a
-  // Map that stamps its own mutations so a memo over it can tell when it moved.
-  // The alternative was bumping a counter at the ELEVEN sites that write this
-  // cache, which trades one import line for a permanent invitation to a
-  // stale-read bug: miss one site and `page()` serves rows from before a write.
-  // The capability itself is a separate module; what is here is the swap.
-  'packages/hub/src/kernel/collection.ts': 4372,
+  // Bumped 4371→4373 (2026-09-05) over two changes, each ONE line and each an
+  // import; the bodies they serve are net-neutral and the capabilities live in
+  // their own modules.
+  //   #1417 keyset paging — the cache is a `GenerationMap`
+  //     (kernel/generation-map.ts), a Map that stamps its own mutations so a
+  //     memo over it can tell when it moved. The alternative was bumping a
+  //     counter at the ELEVEN sites that write this cache, which trades one
+  //     import line for a permanent invitation to a stale-read bug: miss one
+  //     site and `page()` serves rows from before a write.
+  //   #1419 warm-list re-decoration — the Via `present()` pass is memoized per
+  //     (record identity, locale variant) in `kernel/present-cache.ts`, which
+  //     carries the capability and its stated soundness assumption.
+  // ⚠️ These two landed as separate PRs that each raised the ceiling to 4372 and
+  // conflicted here. Resolved by ADDING, which is the only correct resolution
+  // for a ratchet: taking either side alone would have left the file one line
+  // over a ceiling that read as deliberate.
+  'packages/hub/src/kernel/collection.ts': 4373,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
