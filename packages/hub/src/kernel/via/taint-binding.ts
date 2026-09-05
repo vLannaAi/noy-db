@@ -220,6 +220,44 @@ export function taintBinding(
 ): NoydbVia {
   const fields = [...sealFields]
   const redactFields = [...presentRedactFields]
+  // #1416 — this redaction is PURE AND SYNCHRONOUS, so the sync query surface
+  // runs the IDENTICAL function, never a copy of it. That is not tidiness: the
+  // sync present path newly resolves virtual fields on `query()`/`scan()` rows,
+  // and a tainted virtual field left un-redacted there would be a leak the
+  // parity fix itself introduced.
+  const presentRedact = (record: Record<string, unknown>): Record<string, unknown> => {
+    let out = record
+    for (const field of redactFields) {
+      if (field in out) {
+        if (out === record) out = { ...record }
+        out[field] = EXPORT_REDACTION_MARKER
+        // Money's presentLate (#669, `via/money/normalize.ts#presentVirtualMoneyFields`)
+        // dresses a virtual money field's fresh output into `<field>Formatted`/
+        // `<field>Number` companions BEFORE this present() (taint's) runs. Redacting
+        // only `field` leaves those companions holding the un-redacted value — DELETE
+        // them (not overwrite with the marker: the marker on `field` is the leak
+        // signal, and inventing a `${field}Formatted` marker key that an un-redacted
+        // read wouldn't always carry would be its own lie). Reviewed #669 finding.
+        // `${field}Label` is the SAME companion shape for dictKey/lookup's label
+        // dressing (`via/i18n`/`via/lookup`'s `present()` hooks, same emission
+        // convention, same BEFORE-taint ordering) — a dict/lookup key is a closed
+        // vocabulary, so the label reveals the sealed value exactly (#671 review
+        // finding: `statusLabel: 'PAID-TH'` beside a redacted `status: '[sealed]'`).
+        // Deliberate over-redaction: a user-authored STORED field that happens to be
+        // named `${field}Formatted`/`${field}Number`/`${field}Label` beside a redacted
+        // virtual field is also stripped here — fails closed, no leak; the collision is
+        // pathological and narrowing it would require money/i18n/lookup-field knowledge
+        // this generic taint binding deliberately doesn't have.
+        const formattedKey = `${field}Formatted`
+        const numberKey = `${field}Number`
+        const labelKey = `${field}Label`
+        if (formattedKey in out) delete out[formattedKey]
+        if (numberKey in out) delete out[numberKey]
+        if (labelKey in out) delete out[labelKey]
+      }
+    }
+    return out
+  }
   return {
     brand: 'taint',
     posture: { encryptedAtRest: 'sealed', queryable: 'none', exportable: false, forgettable: true },
@@ -230,40 +268,6 @@ export function taintBinding(
       decodeAtRest: (record: Record<string, unknown>, sealed: Record<string, SealedSlotRef>, crypto: ViaCryptoCtx, opts: { asHandles: boolean }) =>
         sealAllFields ? decodeTaintAtRestAll(record, sealed, crypto, opts) : decodeTaintAtRest(record, sealed, crypto, opts, fields),
     } : {}),
-    ...(redactFields.length > 0 ? {
-      present: (record: Record<string, unknown>) => {
-        let out = record
-        for (const field of redactFields) {
-          if (field in out) {
-            if (out === record) out = { ...record }
-            out[field] = EXPORT_REDACTION_MARKER
-            // Money's presentLate (#669, `via/money/normalize.ts#presentVirtualMoneyFields`)
-            // dresses a virtual money field's fresh output into `<field>Formatted`/
-            // `<field>Number` companions BEFORE this present() (taint's) runs. Redacting
-            // only `field` leaves those companions holding the un-redacted value — DELETE
-            // them (not overwrite with the marker: the marker on `field` is the leak
-            // signal, and inventing a `${field}Formatted` marker key that an un-redacted
-            // read wouldn't always carry would be its own lie). Reviewed #669 finding.
-            // `${field}Label` is the SAME companion shape for dictKey/lookup's label
-            // dressing (`via/i18n`/`via/lookup`'s `present()` hooks, same emission
-            // convention, same BEFORE-taint ordering) — a dict/lookup key is a closed
-            // vocabulary, so the label reveals the sealed value exactly (#671 review
-            // finding: `statusLabel: 'PAID-TH'` beside a redacted `status: '[sealed]'`).
-            // Deliberate over-redaction: a user-authored STORED field that happens to be
-            // named `${field}Formatted`/`${field}Number`/`${field}Label` beside a redacted
-            // virtual field is also stripped here — fails closed, no leak; the collision is
-            // pathological and narrowing it would require money/i18n/lookup-field knowledge
-            // this generic taint binding deliberately doesn't have.
-            const formattedKey = `${field}Formatted`
-            const numberKey = `${field}Number`
-            const labelKey = `${field}Label`
-            if (formattedKey in out) delete out[formattedKey]
-            if (numberKey in out) delete out[numberKey]
-            if (labelKey in out) delete out[labelKey]
-          }
-        }
-        return out
-      },
-    } : {}),
+    ...(redactFields.length > 0 ? { present: presentRedact, presentSync: presentRedact } : {}),
   }
 }

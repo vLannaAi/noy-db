@@ -233,6 +233,16 @@ export interface QuerySource<T> {
    * against another collection is refused rather than silently mis-paged.
    */
   identity?: string
+  /**
+   * The collection's own default locale (#1416). The query layer used to
+   * believe it "carries no locale context" and decoded money with `'raw'`,
+   * which is what made `query()` rows differ from `get()`/`list()` rows. It
+   * had the context all along — `Collection.query()` already flowed this same
+   * value into the JoinContext, which is why a joined ALIAS was money-dressed
+   * while the base row was not. A per-call `toArray({ locale })` overrides it,
+   * exactly as it overrides on `get()`.
+   */
+  defaultLocale?: string
 }
 
 interface InternalSource {
@@ -244,6 +254,7 @@ interface InternalSource {
   snapshotEntries?(): readonly { id: string; record: unknown }[]
   hydration?: HydrationGate
   identity?: string
+  defaultLocale?: string
 }
 
 /**
@@ -1254,6 +1265,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       const pagePlan = innerDrops ? { ...this.plan, offset: 0, limit: undefined } : this.plan
       const base = this.decodeVia(
         executePlanWithSource(this.source, pagePlan, this.joinContext, opts?.locale, this.aliasVia()),
+        opts?.locale,
       )
       if (this.plan.joins.length === 0) return this.dressAliases(base) as T[]
       const joined = applyJoins(base, this.plan.joins, this.requireJoinContext('toArray'), opts?.locale)
@@ -1281,6 +1293,7 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
         joinContext,
         opts?.locale,
       ),
+      opts?.locale,
     )
     const joined = applyJoins(narrowed, this.plan.joins, joinContext, opts?.locale)
     const filtered = filterRecords(joined, postJoin, fnViewDecoder(this.source))
@@ -1454,22 +1467,35 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   }
 
   /**
-   * Decode this source's Via-covered fields on read (e.g. money: stored
-   * scaled-int → canonical decimal), so `query().toArray()` agrees with
-   * `get()`/`sum()` on the value. No-op when the source's Via pipeline
-   * declares no result decode.
+   * Present this source's Via-covered fields on read, so a row returned by
+   * `query()` carries THE SAME KEYS WITH THE SAME VALUES as the same record
+   * read through `get()`/`list()` (#1416).
    *
-   * The query layer carries no locale context, so money decodes with
-   * `'raw'` — canonical decimal, WITHOUT fabricating locale-formatted
-   * `<field>Formatted` / `<field>Number` virtuals. Producing a
-   * guessed-locale string here would reintroduce a "two read paths
-   * disagree" failure on the virtual field (e.g. it-IT via `get()` vs
-   * en-US here). Consumers who need formatted money read through
-   * `get()`/`list()` with a locale.
+   * Before #1416 this ran only `decodeResults` (money: stored scaled-int →
+   * canonical decimal, at locale `'raw'`), on the stated grounds that "the
+   * query layer carries no locale context" and that guessing one would make
+   * two read paths disagree on a virtual field. The premise was false: the
+   * collection's `defaultLocale` reaches this source (and always reached the
+   * JoinContext — which is why a joined ALIAS came back money-dressed while
+   * the base row did not), and a per-call `toArray({ locale })` overrides it
+   * exactly as it does on `get()`. So there is no guess to make, and the
+   * asymmetry it was protecting was the defect: a `computed({ mode:
+   * 'virtual' })` money field read `undefined` here and a caller summing it
+   * got `NaN` with no error.
+   *
+   * `presentSync` is the synchronous fold of the same `_presentOrder`
+   * `present()` uses — see `kernel/via/pipeline.ts`. A binding with no sync
+   * half (an i18n `dictKey` label, which awaits a dictionary) still cannot be
+   * dressed on a synchronous terminal.
    */
-  private decodeVia(records: readonly unknown[]): unknown[] {
+  private decodeVia(records: readonly unknown[], locale?: string): unknown[] {
     const via = this.source.via
-    if (!via || !via.hasResultDecode) return records as unknown[]
+    if (!via) return records as unknown[]
+    if (via.hasSyncPresent) {
+      const ctx = { locale: locale ?? this.source.defaultLocale, layer: 'read' }
+      return records.map(r => (r !== null && typeof r === 'object' ? via.presentSync(r as Record<string, unknown>, ctx) : r))
+    }
+    if (!via.hasResultDecode) return records as unknown[]
     return records.map(r => via.decodeResults(r))
   }
 

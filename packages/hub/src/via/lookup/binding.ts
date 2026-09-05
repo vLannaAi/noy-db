@@ -191,6 +191,90 @@ async function runLookupPresent(
 }
 
 /**
+ * `presentSync` (#1416) — the SYNCHRONOUS mirror of {@link runLookupPresent}.
+ * Same gates, same field walk, same `<field>Label` emission shapes; the ONLY
+ * difference is where a label comes from: the already-materialized snapshot
+ * (`cfg.snapshotFor`, or a static tier's own `table`) instead of the async
+ * `lookupLabelResolver` / `getLookupBacking`. That snapshot is the same live
+ * cache `presentForJoin` reads — never a second copy of the data — which is
+ * why a joined ALIAS was already dressed while the base row was not.
+ *
+ * A tier with no materialized rows yet resolves no label, exactly as the join
+ * path degrades: a missing label, never a stale or invented one.
+ */
+function runLookupPresentSync(
+  record: Record<string, unknown>,
+  ctx: ViaReadCtx,
+  cfg: LookupViaConfig,
+): Record<string, unknown> {
+  const fields = Object.entries(cfg.lookupFields).filter(([, d]) => hasLabelSource(d))
+  if (fields.length === 0) return record
+
+  const locale = typeof ctx.locale === 'string' ? ctx.locale : undefined
+  const fallback = ctx.fallback as string | readonly string[] | undefined
+  const layer = ctx.layer as Layer
+  if (locale === 'raw') return record
+
+  const hasStaticDisplay = fields.some(([, d]) => d.backing === 'static' && d.displayLocale !== undefined)
+  if (!locale && !hasStaticDisplay) return record
+
+  const withLabels = { ...record }
+
+  for (const [field, desc] of fields) {
+    const policy = desc.onMissing ? resolvePolicy(desc.onMissing, layer) : 'null'
+    const fieldFallback = policy === 'substitute' ? (fallback ?? desc.substitute) : fallback
+    const effLocale = locale ?? (desc.backing === 'static' ? desc.displayLocale : undefined)
+
+    const resolveKey = (key: string): string | null => {
+      if (!effLocale) {
+        if (policy === 'throw') {
+          throw new LocaleNotSpecifiedError(field, `lookup "${field}": no locale active to resolve key "${key}".`)
+        }
+        return null
+      }
+      const rows = desc.backing === 'static'
+        ? (desc.table ? new Map(Object.entries(desc.table)) : undefined)
+        : cfg.snapshotFor?.(desc)
+      const label = rows ? buildLookupSnapshot(desc.dimension, rows, desc).label(key, effLocale, fieldFallback) : undefined
+      if (label === undefined) {
+        if (policy === 'throw') {
+          throw new LocaleNotSpecifiedError(field, `lookup "${field}": no label for key "${key}" in locale "${effLocale}".`)
+        }
+        return null
+      }
+      return label
+    }
+
+    if (field.includes('[].')) {
+      const parts = field.split('[].')
+      const arrayKey = parts[0]!
+      const leaf = parts[1]
+      if (!leaf || leaf.includes('.')) continue
+      const arr = (withLabels as Record<string, unknown>)[arrayKey]
+      if (!Array.isArray(arr)) continue
+      const labelKey = `${leaf}Label`
+      ;(withLabels as Record<string, unknown>)[arrayKey] = arr.map((el) => {
+        if (!el || typeof el !== 'object' || Array.isArray(el)) return el
+        const k = (el as Record<string, unknown>)[leaf]
+        if (typeof k !== 'string') return el
+        return { ...(el as Record<string, unknown>), [labelKey]: resolveKey(k) }
+      })
+      continue
+    }
+
+    const val = record[field]
+    if (Array.isArray(val)) {
+      withLabels[`${field}Label`] = val.map((k) => ({ key: k, label: typeof k === 'string' ? resolveKey(k) : null }))
+    } else if (typeof val === 'string') {
+      const label = resolveKey(val)
+      if (label !== null) withLabels[`${field}Label`] = label
+    }
+  }
+
+  return withLabels
+}
+
+/**
  * One field's `lookup` descriptor as it appears on a `NoydbVia.
  * describeFragment()` payload (#650 Task 7 — the first real consumer,
  * `with-shape/introspection/describe.ts`'s `buildDescription`, imports this
@@ -462,6 +546,7 @@ export function lookupVia(cfg: LookupViaConfig): NoydbVia {
     ingest: (record) => runLookupIngest(record, cfg),
     enforceWrite: (record) => runLookupEnforceWrite(record, cfg),
     present: async (record, ctx) => runLookupPresent(record, ctx, cfg),
+    presentSync: (record, ctx) => runLookupPresentSync(record, ctx, cfg),
     compareForOrder: (field, a, b) => compareLookupOrder(field, a, b, cfg),
     resolveOrderLabel: (field, key, locale) => resolveLookupOrderLabel(field, key, locale, cfg),
     describeFragment: () => buildLookupDescribeFragment(cfg),

@@ -140,6 +140,26 @@ export interface NoydbVia {
    * the already-dressed value.
    */
   presentLate?(record: Record<string, unknown>, ctx: ViaReadCtx): Awaitable<Record<string, unknown>>
+  /**
+   * The SYNCHRONOUS half of `present` (#1416) — what this binding can dress
+   * without awaiting anything. `ViaPipeline.presentSync` folds these in the
+   * exact `_presentOrder` position `present` occupies, so the synchronous
+   * query surface (`query().toArray()` and every row-returning terminal,
+   * `scan()`) returns the SAME KEYS as `get()`/`list()`.
+   *
+   * A binding whose `present` is already synchronous (money, computed, taint)
+   * declares the SAME function here — the duplication is deliberate: the type
+   * is what proves to the query layer that no Promise can escape.
+   * A binding whose `present` genuinely awaits (i18n's dictionary-label
+   * resolution, lookup's async label resolver) declares the subset it can
+   * serve off already-materialized state, and NOTHING ELSE — see each
+   * binding for what that leaves out. Omitting the hook entirely means "this
+   * binding contributes nothing to a synchronous read", which is safe but
+   * shows up as a key the query path lacks; prefer serving the sync subset.
+   */
+  presentSync?(record: Record<string, unknown>, ctx: ViaReadCtx): Record<string, unknown>
+  /** The synchronous half of `presentLate` — same contract as {@link presentSync}. */
+  presentLateSync?(record: Record<string, unknown>, ctx: ViaReadCtx): Record<string, unknown>
   // ── query participation (ALL SYNC — #553) ──
   /** Returns an opaque clause payload when this binding covers `field`, else undefined. */
   // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents

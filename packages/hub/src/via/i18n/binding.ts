@@ -342,6 +342,35 @@ async function runI18nPresent(
   return stripI18nFilled(result)
 }
 
+/**
+ * `presentSync` (#1416) — the SYNCHRONOUS subset of {@link runI18nPresent}:
+ * i18nText locale resolution plus the densify-marker strip, both pure. It is
+ * what lets `query().toArray()` return the resolved string `get()` returns
+ * instead of the raw `{ locale -> text }` map.
+ *
+ * ⚠️ **What it deliberately leaves out: `dictKey` / `staticDict` `<field>Label`
+ * dressing.** That branch awaits `cfg.dictLabelResolver`, and there is no sync
+ * view of a dictionary to read instead (the groupBy path resolves them through
+ * an explicitly ASYNC `runAsync` terminal for exactly this reason). So a
+ * dictKey label is still absent from a synchronous query row — the one
+ * remaining read-verb asymmetry, tracked separately. Do not "fix" it here by
+ * blocking on a promise.
+ */
+function runI18nPresentSync(
+  record: Record<string, unknown>,
+  ctx: ViaReadCtx,
+  cfg: I18nViaConfig,
+): Record<string, unknown> {
+  const i18nFields = cfg.i18nFields as Record<string, I18nTextDescriptor> | undefined
+  const strategy = cfg.strategy as I18nStrategy
+  if (i18nFields === undefined || Object.keys(i18nFields).length === 0) return stripI18nFilled(record)
+  const locale = typeof ctx.locale === 'string' ? ctx.locale : undefined
+  if (!locale || locale === 'raw') return stripI18nFilled(record)
+  return stripI18nFilled(
+    strategy.applyI18nLocale(record, i18nFields, locale, ctx.fallback as string | readonly string[] | undefined, ctx.layer as Layer),
+  )
+}
+
 // ─── introspection ──────────────────────────────────────────────────────
 
 function buildI18nDescribeFragment(cfg: I18nViaConfig): Record<string, unknown> {
@@ -367,6 +396,7 @@ export function i18nVia(cfg: I18nViaConfig): NoydbVia {
       || (cfg.dictKeyFields !== undefined && field in cfg.dictKeyFields),
     encodeWrite: async (record, ctx) => runI18nWriteStages(record, ctx, cfg),
     present: async (record, ctx) => runI18nPresent(record, ctx, cfg),
+    presentSync: (record, ctx) => runI18nPresentSync(record, ctx, cfg),
     describeFragment: () => buildI18nDescribeFragment(cfg),
   }
 }

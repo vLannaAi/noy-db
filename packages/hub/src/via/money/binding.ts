@@ -37,6 +37,13 @@ export function moneyVia(moneyFields: Record<string, MoneyDescriptor>, virtualMo
   const ordinaryPresentFields = hasVirtualMoney
     ? Object.fromEntries(Object.entries(moneyFields).filter(([f]) => !virtualMoneyFields.has(f)))
     : moneyFields
+  // #1416 — money's presentation is entirely synchronous, so the query surface
+  // can run the SAME function `present`/`presentLate` run. Named once and shared
+  // by both hooks so the two can never drift into "get() formats, query() does not".
+  const presentMoney = (r: Record<string, unknown>, ctx: ViaReadCtx): Record<string, unknown> =>
+    decodeMoneyFields(r, ordinaryPresentFields, typeof ctx.locale === 'string' ? ctx.locale : undefined)
+  const presentLateMoney = (r: Record<string, unknown>, ctx: ViaReadCtx): Record<string, unknown> =>
+    presentVirtualMoneyFields(r, moneyFields, virtualMoneyFields!, typeof ctx.locale === 'string' ? ctx.locale : undefined)
   return {
     brand: 'money',
     posture: { encryptedAtRest: 'envelope', queryable: 'ordered', exportable: true, forgettable: true },
@@ -44,12 +51,10 @@ export function moneyVia(moneyFields: Record<string, MoneyDescriptor>, virtualMo
     ingest: (r) => canonicalizeIncomingMoney(r, moneyFields) as Record<string, unknown>,
     canonicalizeStored: (r) => canonicalizeStoredMoney(r, moneyFields) as Record<string, unknown>,
     encodeWrite: (r) => quantizeMoneyFields(r, moneyFields),
-    present: (r, ctx) => decodeMoneyFields(r, ordinaryPresentFields, typeof ctx.locale === 'string' ? ctx.locale : undefined),
+    present: presentMoney,
+    presentSync: presentMoney,
     ...(hasVirtualMoney
-      ? {
-          presentLate: (r: Record<string, unknown>, ctx: ViaReadCtx) =>
-            presentVirtualMoneyFields(r, moneyFields, virtualMoneyFields, typeof ctx.locale === 'string' ? ctx.locale : undefined),
-        }
+      ? { presentLate: presentLateMoney, presentLateSync: presentLateMoney }
       : {}),
     buildClause: (field, op, value) => {
       const desc = moneyFields[field]

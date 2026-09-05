@@ -37,18 +37,24 @@ const VIRTUAL_POSTURE: ViaPosture = { encryptedAtRest: 'envelope', queryable: 'n
 
 export function computedVia(cfg: ComputedViaConfig): NoydbVia {
   const fields = cfg.virtualFields
+  // Computing a virtual field is a pure synchronous call, so the same function
+  // serves the async read path (get()/list()) and the synchronous query surface
+  // (#1416 — before it, `query().toArray()` omitted the field entirely and a
+  // caller summing it got NaN with no error).
+  const presentVirtual = (record: Record<string, unknown>): Record<string, unknown> => {
+    let r = record
+    for (const [field, desc] of fields) {
+      if (r === record) r = { ...record }
+      r[field] = desc.fn(r)
+    }
+    return r
+  }
   return {
     brand: 'computed',
     posture: VIRTUAL_POSTURE,
     covers: (field) => fields.has(field),
-    present: (record) => {
-      let r = record
-      for (const [field, desc] of fields) {
-        if (r === record) r = { ...record }
-        r[field] = desc.fn(r)
-      }
-      return r
-    },
+    present: presentVirtual,
+    presentSync: presentVirtual,
   }
 }
 

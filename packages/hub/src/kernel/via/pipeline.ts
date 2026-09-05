@@ -26,6 +26,23 @@ export interface ViaTaintOverlay {
   readonly defaultPosture?: ViaPosture
 }
 
+/**
+ * One binding's contribution to a synchronous read (#1416): its declared
+ * `presentSync` when it has one, else its pre-#1416 `decodeResults` (which is
+ * what the query surface used to run for EVERY binding), else nothing.
+ *
+ * The `decodeResults` fallback is what keeps a binding that never adopted
+ * `presentSync` behaving exactly as it did before this method existed —
+ * without it, adding the sync present path would have SILENTLY DROPPED such a
+ * binding's decode from `query()`, trading one read-verb asymmetry for another.
+ */
+function syncPresentOf(b: NoydbVia): (r: Record<string, unknown>, ctx: ViaReadCtx) => Record<string, unknown> {
+  if (b.presentSync) return b.presentSync.bind(b)
+  const decode = b.decodeResults
+  if (decode) return (r) => decode(r) as Record<string, unknown>
+  return (r) => r
+}
+
 export class ViaPipeline {
   /**
    * Present-phase-ONLY order (#665, corrected under #665 review) — a stable
@@ -184,6 +201,35 @@ export class ViaPipeline {
       if (b.present) r = await b.present(r, ctx)
     }
     return r
+  }
+
+  /**
+   * The synchronous mirror of {@link present} (#1416) — folds every binding's
+   * `presentSync`/`presentLateSync` in the IDENTICAL `_presentOrder` positions
+   * `present` uses, so the query surface (which has no `await` to give) returns
+   * the same keys as `get()`/`list()` instead of the stored shape.
+   *
+   * The order is the whole point and must not be "simplified" into one flat
+   * fold over `bindings`: money first, then computed, then every `presentLate`,
+   * then the dressing bindings (i18n/lookup) and taint last. Getting it wrong
+   * is not a missing key, it is a WRONG VALUE — see `_presentOrder`'s comment
+   * for the `'0.21'` corruption a computed-first order produced.
+   *
+   * A binding with no sync half is skipped; a key only its async `present`
+   * can produce (an i18n `dictKey` `<field>Label`, a `backing:'collection'`
+   * lookup label whose row source is async) is therefore still absent here.
+   */
+  presentSync(record: Record<string, unknown>, ctx: ViaReadCtx): Record<string, unknown> {
+    let r = record
+    for (let i = 0; i < this._presentLateBoundary; i++) r = syncPresentOf(this._presentOrder[i]!)(r, ctx)
+    for (const b of this.bindings) if (b.presentLateSync) r = b.presentLateSync(r, ctx)
+    for (let i = this._presentLateBoundary; i < this._presentOrder.length; i++) r = syncPresentOf(this._presentOrder[i]!)(r, ctx)
+    return r
+  }
+
+  /** True iff any binding can dress a record synchronously — the query layer's gate (#1416). */
+  get hasSyncPresent(): boolean {
+    return this.bindings.some((b) => b.presentSync !== undefined || b.presentLateSync !== undefined)
   }
 
   buildClause(field: string, op: string, value: unknown): ViaClause | undefined {
