@@ -8,6 +8,7 @@ import type { MaterializedFromMeta, MVQueryContext, MaterializedViewSpec, Projec
 import type { RegisteredMV } from './registry.js'
 import { wrapDbWithPredicates, ungatedMvContext } from './registry.js'
 import { groupAndReduce } from '../../with-lookup/reduce/groupby.js'
+import { applyDeclaredWindow } from './window-stage.js'
 import { canonicalGroupKey } from '../../with-lookup/reduce/canonical-key.js'
 import { applyI18nLocale, type I18nTextDescriptor } from '../../via/i18n/core.js'
 import { canonicalizeMoneyFieldsAsDecimal, decodeMoneyFields } from '../../via/money/normalize.js'
@@ -172,6 +173,21 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
   return finalizeMappedRows(spec, unified)
 }
 
+
+/**
+ * #1411 — the window stage, applied at every exit from the grouping tail.
+ *
+ * A no-op without `spec.window`, so the ungrouped and grouped paths can both
+ * call it unconditionally rather than each remembering to.
+ */
+function applyWindowStage<TRow extends Record<string, unknown>>(
+  spec: MaterializedViewSpec<TRow>,
+  rows: ReadonlyArray<Record<string, unknown>>,
+): ReadonlyArray<Record<string, unknown>> {
+  if (!spec.window) return rows
+  return applyDeclaredWindow(rows, spec.window, spec.moneyFields)
+}
+
 /**
  * Shared post-map tail for the UNION and projection (#810) forms:
  * optional `groupBy` (+ `aggregate`) over the mapped-row stream.
@@ -186,7 +202,10 @@ function finalizeMappedRows<TRow extends Record<string, unknown>>(
   spec: MaterializedViewSpec<TRow>,
   unified: TRow[],
 ): ReadonlyArray<Record<string, unknown>> {
-  if (!spec.groupBy) return unified
+  // #1411 — a window with no grouping is a legitimate shape: the pilot's
+  // running total is per-row, not per-bucket. Both exits go through the same
+  // stage so the two cannot drift on whether a window ran.
+  if (!spec.groupBy) return applyWindowStage(spec, unified)
 
   const groupKeys: readonly GroupKey[] = Array.isArray(spec.groupBy)
     ? (spec.groupBy as readonly GroupKey[])
@@ -250,7 +269,10 @@ function finalizeMappedRows<TRow extends Record<string, unknown>>(
   // groupBy + aggregate — delegate to the shared pipeline used by
   // `Query.groupBy().aggregate()`. Result rows carry each grouped
   // field in declaration order followed by the spec's reducer outputs.
-  return groupAndReduce<Record<string, unknown>>(unified, groupFields, spec.aggregate, spec.moneyFields)
+  return applyWindowStage(
+    spec,
+    groupAndReduce<Record<string, unknown>>(unified, groupFields, spec.aggregate, spec.moneyFields),
+  )
 }
 
 /**
