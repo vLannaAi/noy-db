@@ -1164,7 +1164,7 @@ const KERNEL_SURFACE_BUDGET = {
   // `decodeResults` — Via dressing keys by BARE FIELD NAME, so a record served under an
   // alias is invisible to the top-level decode and served RAW money (#1335). Neither can
   // move onto the ServiceBus: both are views of `this.cache` / `this.via`, which only the
-  // kernel holds. All the join LOGIC is in kernel/query/{join,builder}.ts; only the two
+  // kernel holds. All the join LOGIC is in kernel/query/{relate/join,builder}.ts; only the two
   // accessors it reads through are here.
   // Bumped 4322->4345 (2026-09-04). TWO independent bumps landed in the same batch and
   // this value is the MEASURED count after both, not either branch's figure — #1362 raised
