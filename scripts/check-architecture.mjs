@@ -610,6 +610,15 @@ const NOT_SERVICE_SUBPATHS = new Set([
   // `sideEffects` array in package.json is what keeps a bundler from
   // discarding it.
   'query/live', 'query/reduce', 'query/relate',
+  // The MANIFEST itself, not code. Node refuses `require.resolve(
+  // '@noy-db/hub/package.json')` with ERR_PACKAGE_PATH_NOT_EXPORTED unless the
+  // exports map names it — which it did not, on every version ever published.
+  // A consumer that needs to read hub's own exports map (ui-nuxt decides which
+  // query groups to register from it) was resolving the entry and walking up
+  // directories to find the manifest. Additive, ships nothing, and it is the
+  // conventional key; it is here because this checker reads every exports key
+  // as a claimed capability.
+  'package.json',
   // `query/all` is the same category once removed: Find plus all three groups,
   // for a consumer who wants the pre-#1458 surface from the subpath in one
   // import. No factory, and none wanted.
