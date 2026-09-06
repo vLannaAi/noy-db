@@ -181,6 +181,67 @@ describe('#1439 — a gate that DOES apply still fires', () => {
   }, 120_000)
 })
 
+describe('#1439 — the scope isolates to the guarded collection', () => {
+  /**
+   * ⭐ The reporter's probe, and it proves more than the case above.
+   *
+   * Every other test here builds one vault per case, so a guarded output being
+   * slow is consistent with a predicate that merely became NARROWER — say, one
+   * that opts out whenever any guard names any collection this vault has ever
+   * seen. Two MV outputs in the SAME vault and the SAME run, one guarded and
+   * one not, separates those: the guarded one must stay at full rewrite while
+   * its neighbour keeps the fast path.
+   *
+   * Measured by the reporter on their stack: guarded output 48.00 puts/write,
+   * unguarded output 0.06/write, same run.
+   */
+  it('a guard on ONE output leaves a second output in the same vault fast', async () => {
+    _clearEmitMemos()
+    const c = counting(memoryStore())
+    const byMonth = withMaterializedView<Record<string, unknown>>({
+      name: 'receiptsByMonth', output: 'receiptsByMonth', refresh: 'eager', sources: ['receipts'],
+      // Drops the same rows `billPaidByBill` does, so its output is genuinely
+      // unchanged by these writes — otherwise "still fast" would be untestable
+      // because the row legitimately moved. (First draft counted every receipt
+      // and the group's `n` really did change every write.)
+      unionSources: [{
+        collection: 'receipts',
+        map: (r) => (r['billId'] == null ? null : { id: String(r['asOf']), asOf: String(r['asOf']), n: 1 }),
+      }],
+      groupBy: ['asOf'], aggregate: { n: sum('n') },
+      rowKey: (r) => String((r as Record<string, unknown>)['asOf']),
+    } as never)
+    const db = await createNoydb({
+      store: c.store, user: 'o', secret: 'issue-1439-gate-scope-secret',
+      materializedViewStrategies: [mvSpec(), byMonth],
+      // Presence only — no rule. The gate's mere applicability is the variable.
+      guardStrategies: [withGuard({ collection: 'billPaidByBill', check: () => {} })],
+    } as never)
+    const vault = await db.openVault('V')
+    const receipts = vault.collection<Receipt>('receipts')
+    vault.collection<Paid>('billPaidByBill')
+    vault.collection<Record<string, unknown>>('receiptsByMonth')
+
+    for (let i = 0; i < VIEW_ROWS; i++) {
+      await receipts.put(`rc${i}`, { id: `rc${i}`, billId: `b${i}`, amount: i * 10, asOf: '2026-06-01' })
+    }
+
+    const N = 10
+    c.reset()
+    for (let i = 0; i < N; i++) {
+      await receipts.put(`rd${i}`, { id: `rd${i}`, billId: null, amount: 5, asOf: '2026-06-01' })
+    }
+
+    const guarded = (c.puts['billPaidByBill'] ?? 0) / N
+    const unguarded = (c.puts['receiptsByMonth'] ?? 0) / N
+
+    // The guarded output: a redundant write there is observable, so it happens.
+    expect(guarded).toBeGreaterThan(1)
+    // Its neighbour, same vault and same run: still exempt.
+    expect(unguarded).toBeLessThan(1)
+  }, 120_000)
+})
+
 describe('#1439 — gateAppliesTo vs hasGateHandlers', () => {
   it('a scope-less handler still counts as "may fire"', async () => {
     const { ServiceBus } = await import('../src/port/with/service-bus.js')

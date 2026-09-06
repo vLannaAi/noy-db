@@ -23,6 +23,38 @@ import { memoryStore } from '../src/kernel/memory-store.js'
 import { withMaterializedView } from '../src/with-formula/materialized-views/index.js'
 import { sum } from '../src/with-lookup/reduce/index.js'
 import { _clearEmitMemos, rowContentKey } from '../src/with-formula/materialized-views/emit-memo.js'
+import type { NoydbStore } from '../src/kernel/types.js'
+
+/**
+ * Counts real store writes per collection.
+ *
+ * ⚠️ This replaced a wall-clock assertion, and the reason is worth keeping.
+ * The first version of the last test in this file timed 10 writes and asserted
+ * `< 8 ms`. It passed standalone and failed under `turbo run test
+ * --concurrency=2` on a loaded box — which is precisely the flake class #1437
+ * had just been filed about, written here by the same hand a couple of hours
+ * later. The pull is that a stopwatch is what you already have in your hand
+ * while measuring a fix, so the assertion comes out in those units.
+ *
+ * The property is "the executor stopped writing rows", and that is countable.
+ * A count cannot be eroded by CPU contention, by a faster machine, or by an
+ * unrelated optimisation to the shared path.
+ */
+function countingStore(inner: NoydbStore): { store: NoydbStore; puts: Record<string, number>; reset(): void } {
+  const puts: Record<string, number> = {}
+  const store = new Proxy(inner, {
+    get(t, p, r) {
+      if (p === 'put') {
+        return async (v: string, c: string, i: string, e: unknown) => {
+          puts[c] = (puts[c] ?? 0) + 1
+          return (t as unknown as { put: (...a: unknown[]) => Promise<void> }).put(v, c, i, e)
+        }
+      }
+      return Reflect.get(t, p, r) as unknown
+    },
+  }) as NoydbStore
+  return { store, puts, reset: () => { for (const k of Object.keys(puts)) delete puts[k] } }
+}
 
 interface Receipt { id: string; billId: string | null; amount: number }
 interface Paid extends Record<string, unknown> { id: string; billId: string; paid: number }
@@ -207,25 +239,30 @@ describe('#1418 — rowContentKey', () => {
 })
 
 describe('#1418 — the per-write cost no longer tracks the view size', () => {
-  it('a dropped-row write over a large view costs a fraction of the first refresh', async () => {
-    const { receipts, view } = await openVault()
+  it('a dropped-row write over a 300-row view writes no output rows at all', async () => {
+    _clearEmitMemos()
+    const c = countingStore(memoryStore())
+    const db = await createNoydb({
+      store: c.store, user: 'owner', secret: SECRET,
+      materializedViewStrategies: [spec()],
+    } as never)
+    const vault = await db.openVault('V')
+    const receipts = vault.collection<Receipt>('receipts')
+    const view = vault.collection<Paid>('billPaidByBill')
     for (let i = 0; i < 300; i++) {
-      await receipts.put(`r${i}`, { id: `r${i}`, billId: `b${i}`, amount: i })
+      await receipts.put(`r${i}`, { id: `r${i}`, billId: `b${i}`, amount: i * 100 })
     }
     expect(Object.keys(await viewOf(view))).toHaveLength(300)
 
     // Ten writes the MV's map drops entirely: the view cannot have changed, so
-    // no output row should be rewritten.
-    const t0 = performance.now()
+    // not one of its 300 output rows should be re-encrypted and re-stored.
+    c.reset()
     for (let i = 0; i < 10; i++) {
       await receipts.put(`rd${i}`, { id: `rd${i}`, billId: null, amount: 5 })
     }
-    const perWrite = (performance.now() - t0) / 10
 
-    // Before the fix this was ~25 ms at this view size and grew with it. The
-    // bound is deliberately generous — it guards the memo's existence, not a
-    // millisecond budget on a loaded CI box.
-    expect(perWrite).toBeLessThan(8)
+    // Before the fix this was 3000 — the whole view, ten times over.
+    expect(c.puts['billPaidByBill'] ?? 0).toBe(0)
     // ...and the view is still correct after all that skipping.
     expect(Object.keys(await viewOf(view))).toHaveLength(300)
   }, 120_000)
