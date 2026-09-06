@@ -6,6 +6,7 @@ import type { GroupedReduction } from '../../with-lookup/reduce/groupby.js'
 import type { JoinStrategy } from '../../kernel/query/relate/join.js'
 import type { JoinOnSpec } from '../../kernel/query/relate/join-on.js'
 import type { MoneyDescriptor } from '../../via/money/descriptor.js'
+import type { WindowSpec, WindowSelectSpec } from '../../with-lookup/reduce/window.js'
 import type { ExactMath } from '../../via/money/exact.js'
 import type { I18nTextDescriptor } from '../../via/i18n/core.js'
 
@@ -443,6 +444,44 @@ export interface MaterializedViewSpec<TRow extends Record<string, unknown>> {
    */
   moneyFields?: Record<string, MoneyDescriptor>
   /**
+   * #1411 — a declared WINDOW over the finished rows: a running total, a
+   * ranking, or a look at the neighbouring row.
+   *
+   * ```ts
+   * groupBy: ['client', 'period'],
+   * aggregate: { total: sum('amount') },
+   * moneyFields: { amount: THB, total: THB, cumulative: THB },
+   * window: {
+   *   partitionBy: 'client',
+   *   orderBy: 'period',
+   *   select: { cumulative: runningMoneySum('total') },
+   * },
+   * ```
+   *
+   * Runs AFTER {@link groupBy} + {@link aggregate} and BEFORE {@link derive},
+   * which is the order the useful shape needs: aggregate per (client, period),
+   * then accumulate ACROSS periods. A window before grouping would accumulate
+   * over raw rows and every number would be wrong.
+   *
+   * ⭐ **This is the one stage that may look at other rows, and it is sound for
+   * a reason `derive` cannot borrow.** `derive` is single-row by contract;
+   * materialization is a full recompute, so the window sees every row the view
+   * will store, in order, exactly once. That is also why it is not offered on
+   * the `query` form — there the rows come from a `Query`, which has its own
+   * `.window()`.
+   *
+   * **Money is exact** when the accumulated field is declared in
+   * {@link moneyFields}: reducer slots are rewritten through the same binding
+   * `aggregate` uses, so `runningMoneySum` accumulates in BigInt rather than
+   * float. Window FUNCTIONS (`rowNumber`, `rank`, `lag`, `lead`) navigate
+   * rather than accumulate and need no rewrite.
+   *
+   * A `select` key that collides with a {@link groupBy} field throws
+   * `MaterializedViewConfigError` — the same rule, and the same reason, as
+   * `derive`: a group key is the row's identity and feeds {@link rowKey}.
+   */
+  window?: MaterializedViewWindow
+  /**
    * Compute-time i18n resolution locale (`mv` layer). UNION-mode only.
    *
    * An MV that **groups by** an `i18nText` field would otherwise bucket on the
@@ -552,4 +591,25 @@ export interface MaterializedViewStrategy {
   readonly __noydb_strategy: 'materialized-view'
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly spec: MaterializedViewSpec<any>
+}
+
+/** @internal — the MV's own money descriptors, keyed by output field. */
+export type MoneyDescriptorMap = Record<string, MoneyDescriptor>
+
+/**
+ * #1411 — a declared window: {@link WindowSpec}'s partition/order, plus the
+ * outputs to attach. Same `select` shape as `Query.window(...).select(...)`,
+ * so a rule prototyped in the ad-hoc builder moves into a declaration
+ * unchanged.
+ */
+export interface MaterializedViewWindow extends WindowSpec {
+  /**
+   * The columns the window adds. Each slot is a window function
+   * (`rowNumber`, `rank`, `lag`, `lead`) or an ordinary reducer, which runs as
+   * a RUNNING aggregate over `rows unbounded preceding → current row`.
+   *
+   * Must be non-empty: a window that selects nothing computes nothing, and
+   * declaring one is more likely a mistake than an intention.
+   */
+  readonly select: WindowSelectSpec
 }

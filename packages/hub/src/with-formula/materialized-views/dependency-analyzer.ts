@@ -274,6 +274,49 @@ function summarizeUnionArms<T extends Record<string, unknown>>(
     .join(',')
 }
 
+
+/**
+ * #1411 — the window's contribution to `queryHash`.
+ *
+ * ⚠️ **`partitionBy` and `orderBy` are NOT sorted, unlike the groupBy and
+ * aggregate keys beside them.** Group buckets are commutative, so sorting them
+ * is what stops a re-ordered declaration from forcing a pointless refresh. A
+ * window's keys are not: `orderBy: ['a','b']` walks a partition differently
+ * from `['b','a']` and produces different running totals, and a partition list
+ * feeds the same key-building order. Sorting them here would let a real
+ * semantic change reuse a stored `queryHash`, refresh would be a no-op, and
+ * the view would serve numbers computed under the old ordering.
+ *
+ * ⭐ **Returns the EMPTY STRING when no window is declared**, which is the same
+ * omitted-at-default discipline `summarizeJoinLeg` states above and for the
+ * same reason: every existing MV's stored `queryHash` must stay byte-identical
+ * across this change, so only a view that actually declares a window
+ * recomputes — once, correctly.
+ *
+ * `select` KEYS are sorted — they are independent output columns, same
+ * rationale as the aggregate keys. The slot VALUES are functions and cannot be
+ * hashed; renaming a column or adding one is what this can see, which is the
+ * same limit `aggregate` has.
+ */
+function summarizeWindow<T extends Record<string, unknown>>(
+  spec: MaterializedViewSpec<T>,
+): string {
+  if (!spec.window) return ''
+  const list = (v: unknown): string => {
+    if (v === undefined) return ''
+    const arr = Array.isArray(v) ? v : [v]
+    return arr
+      .map((k) =>
+        typeof k === 'object' && k !== null && 'field' in (k as Record<string, unknown>)
+          ? `${describeGroupKey((k as { field: GroupKey }).field)}:${String((k as { direction?: string }).direction ?? 'asc')}`
+          : describeGroupKey(k as GroupKey),
+      )
+      .join(',')
+  }
+  const selectKeys = Object.keys(spec.window.select).sort().join(',')
+  return `|window(partition(${list(spec.window.partitionBy)})order(${list(spec.window.orderBy)})select(${selectKeys}))`
+}
+
 /**
  * Shared `|groupBy(…)|aggregate(…)|money(…)` tail for the UNION and
  * projection summaries — both feed the same post-map grouping pipeline,
@@ -297,5 +340,5 @@ function summarizeGroupingTail<T extends Record<string, unknown>>(
   // sorted — they're independent of each other (one descriptor per
   // output field), same rationale as aggregate keys.
   const moneyKeys = spec.moneyFields ? Object.keys(spec.moneyFields).sort().join(',') : ''
-  return `|groupBy(${groupBy})|aggregate(${aggKeys})|money(${moneyKeys})`
+  return `|groupBy(${groupBy})|aggregate(${aggKeys})|money(${moneyKeys})${summarizeWindow(spec)}`
 }
