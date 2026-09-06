@@ -16,7 +16,10 @@
 import type { NoydbStore, KeyringAuthenticator } from '../../kernel/types.js'
 import { NoAccessError, ValidationError } from '../../kernel/errors.js'
 import type { UnlockedKeyring } from './keyring.js'
-import { persistKeyring } from './keyring.js'
+import { persistKeyring, rotateKeys } from './keyring.js'
+import { rotateSecret, type SlotRewrapCeremony } from './rotate-recover.js'
+import { ROSTER_KEY_ID, BLOB_ADDRESS_KEY_ID } from '../../kernel/constants.js'
+import type { RotateSecretInput } from './rotate-recover.js'
 
 /** Fields shared across both wrap-KEK and wrap-DEKs enroll inputs. */
 interface EnrollAuthenticatorBase {
@@ -221,6 +224,24 @@ function assertSlotListVisible(
  * Drop a slot by id. No-op if the slot doesn't exist (idempotent —
  * removing a non-existent slot is a recoverable retry, not an error).
  *
+ * ⛔ **THIS HIDES A CREDENTIAL. IT DOES NOT REVOKE ONE.** (#1445) The slot
+ * leaves the keyring file and nothing else happens — no key material moves. A
+ * slot blob captured before removal, or cached by an honest client earlier in
+ * the same session, still unwraps the FULL LIVE DEK SET and reads every record,
+ * for as long as those DEKs remain current.
+ *
+ * That is not a leak in one `on-*` package. `@noy-db/on-password`'s
+ * `unwrapDeksWithPassword` and `@noy-db/on-webauthn`'s `unwrapKeyringSummary`
+ * both carry the DEK map inside the blob and need no store, no keyring and no
+ * network — the blob authenticates itself. A membership check inside a verifier
+ * cannot close it, because a blob holder calls the primitive directly and never
+ * reaches the verifier.
+ *
+ * ⭐ To actually revoke, see {@link revokeAuthenticator} — removal, then a DEK
+ * rotation, then a re-wrap of the slots that stay. Every step is required and
+ * the reasons are measured, not assumed; read that doc before assembling the
+ * sequence by hand.
+ *
  * ⚠️ Idempotency is only sound when the slot list is actually
  * visible — see {@link assertSlotListVisible} (#1426).
  *
@@ -265,4 +286,102 @@ function appendSlot(
     ...keyring,
     authenticators: [...keyring.authenticators, slot],
   }
+}
+
+/** Inputs for {@link revokeAuthenticator}. */
+export interface RevokeAuthenticatorOptions {
+  /** The slot to revoke. */
+  readonly slotId: string
+  /**
+   * The vault owner's CURRENT secret. Passed as both `oldSecret` and
+   * `newSecret` to `rotateSecret`, which accepts them being equal — measured,
+   * so revoking one credential does not force everyone onto a new phrase.
+   */
+  readonly secret: RotateSecretInput['oldSecret']
+  /**
+   * A re-wrap ceremony for EVERY slot that stays, keyed by slot id.
+   *
+   * ⛔ A slot with no ceremony is DROPPED, not preserved — that is
+   * `rotateSecret`'s existing behaviour (#29 / PR5: "without `slotCeremonies`,
+   * rotation drops every slot"), and it is the honest outcome, because after
+   * step 2 its blob wraps DEKs that no longer exist. Supplying one requires
+   * that credential to be present: the password for `on-password`, a live
+   * assertion for `on-webauthn`. There is no way around that — re-wrapping a
+   * credential is the credential's own operation.
+   */
+  readonly slotCeremonies?: { readonly [slotId: string]: SlotRewrapCeremony }
+}
+
+/**
+ * Actually revoke an authenticator slot: remove it, mint fresh DEKs, and
+ * re-wrap the slots that stay (#1445).
+ *
+ * ## Why this is three steps and not one
+ *
+ * Each was measured, because the composition looks obvious and the obvious
+ * compositions do not work:
+ *
+ * 1. **{@link removeAuthenticator}** hides the slot. On its own it revokes
+ *    nothing — the captured blob carries its own DEKs.
+ * 2. **`rotateKeys`** is the step that revokes. It is the ONLY one that calls
+ *    `generateDEK()`. Measured: a collection's DEK is byte-identical across a
+ *    `rotateSecret` and different across a `rotateKeys`.
+ *    ⚠️ `rotateSecret` alone does NOT revoke, however it reads:
+ *    it unwraps every DEK with the old KEK and rewraps THE SAME KEY MATERIAL
+ *    under the new one. A captured blob holds DEK VALUES and records are
+ *    encrypted with DEKs, so rewrapping them changes nothing the holder needs.
+ * 3. **`rotateSecret` with `slotCeremonies`** re-wraps the remaining slots
+ *    around the new DEKs. Without it they survive step 2 BYTE-IDENTICAL
+ *    (measured: `rotateKeys` never touches `authenticators[]`) and therefore
+ *    silently wrap keys that no longer exist — every other credential in the
+ *    vault dies quietly. This step is what makes the operation safe for
+ *    everyone who was not being revoked.
+ *
+ * ⭐ Neither primitive is sufficient alone and they are not interchangeable:
+ * `rotateKeys` mints keys but cannot re-wrap slots; `rotateSecret` re-wraps
+ * slots but cannot mint keys.
+ *
+ * ## Cost
+ *
+ * Step 2 re-encrypts every record in every affected collection, and every
+ * remaining credential holder must be present for step 3. This is expensive on
+ * purpose: it is what revocation costs when the credential is a bearer token.
+ *
+ * @throws `ValidationError` when the session cannot see the slot list
+ *   ({@link assertSlotListVisible}) — a tier-1 unlock is required, and #1432
+ *   guarantees the KEK rotation needs is present at this point.
+ */
+export async function revokeAuthenticator(
+  store: NoydbStore,
+  vault: string,
+  keyring: UnlockedKeyring,
+  options: RevokeAuthenticatorOptions,
+): Promise<UnlockedKeyring> {
+  // 1. Hide it. Also runs the #1426 visibility guard, so everything below is
+  //    reached only from a session that can actually see (and persist) slots.
+  const next = await removeAuthenticator(store, vault, keyring, options.slotId)
+
+  // 2. Mint fresh DEKs — the step that revokes.
+  //    The set is derived from the DEK map the way `revoke` derives its own,
+  //    minus the two reserved keys that are not collections: the roster key
+  //    (rotating it makes the vault unopenable for every other member) and the
+  //    blob addressing root (rotating it invalidates every stored blob eTag).
+  //    `rotateKeys` throws on either if named explicitly, so they are dropped
+  //    here at the site that gathers them implicitly.
+  const collections = new Set(next.deks.keys())
+  collections.delete(ROSTER_KEY_ID)
+  collections.delete(BLOB_ADDRESS_KEY_ID)
+  if (collections.size > 0) {
+    await rotateKeys(store, vault, next, { collections: [...collections] })
+  }
+
+  // 3. Re-wrap the slots that stay, around the DEKs step 2 just minted.
+  //    `oldSecret === newSecret` is accepted (measured), so this re-wraps
+  //    without forcing a phrase change. A slot with no ceremony is dropped —
+  //    see `slotCeremonies`.
+  return rotateSecret(store, vault, next.userId, {
+    oldSecret: options.secret,
+    newSecret: options.secret,
+    ...(options.slotCeremonies !== undefined && { slotCeremonies: options.slotCeremonies }),
+  })
 }
