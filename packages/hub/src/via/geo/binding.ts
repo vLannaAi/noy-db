@@ -42,6 +42,7 @@ export function geoVia(geoFields: Record<string, GeoDescriptor>): NoydbVia {
     // answer, never a plaintext coordinate the store can read.
     posture: { encryptedAtRest: 'envelope', queryable: 'ordered', exportable: true, forgettable: true },
     covers: (field) => field in geoFields,
+    coveredFields: Object.keys(geoFields), // #1447
     ingest: (record) => {
       let out = record
       for (const [field, desc] of Object.entries(geoFields)) {

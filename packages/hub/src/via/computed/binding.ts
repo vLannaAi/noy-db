@@ -42,6 +42,7 @@ export function computedVia(cfg: ComputedViaConfig): NoydbVia {
     presentIsSync: true, // #1416 — `desc.fn(r)` is declared sync by the computed contract
     posture: VIRTUAL_POSTURE,
     covers: (field) => fields.has(field),
+    coveredFields: [...fields.keys()], // #1447 — virtual fields live ONLY here, which is why a predicate cannot report them
     present: (record) => {
       let r = record
       for (const [field, desc] of fields) {

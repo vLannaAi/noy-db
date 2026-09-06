@@ -884,6 +884,8 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
   getMeta(): CollectionMeta | undefined { return this.meta }
 
   getDeclaredIndexes(): ReadonlyArray<{ readonly fields: readonly string[]; readonly unique?: boolean }> { return this.declaredIndexes } // declared index defs, normalized; consumed by walk.ts
+  /** #1447 — `field -> via brands covering it`, for `dumpSchema()`. Brand and field only, never a binding's config; see `via/pipeline.ts#fieldCoverage`. Consumed by walk.ts. */
+  getViaCoverage(): Record<string, readonly string[]> | undefined { const c = this.via?.fieldCoverage(); return c && Object.keys(c).length > 0 ? c : undefined }
 
   /**
    * Aggregate all collection-level configuration options that are actively set

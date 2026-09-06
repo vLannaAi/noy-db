@@ -191,6 +191,7 @@
     "getRaw",
     "getSchema",
     "getVersion",
+    "getViaCoverage",
     "history",
     "hydrateFromSnapshot",
     "i18nProvenance",

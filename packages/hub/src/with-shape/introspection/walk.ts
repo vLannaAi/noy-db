@@ -212,6 +212,8 @@ async function describeCollection(
     }
   }
 
+  const viaCoverage = liveColl?.getViaCoverage()
+
   const descriptor: CollectionDescriptor = {
     fields,
     indexes: liveColl?.getDeclaredIndexes() ?? [],
@@ -219,6 +221,9 @@ async function describeCollection(
     ...(validator ? { validator } : {}),
     ...(collMeta !== undefined ? { meta: collMeta } : {}),
     ...(mergedConfig !== undefined ? { config: mergedConfig } : {}),
+    // #1447 — omitted entirely when the collection declares no via pipeline,
+    // so absence reads as "nothing declared" rather than "nothing reported".
+    ...(viaCoverage !== undefined ? { via: viaCoverage } : {}),
   }
   if (withStats) {
     const stats = await statsForCollection(state.adapter, state.name, collectionName)

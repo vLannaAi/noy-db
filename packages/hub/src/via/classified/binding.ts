@@ -212,6 +212,7 @@ export function classifiedVia(cfg: ClassifiedViaConfig): NoydbVia {
     brand: 'classified',
     posture: { encryptedAtRest: 'sealed', queryable: 'det-exact', exportable: false, forgettable: true },
     covers: (field) => field in byField,
+    coveredFields: Object.keys(byField), // #1447 — the FIELD only; the sensitivity label is deliberately NOT reported
     // async (rather than a bare passthrough) so a refusal is always a
     // rejected Promise for direct callers, matching every other async-stack
     // hook's calling convention — `enforceClassifiedWrite` itself stays sync.

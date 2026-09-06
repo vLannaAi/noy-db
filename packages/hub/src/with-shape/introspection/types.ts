@@ -105,6 +105,23 @@ export interface CollectionDescriptor {
   readonly stats?: CollectionStats
   readonly meta?: CollectionMeta
   readonly config?: CollectionConfig
+  /**
+   * #1447 — fields the datastore itself computes or resolves, as
+   * `field → the via brands covering it` (`money`, `computed`, `i18n`,
+   * `lookup`, `geo`, `classified`, `blob`). Absent when the collection
+   * declares no via pipeline.
+   *
+   * Exists so a consumer can gate documentation against what the vault
+   * actually enforces. The reported case: a rulebook described three
+   * vault-computed fields as app-owned — the UNDERSTATING direction, which is
+   * silent, because it produces app-side reimplementation of a guarantee that
+   * already exists rather than a missing behaviour someone trips over.
+   *
+   * ⛔ Brand and field only. A binding's CONFIGURATION is deliberately absent:
+   * a dump saying "this field is classified, sensitivity pii" is a map of the
+   * columns worth attacking, in an artefact that by design leaves the vault.
+   */
+  readonly via?: Record<string, readonly string[]>
 }
 
 export interface MaterializedViewDescriptor {
