@@ -551,7 +551,7 @@ export function applyI18nLocale(
 
 /**
  * Sync i18n-text-only present-for-join dressing — the exact `join`-layer
- * partial application `kernel/query/join.ts` used to import and call
+ * partial application `kernel/query/relate/join.ts` used to import and call
  * directly before #626's retirement (#650 Task 6): fixes `fallback`
  * `undefined` and `layer` `'join'`. `via/lookup/snapshot.ts`'s
  * `buildPresentForJoin` composes this with the lookup-label half to build

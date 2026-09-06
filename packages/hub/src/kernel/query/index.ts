@@ -1,17 +1,37 @@
 /**
- * Query DSL — barrel export.
+ * `@noy-db/hub/query` — **Find**, the always-on group of the query DSL (#1458).
  *
- * Public API:
- *   - `Query<T>` — chainable, immutable builder
- *   - `QuerySource<T>` — interface for record sources (Collection implements it)
- *   - `Operator` — comparison operators accepted by `where()`
- *   - `QueryPlan<T>` — serializable plan object
+ * ```ts
+ * import { Query } from '@noy-db/hub/query'
+ * invoices.query().where('status', '==', 'paid').orderBy('date', 'desc').limit(20).toArray()
+ * ```
  *
- * Tree-shakeable: importing this barrel without calling `query()` does not
- * pull in the executor's runtime, since `Query` is the only entry point.
+ * Predicate → sort → slice → hydrate, over one source: `where` (ten
+ * operators), `or`, `and`, `filter`, `wherePredicate`, `orderBy`, `limit`,
+ * `offset`, `page`, `after`, `first`, `toArray`, `count`, `exists`, `ids`,
+ * `toPlan`. Nothing here reaches a second collection, folds a result set, or
+ * re-runs on change.
+ *
+ * ⭐ **The other three groups are subpaths, and each is one import:**
+ *
+ * | group | import | brings |
+ * |---|---|---|
+ * | Live | `@noy-db/hub/query/live` | `subscribe`, `live` |
+ * | Reduce | `@noy-db/hub/query/reduce` | `aggregate`, `groupBy`, `window`, `distinct`, `dateTrunc` |
+ * | Relate | `@noy-db/hub/query/relate` | the joins, `traverse`, `explain` |
+ *
+ * The import is a SIDE EFFECT — it patches the methods onto `Query.prototype`
+ * and merges their types into `Query`, so one line at your app's entry serves
+ * the whole program. Calling a method whose group is not imported does not
+ * compile; if it reaches runtime through a cast, it throws
+ * {@link QueryExtensionMissingError} naming the subpath.
+ *
+ * ⚠️ **`@noy-db/hub` (the root barrel) imports all three**, so a consumer on
+ * the root barrel needs none of this and sees no change. The saving is for
+ * consumers who import this subpath directly.
  */
 
-export { Query, executePlan, DEFAULT_CROSS_JOIN_MAX_ROWS } from './builder.js'
+export { Query, executePlan } from './builder.js'
 export type { QueryPlan, QuerySource, OrderBy } from './builder.js'
 export type { Operator, Clause, FieldClause, FilterClause, GroupClause, CrossJoinClause } from './predicate.js'
 export { evaluateClause, evaluateFieldClause, readPath } from './predicate.js'
@@ -21,47 +41,25 @@ export { evaluateClause, evaluateFieldClause, readPath } from './predicate.js'
 // is now the preferred import path.
 export { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
 export type { IndexDef, HashIndex } from '../../with-lookup/indexing/eager-indexes.js'
-export { applyJoins, DEFAULT_JOIN_MAX_ROWS, resetJoinWarnings } from './join.js'
-export type { JoinLeg, JoinContext, JoinableSource, JoinStrategy, JoinDirection } from './join.js'
-export type { JoinOnSpec, JoinOnPlan, JoinOnOp } from './join-on.js'
-// Recursive traversal over a declared self-ref (#1352).
-export { runTraversal } from './traverse.js'
-export type { TraversalRow, TraverseOptions, TraverseDirection, TraverseSource, CyclePolicy } from './traverse.js'
-export { explainPlan, renderExplainText } from './explain.js'
-// Partition pruning (#1342, ADR 0007) — shared by the executor and explain().
-export {
-  ALL_PARTITIONS,
-  describePartitionScope,
-  partitionsInScope,
-  resolvePartitionScope,
-} from './partition.js'
-export type { PartitionScope } from './partition.js'
-export type { QueryExplanation, ExplainNode, ExplainCap, ExplainDispatch, ExplainSource, ExplainIndexProbe } from './explain.js'
-export { buildLiveQuery } from './live.js'
-export type { LiveQuery, LiveUpstream, LiveBuildOptions } from './live.js'
-export type { SourceChange } from './incremental.js'
 export { ScanBuilder } from './scan-builder.js'
-// Calendar group keys (#1350) — `.groupBy(dateTrunc('date', 'month', { timeZone }))`.
-export { dateTrunc, isDateTruncKey, truncateDate } from './date-trunc.js'
-export type { DateTruncKey, DateTruncUnit, DateTruncOptions, WeekStart, GroupKey } from './date-trunc.js'
-export type { ScanPageProvider } from './scan-builder.js'
+export type { ScanPageProvider, MultiReduceResult } from './scan-builder.js'
 
 // Re-export note: QueryPlan, Clause, FilterClause, GroupClause are intentionally
 // non-parametric — their `T` was removed for variance reasons. The Query<T> type
 // at the public API surface still flows the record type through generic methods.
 
-// ─── Query / aggregate errors ────────────────────────
+// ─── Find's errors ───────────────────────────────────────────────────────
 // Re-exported from the central errors module so subpath consumers can
-// `instanceof JoinTooLargeError` without falling back to the root barrel.
+// `instanceof` them without falling back to the root barrel.
+//
+// ⚠️ The JOIN errors moved to `@noy-db/hub/query/relate` and the aggregate
+// ones to `@noy-db/hub/query/reduce`, with their groups. An `instanceof
+// JoinTooLargeError` in a file that never imports `/relate` was checking for
+// something that could not happen there.
 export {
-  GroupCardinalityError,
   IndexRequiredError,
   IndexWriteFailureError,
-  JoinTooLargeError,
-  DanglingReferenceError,
-  TraversalCycleError,
-  CrossJoinTooLargeError,
-  CrossJoinSourceUnknownError,
   FieldNotQueryableError,
   UnsafePatternError,
+  QueryExtensionMissingError,
 } from '../errors.js'

@@ -6,36 +6,79 @@
  */
 
 import type { QueryField } from '../types.js'
-import type { DateTruncKey, GroupKey } from './date-trunc.js'
-import { groupKeyName, isDateTruncKey, projectDateTruncKeys } from './date-trunc.js'
 import type { Clause, CrossJoinClause, FieldClause, FilterClause, GroupClause, Operator, WherePredicateClause } from './predicate.js'
-import { evaluateClause, hasFnClause, normalizeMatches, normalizeSubqueryOperand, readPath } from './predicate.js'
-import { distinctKeyOf } from './distinct-key.js'
+import { evaluateClause, hasFnClause, normalizeMatches, normalizeSubqueryOperand } from './predicate.js'
 import type { CollectionIndexes } from '../../with-lookup/indexing/eager-indexes.js'
-import type { JoinableSource, JoinContext, JoinDirection, JoinLeg, JoinStrategy } from './join.js'
-import { applyJoins, joinsDropLeftRows, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
-import { reduceViaFor, refuseAliasReduceVia } from './join-reduce.js'
-import { normalizeJoinOn, type JoinOnSpec } from './join-on.js'
-import { CrossJoinTooLargeError, CrossJoinSourceUnknownError, FieldNotQueryableError, RefNotDeclaredError } from '../errors.js'
+// ─── #1458 — Relate is TYPE-ONLY here ────────────────────────────────────
+// `JoinLeg` / `JoinContext` describe a plan Find must be able to EXECUTE, and
+// a type import is erased, so naming them costs the Find bundle nothing. The
+// runtime half arrives through `internal/hooks.ts`; see that file for why the
+// slot is always full by the time Find reads it.
+import type { JoinableSource, JoinContext, JoinLeg } from './relate/join.js'
+import { relateHooks } from './internal/hooks.js'
+import { CrossJoinSourceUnknownError, FieldNotQueryableError } from '../errors.js'
+import { QueryExtensionMissingError } from '../errors.js'
 import { gateTerminal } from './hydration.js'
 import type { HydrationGate } from './hydration.js'
-import type { LiveQuery, LiveUpstream } from './live.js'
-import { buildLiveQuery } from './live.js'
-import type { GroupMaintenanceSource, SourceChange } from './incremental.js'
-import { LiveMaintainer, canMaintainIncrementally } from './incremental.js'
-import type { ReduceSpec, ReduceResult, ReductionUpstream, Reduction } from '../../with-lookup/reduce/reduction.js'
-import type { ReducerBuilder } from '../../with-lookup/reduce/reducers.js'
-import { bindDistinctReducers, reducerBuilder } from '../../with-lookup/reduce/reducers.js'
-import type { GroupedQuery, GroupedQueryN } from '../../with-lookup/reduce/groupby.js'
+import type { SourceChange } from './live/incremental.js'
+// ⚠️ The reduce STRATEGY module, and nothing else from `with-lookup/reduce`.
+// It is the null-object seam that makes the aggregate service opt-in (309 B,
+// no transitive runtime deps) — see its own header. The engine behind it
+// arrives only through `@noy-db/hub/query/reduce`.
 import { NO_REDUCE, type ReduceStrategy } from '../../with-lookup/reduce/strategy.js'
-import type { WindowSpec, WindowedQuery } from '../../with-lookup/reduce/strategy.js'
 import type { ViaPipeline } from '../via/pipeline.js'
 import { isViaPrefixProbe } from '../via/index.js'
 import { decodeCursor, encodeCursor, keysetShape } from './cursor.js'
-import type { QueryExplanation } from './explain.js'
-import { explainPlan } from './explain.js'
-import type { CyclePolicy, TraversalRow, TraverseDirection, TraverseOptions } from './traverse.js'
-import { runTraversal } from './traverse.js'
+
+// ─── #1458 — the five join-conditional Relate entry points ────────────────
+//
+// Each of these was a direct import from `relate/join.ts`. They are now thin
+// shims: the empty-plan answer inline (byte-identical to the first line of the
+// real function, which is what makes the shim faithful rather than a second
+// implementation), and a hook call otherwise. Call sites are unchanged, so the
+// executor below reads exactly as it did before the split.
+//
+// ⭐ The inline branch is not an optimisation — it is the PROOF that a
+// Find-only consumer never reaches `relateHooks()`. A plan with no legs and no
+// crossJoin clause is answered entirely by these first lines.
+
+export function splitAroundJoins(
+  clauses: readonly Clause[],
+  joins: readonly JoinLeg[],
+): { readonly preJoin: readonly Clause[]; readonly postJoin: readonly Clause[] } {
+  if (joins.length === 0 || clauses.length === 0) return { preJoin: clauses, postJoin: [] }
+  return relateHooks().splitAroundJoins(clauses, joins)
+}
+
+function orderReferencesJoinAlias(orderBy: readonly OrderBy[], joins: readonly JoinLeg[]): boolean {
+  if (joins.length === 0 || orderBy.length === 0) return false
+  return relateHooks().orderReferencesJoinAlias(orderBy, joins)
+}
+
+function joinsDropLeftRows(joins: readonly JoinLeg[]): boolean {
+  if (joins.length === 0) return false
+  return relateHooks().joinsDropLeftRows(joins)
+}
+
+function applyJoins(
+  rows: readonly unknown[],
+  joins: readonly JoinLeg[],
+  context: JoinContext,
+  locale?: string,
+): unknown[] {
+  if (joins.length === 0) return [...rows]
+  return relateHooks().applyJoins(rows, joins, context, locale)
+}
+
+function applyCrossJoin(
+  leftRel: unknown[],
+  clause: CrossJoinClause,
+  rightSource: JoinableSource,
+): unknown[] {
+  // No early-out: reaching this line means the plan HAS a crossJoin clause,
+  // which only `@noy-db/hub/query/relate` can build.
+  return relateHooks().applyCrossJoin(leftRel, clause, rightSource)
+}
 
 export interface OrderBy {
   readonly field: string
@@ -91,9 +134,6 @@ const EMPTY_PLAN: QueryPlan = {
   after: undefined,
   joins: [],
 }
-
-/** Default row ceiling for cross-join expansion. Matches JoinTooLargeError's ceiling. */
-export const DEFAULT_CROSS_JOIN_MAX_ROWS = 50_000
 
 /**
  * Guard for the terminals that reduce rather than project (#1030). Grouping
@@ -161,25 +201,6 @@ export const DEFAULT_CROSS_JOIN_MAX_ROWS = 50_000
  * shape) and built against that query — which is the paragraph above working,
  * not failing.
  */
-function assertNoJoinAliasField(
-  fields: readonly string[],
-  joins: readonly JoinLeg[],
-  terminal: string,
-): void {
-  if (joins.length === 0) return
-  const aliases = new Set(joins.map(leg => leg.as))
-  for (const field of fields) {
-    const head = field.split('.')[0]!
-    if (!aliases.has(head)) continue
-    throw new Error(
-      `Query.${terminal}(): field "${field}" addresses the join alias "${head}", but ` +
-        `${terminal}() does not apply join legs — it would silently group every row ` +
-        `under undefined. Joined aggregation is not supported. Either aggregate over ` +
-        `the left collection's own fields, or use .crossJoin("${head}", { as: … }), ` +
-        `whose expansion IS visible to ${terminal}().`,
-    )
-  }
-}
 
 /**
  * Source of records that a query executes against.
@@ -247,7 +268,12 @@ export interface QuerySource<T> {
   snapshotVersion?(): number
 }
 
-interface InternalSource {
+/**
+ * @internal #1458 — exported so the extension mixins in `query/{live,reduce,
+ * relate}/` can name the source they read. Not part of the published surface:
+ * `QuerySource<T>` above is what a consumer implements.
+ */
+export interface InternalSource {
   snapshot(): readonly unknown[]
   subscribe?(cb: (change?: SourceChange) => void): () => void
   getIndexes?(): CollectionIndexes | null
@@ -772,502 +798,6 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
    * `.join()`.
    */
   /**
-   * INNER join (#1361): `{ mode: 'inner' }` drops every left row whose alias
-   * resolves to nothing, and types the alias NON-nullable.
-   *
-   * ```ts
-   * invoices.query()
-   *   .join<'client', Client>('clientId', { as: 'client', mode: 'inner' })
-   *   .orderBy('total', 'desc')
-   *   .limit(10)
-   * // → the ten largest invoices THAT HAVE a client; `row.client.name` needs
-   * //   no null check.
-   * ```
-   *
-   * The long-hand `.join(f, { as }).where(as, '!=', null)` returns the same
-   * rows and keeps working unchanged — what it cannot do is keep the sort on
-   * the pre-join side. That predicate addresses the alias, so #1030 moves the
-   * WHOLE sort and page behind the legs; `mode: 'inner'` moves only the page,
-   * because the drop cannot reorder a left-side sort key. `.explain()` says
-   * which: `pre-join` on the `orderBy` node, `post-join` on the `page` node.
-   *
-   * The drop runs after `attachJoin`, so ref-mode semantics are unchanged — a
-   * `strict` dangling ref still throws rather than vanishing because the
-   * caller asked for an inner join.
-   */
-  join<As extends string, R = unknown>(
-    field: QueryField<T, S>,
-    opts: { as: As; mode: 'inner'; strategy?: JoinStrategy; maxRows?: number },
-  ): Query<T & Record<As, R>, S, Q, M>
-  join<As extends string, R = unknown>(
-    field: QueryField<T, S>,
-    opts: { as: As; mode?: undefined; strategy?: JoinStrategy; maxRows?: number },
-  ): Query<T & Record<As, R | null>, S, Q, M>
-  // The implementation signature spans both overloads: the alias is
-  // non-nullable only under `mode: 'inner'`, and TS needs a return type both
-  // published shapes are assignable to.
-  join<As extends string, R = unknown>(
-    field: QueryField<T, S>,
-    // `| undefined` is load-bearing under `exactOptionalPropertyTypes`: the
-    // non-inner overload publishes `mode?: undefined`, and an implementation
-    // that omitted it would reject an explicitly-passed `mode: undefined`.
-    opts: { as: As; mode?: 'inner' | undefined; strategy?: JoinStrategy; maxRows?: number },
-  ): Query<T & Record<As, R>, S, Q, M> | Query<T & Record<As, R | null>, S, Q, M> {
-    return this.withJoinLeg(field, opts, 'left') as unknown as Query<T & Record<As, R | null>, S, Q, M>
-  }
-
-  /**
-   * DECLARED non-equi / non-id join (#1339) — a join whose `on` is data, not
-   * a callback.
-   *
-   * ```ts
-   * // composite equality — a hash join over a tuple key
-   * entries.query().joinOn<'rate', Rate>('rates', {
-   *   as: 'rate',
-   *   on: [['clientId', 'clientId'], ['year', 'year']],
-   * })
-   *
-   * // a range — nested loop over a right side sorted once
-   * entries.query().joinOn<'rate', Rate>('rates', {
-   *   as: 'rate',
-   *   on: { left: 'date', op: 'between', right: ['from', 'to'] },
-   * })
-   * ```
-   *
-   * ⭐ **Why this exists when `.crossJoin({ on })` already pairs anything.**
-   * `crossJoin`'s `on` is a closure. It cannot be serialized, so a
-   * materialized view built over one has its drift detection disabled — the
-   * plan summary records the sentinel `'[inline]'` and two different
-   * predicates hash identically. A `joinOn` predicate is plain JSON: it folds
-   * into `toPlan()` and into the MV `queryHash`, so an MV can genuinely
-   * DEPEND on it. That, not the pairing, is the feature.
-   *
-   * **No `ref()` needed** — the predicate names both sides itself, so `target`
-   * is the collection name rather than a declared FK field. Dangling is not a
-   * concept here: a left row matching nothing gets `null` under the alias (a
-   * LEFT outer join, like `.join()`), and `{ mode: 'inner' }` drops it.
-   *
-   * **⚠️ This join EXPANDS rows.** A ref join is one-to-one, so the left row
-   * count is constant; a declared `on` emits one row per MATCH, so a left row
-   * matching three right records becomes three rows. The per-side `maxRows`
-   * ceilings therefore cannot bound the result, and a third ceiling on the
-   * OUTPUT throws `JoinTooLargeError` with `side: 'output'`. Do not remove
-   * it: without it an unbounded theta join is a hang, not an error.
-   *
-   * **Cost.** Composite equality is O(n + m + output). A range is
-   * O(m log m) to sort the right side once, then O(log m) per left row for
-   * `< <= > >=`; `between` is O(log m + p) per left row, where p is the
-   * number of right intervals starting at or before the probe — which
-   * degrades to O(n·m) when every interval starts early. `explain()` names
-   * which of the two ran. Neither reaches the right collection's declared
-   * indexes: a `JoinableSource` does not expose them.
-   */
-  joinOn<As extends string, R = unknown>(
-    target: string,
-    opts: { as: As; on: JoinOnSpec; mode: 'inner'; maxRows?: number },
-  ): Query<T & Record<As, R>, S, Q, M>
-  joinOn<As extends string, R = unknown>(
-    target: string,
-    opts: { as: As; on: JoinOnSpec; mode?: undefined; maxRows?: number },
-  ): Query<T & Record<As, R | null>, S, Q, M>
-  joinOn<As extends string, R = unknown>(
-    target: string,
-    // `| undefined` is load-bearing under `exactOptionalPropertyTypes`, same
-    // as `.join()`'s implementation signature.
-    opts: { as: As; on: JoinOnSpec; mode?: 'inner' | undefined; maxRows?: number },
-  ): Query<T & Record<As, R>, S, Q, M> | Query<T & Record<As, R | null>, S, Q, M> {
-    if (!this.joinContext) {
-      throw new Error(
-        `Query.joinOn() requires a join context. Use collection.query() to construct a ` +
-          `join-capable Query instead of the Query constructor directly (the direct ` +
-          `constructor is only used for tests with plain-object sources).`,
-      )
-    }
-    // Validated and normalised at PLAN time, never at execution: an `on` that
-    // cannot be serialised deterministically must not reach a queryHash.
-    const on = normalizeJoinOn(opts.on, target)
-    const leg: JoinLeg = {
-      // The driving left field. Not a ref — it exists so error messages and
-      // `explain()` have something to name, and it is derivable from `on`.
-      field: on.kind === 'composite' ? on.pairs[0]![0] : on.left,
-      as: opts.as,
-      target,
-      // There is no ref(), so there is no dangling-ref policy to apply.
-      // 'cascade' is the mode that attaches null silently, which is exactly
-      // the left-outer behaviour a declared join wants.
-      mode: 'cascade',
-      strategy: undefined,
-      maxRows: opts.maxRows,
-      ...(opts.mode === 'inner' ? { inner: true as const } : {}),
-      on,
-      partitionScope: 'all',
-    }
-    return new Query<T, S, Q, M>(
-      this.source as QuerySource<T>,
-      { ...this.plan, joins: [...this.plan.joins, leg] },
-      this.joinContext,
-      this.reduceStrategy,
-      this.predicates,
-    ) as unknown as Query<T & Record<As, R | null>, S, Q, M>
-  }
-
-  /**
-   * RIGHT outer join (#1289): every record of the TARGET collection appears,
-   * including one no left row points at. The mirror of `.join()`, which is
-   * and always was the left outer join.
-   *
-   * ```ts
-   * invoices.query().rightJoin<'client', Client>('clientId', { as: 'client' })
-   * // → one row per invoice/client match, PLUS { client } for every client
-   * //   no invoice references. An invoice whose clientId matches nothing is
-   * //   dropped — that is what makes it a right join.
-   * ```
-   *
-   * **The row shape is not `T`.** A right-only row carries the alias and
-   * nothing else, so the left fields are typed `Partial<T>` — SQL's "the left
-   * columns are NULL" in an object language. Read them defensively; a row
-   * where `amount` is `undefined` is a real, correct result, not a bug.
-   *
-   * **Cost.** A forward leg follows the left row's FK and is O(1) per row. A
-   * right leg cannot: the rows it must produce are exactly the ones no FK
-   * names. It builds a reverse index — the left rows bucketed by FK value —
-   * and walks the right snapshot against it. That is one extra pass over the
-   * left set and one `Map` the size of the distinct FK values; both sides are
-   * fully materialized either way, and both row ceilings still apply.
-   *
-   * **Ordering.** Like `.join()`, legs run AFTER `orderBy`/`limit`/`offset`
-   * unless the ordering addresses the alias (#1337),
-   * so those narrow the LEFT side. Rows are emitted in right-snapshot order.
-   *
-   * A left row whose non-null FK resolves to nothing is dropped, but the
-   * ref-mode check still runs on it: `strict` still throws
-   * `DanglingReferenceError`. Corruption should not become invisible because
-   * the caller changed join direction.
-   */
-  rightJoin<As extends string, R = unknown>(
-    field: QueryField<T, S>,
-    opts: { as: As; strategy?: JoinStrategy; maxRows?: number },
-  ): Query<Partial<T> & Record<As, R>, S, Q, M> {
-    return this.withJoinLeg(field, opts, 'right') as unknown as Query<Partial<T> & Record<As, R>, S, Q, M>
-  }
-
-  /**
-   * FULL outer join (#1289): the union of `.join()` and `.rightJoin()` —
-   * every left row, every right record, matched where they meet.
-   *
-   * ```ts
-   * invoices.query().fullOuterJoin<'client', Client>('clientId', { as: 'client' })
-   * // → matched rows, plus { client: null, ...invoice } for an unreferenced
-   * //   invoice, plus { client } for a client no invoice points at.
-   * ```
-   *
-   * The alias is `R | null` and the left fields are `Partial<T>`, because a
-   * row can be missing either side — never both. Same reverse index, same
-   * ordering and same ref-mode semantics as {@link rightJoin}; the only
-   * difference is that the unmatched LEFT rows are emitted (after the
-   * right-driven ones) instead of dropped.
-   */
-  fullOuterJoin<As extends string, R = unknown>(
-    field: QueryField<T, S>,
-    opts: { as: As; strategy?: JoinStrategy; maxRows?: number },
-  ): Query<Partial<T> & Record<As, R | null>, S, Q, M> {
-    return this.withJoinLeg(field, opts, 'full') as unknown as Query<Partial<T> & Record<As, R | null>, S, Q, M>
-  }
-
-  /**
-   * The one place a `JoinLeg` is built. `.join()`, `.rightJoin()` and
-   * `.fullOuterJoin()` differ ONLY in `direction` and in the type they
-   * publish — keeping the plan-time validation (ref declared? dict join?
-   * join context?) in a single body is what stops the three from drifting on
-   * which errors they raise.
-   */
-  private withJoinLeg(
-    field: string,
-    opts: { as: string; mode?: 'inner' | undefined; strategy?: JoinStrategy; maxRows?: number },
-    direction: JoinDirection,
-  ): Query<T, S, Q, M> {
-    if (!this.joinContext) {
-      throw new Error(
-        `Query.join() requires a join context (same for .rightJoin() and .fullOuterJoin()). Use collection.query() ` +
-          `to construct a join-capable Query instead of the Query constructor ` +
-          `directly (the direct constructor is only used for tests with ` +
-          `plain-object sources).`,
-      )
-    }
-    const descriptor = this.joinContext.resolveRef(field)
-    // Check for dictKey join when no ref() is declared
-    const isDictJoinField = !descriptor && this.joinContext.resolveDictSource?.(field) != null
-    if (!descriptor && !isDictJoinField) {
-      // Typed (#1139) so the MV registry can tell "this ref is not declared YET,
-      // during openVault" from any other planning failure without matching text.
-      throw new RefNotDeclaredError({
-        collection: this.joinContext.leftCollection,
-        field,
-        message:
-          `Query.join(): no ref() declared for field "${field}" on collection ` +
-          `"${this.joinContext.leftCollection}". Add ` +
-          `refs: { ${field}: ref('<target-collection>') } to the collection ` +
-          `options, then retry. See the ref() docs for the full list of modes.`,
-      })
-    }
-    // `direction: 'left'` is left OFF the leg rather than written as the
-    // default: a plan built by `.join()` must serialize byte-identically to
-    // the one it built before #1289, or every stored queryHash moves.
-    const directionField = direction === 'left' ? {} : { direction }
-    // Same discipline as `directionField` (#1361): a non-inner leg carries no
-    // `inner` key at all, so its serialized plan — and its queryHash — is
-    // byte-identical to the pre-#1361 one.
-    const innerField = opts.mode === 'inner' ? { inner: true as const } : {}
-    const leg: JoinLeg = descriptor
-      ? {
-          field,
-          as: opts.as,
-          target: descriptor.target,
-          mode: descriptor.mode,
-          strategy: opts.strategy,
-          maxRows: opts.maxRows,
-          ...directionField,
-          ...innerField,
-          // The partition seam — always 'all'. Do not remove, and do not
-          // populate without reading JoinLeg.partitionScope's two
-          // constraints (#1342): this value is inside every stored MV
-          // queryHash. Pinned by __tests__/query-partition-scope.test.ts.
-          partitionScope: 'all',
-        }
-      : {
-          // Dict join leg
-          field,
-          as: opts.as,
-          target: field, // dict name = field name for dictKey
-          mode: 'strict',
-          strategy: opts.strategy,
-          maxRows: opts.maxRows,
-          partitionScope: 'all',
-          ...directionField,
-          ...innerField,
-          isDictJoin: true,
-        }
-    return new Query<T, S, Q, M>(
-      this.source as QuerySource<T>,
-      { ...this.plan, joins: [...this.plan.joins, leg] },
-      this.joinContext,
-      this.reduceStrategy,
-      this.predicates,
-    )
-  }
-
-  /**
-   * Cartesian-product cross-join against `target` collection. Each result row
-   * carries the original `T` fields plus `result[as]` populated from every
-   * right-side row (or the filtered subset when `on:` is supplied).
-   *
-   * **⚠️ INNER-join semantics — an empty right subset DROPS the left row.**
-   * Each left row is emitted once per matching right row, so when `on:`
-   * yields nothing the row vanishes with no error, no warning and no count
-   * mismatch. This bites hardest on a reverse FK, where `.join()` (which is
-   * forward-only, and already a genuine LEFT outer join) does not apply and
-   * `.crossJoin()` is the only tool. To keep the row, return a one-element
-   * array holding `null`:
-   *
-   * ```ts
-   * .crossJoin('clients', { as: 'client', on: (b) => byEntity.get(b.entityId) ?? [null] })
-   * //                                                                          ^^^^^^^^
-   * //                                              the ONLY thing preserving the row
-   * ```
-   *
-   * **Prefer `outer: true`**, which does exactly this and types the alias as
-   * `TTarget | null`:
-   *
-   * ```ts
-   * .crossJoin('clients', { as: 'client', outer: true, on: (b) => byEntity.get(b.entityId) ?? [] })
-   * ```
-   *
-   * The `?? [null]` form remains valid and is what `outer` does internally, but
-   * it is invisible intent: it types the alias as non-null while the row can
-   * hold null, and a later "simplification" that drops it silently
-   * reintroduces the row loss.
-   *
-   * **Order matters:** `.where().crossJoin()` filters BEFORE expanding (cheaper);
-   * `.crossJoin().where('alias.field', ...)` filters AFTER (required when the
-   * where clause references the aliased fields).
-   *
-   * **Cost ceiling:** `CrossJoinTooLargeError` fires before allocation when
-   * `leftRows × rightRows` (or the cumulative lateral count) exceeds the limit.
-   * Default: 50,000 rows. Override per-clause with `{ maxRows: N }`.
-   *
-   * **`on:` shapes:**
-   *   - `on: (left) => TTarget[]`              — subset form (most efficient)
-   *   - `on: (left) => (right) => boolean`     — predicate form
-   *   - `on: { predicate: 'name' }`            — MV-safe, hash-tracked form
-   *     (requires the Query to have been augmented via `_withPredicates`)
-   *
-   * Requires a JoinContext (constructed via `collection.query()`).
-   */
-  crossJoin<TTarget = unknown, As extends string = string, TOuter extends boolean = false>(
-    target: string,
-    opts: {
-      as: As
-      on?:
-        | ((left: T) => unknown[] | ((right: TTarget) => boolean))
-        | { readonly predicate: string }
-      maxRows?: number
-      /**
-       * Keep the left row when its right side is empty, with `null` under
-       * `as`, instead of dropping it (#1130). Widens the alias to
-       * `TTarget | null` — which is why it is a type parameter rather than a
-       * plain boolean: `outer: false` must not pay for a null the row can
-       * never hold.
-       */
-      outer?: TOuter
-    },
-  ): Query<T & { [K in As]: TOuter extends true ? TTarget | null : TTarget }, S, Q, M> {
-    if (!this.joinContext) {
-      throw new Error(
-        `Query.crossJoin("${target}"): requires a join context. ` +
-          `Use collection.query() to construct a cross-join-capable Query instead of ` +
-          `the Query constructor directly.`,
-      )
-    }
-
-    let onFn: CrossJoinClause['on']
-    let onPredicateName: string | undefined
-
-    if (opts.on !== undefined) {
-      if (typeof opts.on === 'function') {
-        onFn = opts.on as CrossJoinClause['on']
-        if (this.predicates) {
-          console.warn(
-            `Query.crossJoin("${target}", { on: callback }): inline on: callback inside a ` +
-              `withMaterializedView query() disables queryHash drift detection for this cross-join. ` +
-              `Use on: { predicate: '<name>' } to enable it.`,
-          )
-        }
-      } else {
-        const predName = (opts.on as { predicate: string }).predicate
-        if (!this.predicates) {
-          throw new Error(
-            `Query.crossJoin("${target}", { on: { predicate: "${predName}" } }): ` +
-              `the { predicate } form requires a predicates map. ` +
-              `Use this form inside a withMaterializedView query() callback that declares ` +
-              `predicates: { ${predName}: { hash, fn } }.`,
-          )
-        }
-        const decl = this.predicates.get(predName)
-        if (!decl) {
-          throw new Error(
-            `Query.crossJoin("${target}"): predicate "${predName}" not registered. ` +
-              `Available: ${[...this.predicates.keys()].join(', ') || '(none)'}.`,
-          )
-        }
-        const as = opts.as
-        const predicateFn = decl.fn
-        onFn = (_left: unknown): ((right: unknown) => boolean) =>
-          (right: unknown) =>
-            predicateFn({ ...(_left as Record<string, unknown>), [as]: right })
-        onPredicateName = predName
-      }
-    }
-
-    const clause: CrossJoinClause = {
-      type: 'crossJoin',
-      target,
-      as: opts.as,
-      ...(onFn !== undefined && { on: onFn }),
-      ...(onPredicateName !== undefined && { onPredicateName }),
-      ...(opts.maxRows !== undefined && { maxRows: opts.maxRows }),
-      ...(opts.outer === true && { outer: true as const }),
-    }
-
-    type Row = T & { [K in As]: TOuter extends true ? TTarget | null : TTarget }
-    return new Query<Row, S, Q, M>(
-      this.source as unknown as QuerySource<Row>,
-      { ...this.plan, clauses: [...this.plan.clauses, clause] },
-      this.joinContext,
-      this.reduceStrategy,
-      this.predicates,
-    )
-  }
-
-  /**
-   * Self cross-join with BOTH sides aliased (#1289).
-   *
-   * ```ts
-   * const pairs = trades.query()
-   *   .crossJoinWith({ leftAs: 'a', rightAs: 'b', on: (t) => laterThan(t) })
-   *   .toArray()
-   * // → [{ a: Trade, b: Trade }, ...]  — no field at the top level
-   * ```
-   *
-   * `.crossJoin('trades', { as: 'other' })` can already pair a collection
-   * with itself, but only ASYMMETRICALLY: the left row's fields stay at the
-   * top level and only the right side gets a name. Every comparison then
-   * reads `r.amount` against `r.other.amount`, which is exactly the shape
-   * that makes an accidentally-transposed pair invisible.
-   *
-   * ⚠️ **The cost is not the join, it is the Via dressing.** Aliasing the
-   * left row moves every field off the top level, and the money / i18n /
-   * lookup pipeline keys by BARE FIELD NAME — so the plain top-level decode
-   * `toArray()` applies cannot see either side. Both aliases are therefore
-   * dressed explicitly, through the source's own Via result decode, before
-   * the rows are returned. Silently serving raw money under an alias is the
-   * failure this method exists to not have; `dressAliases` is where it is
-   * prevented and `__tests__/query-outer-join.test.ts` is what proves it.
-   *
-   * `on:` takes the same subset / predicate shapes as `.crossJoin()`, and the
-   * same `maxRows` ceiling applies to the product. The target is always this
-   * query's own collection — a cross-join against a DIFFERENT collection is
-   * `.crossJoin()`, which needs no left alias to stay unambiguous.
-   *
-   * The returned `Query` drops this query's schema / queryable / money field
-   * parameters. That is not laziness: those parameters name TOP-LEVEL fields,
-   * and after `crossJoinWith` there are no top-level fields — only the two
-   * aliases. Carrying them would let `where('amount', ...)` type-check on a
-   * row where `amount` does not exist.
-   */
-  crossJoinWith<LeftAs extends string, RightAs extends string>(
-    opts: {
-      leftAs: LeftAs
-      rightAs: RightAs
-      on?: ((left: T) => unknown[] | ((right: T) => boolean)) | { readonly predicate: string }
-      maxRows?: number
-    },
-  ): Query<{ [K in LeftAs]: T } & { [K in RightAs]: T }> {
-    if (!this.joinContext) {
-      throw new Error(
-        `Query.crossJoinWith(): requires a join context. ` +
-          `Use collection.query() to construct a cross-join-capable Query instead of ` +
-          `the Query constructor directly.`,
-      )
-    }
-    if ((opts.leftAs as string) === (opts.rightAs as string)) {
-      throw new Error(
-        `Query.crossJoinWith({ leftAs: "${opts.leftAs}", rightAs: "${opts.rightAs}" }): ` +
-          `the two aliases must differ — a self cross-join whose sides share a name ` +
-          `would emit the right row under both and silently lose the left one.`,
-      )
-    }
-    // Built through `.crossJoin()` so the `on:`-shape validation, the
-    // predicate-map lookup and the queryHash-drift warning have exactly one
-    // implementation; `leftAs` is then folded into the clause it produced.
-    const built = this.crossJoin<T, RightAs, false>(this.joinContext.leftCollection, {
-      as: opts.rightAs,
-      ...(opts.on !== undefined && { on: opts.on }),
-      ...(opts.maxRows !== undefined && { maxRows: opts.maxRows }),
-    })
-    const plan = built._plan()
-    const last = plan.clauses[plan.clauses.length - 1] as CrossJoinClause
-    const clauses = [...plan.clauses.slice(0, -1), { ...last, leftAs: opts.leftAs }]
-    type Row = { [K in LeftAs]: T } & { [K in RightAs]: T }
-    return new Query<T, S, Q, M>(
-      this.source as QuerySource<T>,
-      { ...plan, clauses },
-      this.joinContext,
-      this.reduceStrategy,
-      this.predicates,
-    ) as unknown as Query<Row>
-  }
-
-  /**
    * Execute the plan and return the matching records. When the plan
    * carries any join legs, they are applied after `where` / `orderBy`
    * / `limit` / `offset` narrow the left set — UNLESS a clause (#1030) or
@@ -1462,52 +992,6 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       push(leg.as, leg.target)
     }
     return out.size > 0 ? out : undefined
-  }
-
-  /**
-   * The right-side change streams a joined query has to merge (#1338), deduped
-   * by target the way `live()` does — a chain joining the same collection
-   * twice must not double-fire. Extracted so a joined REDUCTION and a joined
-   * live query cannot disagree on what "the sources of this result" means.
-   */
-  private rightSideUpstreams(): ReductionUpstream[] {
-    const ctx = this.joinContext
-    if (!ctx) return []
-    const out: ReductionUpstream[] = []
-    const seen = new Set<string>()
-    for (const leg of this.plan.joins) {
-      if (seen.has(leg.target)) continue
-      seen.add(leg.target)
-      const right = ctx.resolveSource(leg.target)
-      if (!right?.subscribe) continue
-      const subscribe = right.subscribe.bind(right)
-      out.push({ subscribe: (cb: () => void) => subscribe(cb) })
-    }
-    return out
-  }
-
-  /**
-   * Every alias this plan can produce, pipeline or not (#1338).
-   *
-   * `aliasVia()` above holds only the aliases whose collection compiles a Via
-   * pipeline; refusal has to know about ALL of them, or an aliased reducer
-   * over a plain right-side collection stays silent.
-   */
-  private aliasNames(): ReadonlySet<string> {
-    const out = new Set<string>()
-    for (const clause of this.plan.clauses) {
-      if (clause.type !== 'crossJoin') continue
-      out.add(clause.as)
-      if (clause.leftAs !== undefined) out.add(clause.leftAs)
-    }
-    for (const leg of this.plan.joins) out.add(leg.as)
-    return out
-  }
-
-  /** Is `field` rooted at an alias this plan produces? */
-  private addressesAlias(field: string, aliases: ReadonlySet<string>): boolean {
-    const dot = field.indexOf('.')
-    return dot > 0 && aliases.has(field.slice(0, dot))
   }
 
   /**
@@ -1813,84 +1297,6 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   }
 
   /**
-   * The distinct values of `field` across the match set (#1347) — the
-   * declarative form of `new Set(q.toArray().map(r => r[field]))`, which is
-   * what consumers write today and which is wrong in two ways this is not.
-   *
-   * **Distinctness is decided on the canonical index key, not on the value
-   * you get back.** For a Via-covered field that is the difference between a
-   * right answer and a plausible one: money stores a scaled integer, and a
-   * row written before the field was declared can spell it non-canonically
-   * (`'0100'` for `'100'`). Deduping the stored strings reports two values
-   * where there is one; deduping the FORMATTED strings makes the answer
-   * depend on a locale this layer does not have (`'10.00'` vs `'10,00'`).
-   * See `distinct-key.ts`. The values RETURNED are the decoded ones, so they
-   * match what `toArray()` hands back for the same field.
-   *
-   * **Nullish values are excluded** — `null`/`undefined`/missing is the
-   * absence of a value, not a distinct one. That is also the only choice
-   * under which the index-backed and scanned paths can agree, since the hash
-   * index does not hold nullish keys; see `distinctKeyOf`.
-   *
-   * Same match set as `count()`: where/filter apply, orderBy/limit/offset do
-   * not. Values come back in first-encountered order.
-   *
-   * ⭐ INDEX-BACKED when the field carries a hash index AND the plan narrows
-   * nothing — the buckets ARE the distinct key set, so the answer costs
-   * O(distinct values) instead of O(records) and never decrypts a snapshot.
-   * The guard is deliberately all-or-nothing: with a where clause the whole
-   * collection's buckets are not the answer, and intersecting a candidate id
-   * set with every bucket would cost more than the scan it replaced.
-   *
-   * ⛔ THE RETURN TYPE IS `(T & Record<F, unknown>)[F][]`, NOT
-   * `F extends keyof T ? T[F][] : unknown[]` — and it must stay that way. The
-   * conditional form reads better and type-checks at every call site, but a
-   * DEFERRED conditional over `T` makes TypeScript give up relating
-   * `Query<T>` to `Query<unknown>`, which makes `Collection<T>` invariant in
-   * `T`, which breaks `vault.ts`'s `Map<string, Collection<unknown>>` cache
-   * with four errors that name neither this method nor this file. The
-   * intersection form resolves to the same thing (`T[F]` for a literal key,
-   * `unknown` for a `string`-typed one) and stays covariant.
-   */
-  distinct<F extends QueryField<T, S>>(field: F): (T & Record<F, unknown>)[F][] {
-    const name = field as string
-    assertNoJoinAliasField([name], this.plan.joins, 'distinct')
-    const via = this.source.via
-    // Same posture gate `.where()` / `.orderBy()` apply: a `queryable: 'none'`
-    // field (a blob handle) must not have its value set enumerated either.
-    if (via?.postureFor(name)?.queryable === 'none') throw new FieldNotQueryableError(name)
-    const decode = via?.hasResultDecode ? (r: unknown) => via.decodeResults(r) : (r: unknown) => r
-
-    const indexes =
-      this.plan.clauses.length === 0 && this.plan.joins.length === 0
-        ? this.source.getIndexes?.()
-        : undefined
-    if (indexes && this.source.lookupById) {
-      const lookupById = (id: string): unknown => this.source.lookupById?.(id)
-      const reps = indexes.bucketRepresentatives(name)
-      if (reps) {
-        const fromIndex: unknown[] = []
-        for (const id of reps) {
-          const record = lookupById(id)
-          if (record === undefined) continue
-          fromIndex.push(readPath(decode(record), name))
-        }
-        return fromIndex as (T & Record<F, unknown>)[F][]
-      }
-    }
-
-    const seen = new Set<string>()
-    const out: unknown[] = []
-    for (const record of this.matchedRecords('distinct')) {
-      const key = distinctKeyOf(name, readPath(record, name), via)
-      if (key === undefined || seen.has(key)) continue
-      seen.add(key)
-      out.push(readPath(decode(record), name))
-    }
-    return out as (T & Record<F, unknown>)[F][]
-  }
-
-  /**
    * Whether ANY record matches (#1347) — `count() > 0` without paying for the
    * records after the first.
    *
@@ -1931,625 +1337,6 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   }
 
   /**
-   * Reduce the matching records through a named set of reducers.
-   * the aggregation terminal.
-   *
-   * ```ts
-   * const { total, n, avgAmount } = invoices.query()
-   *   .where('status', '==', 'open')
-   *   .aggregate({
-   *     total:     sum('amount'),
-   *     n:         count(),
-   *     avgAmount: avg('amount'),
-   *   })
-   *   .run()
-   * ```
-   *
-   * Returns an `Reduction<R>` wrapper with two terminals:
-   *   - `.run(): R` — synchronous one-shot reduction
-   *   - `.live(): LiveReduction<R>` — reactive primitive that
-   *     re-runs the reduction whenever the source notifies of a
-   *     change. Always call `live.stop()` when finished.
-   *
-   * The reducer spec is bound here once and reused by both
-   * terminals — this is why `.aggregate()` returns a wrapper instead
-   * of being a direct terminal. Consumers who only need the static
-   * value read `.run()`; consumers wiring a reactive UI read
-   * `.live()`.
-   *
-   * Joins are NOT applied by default — the same logic as `.count()`. A leg is
-   * projection-only, so running one just to throw the alias away would be
-   * wasteful. ⭐ **The exception is a reducer that ADDRESSES an alias**
-   * (#1338): then the joined relation IS what is being reduced, so the legs
-   * run and the reducer is rewritten by the right collection's own Via
-   * pipeline — money stays exact, and the right side's `queryable: 'none'`
-   * posture refuses a field it would refuse locally. A live joined
-   * aggregation also merges every right-side change stream, so it does not
-   * quietly stop updating when the right side moves.
-   *
-   * Every reducer factory accepts an optional `{ seed }` parameter
-   * that is plumbed through the protocol but unused by the
-   * executor — that's  constraint #2. When partition-aware
-   * aggregation lands, the seed will carry running state across
-   * partition boundaries without an API break.
-   *
-   * KNOWN GAP (sealed fields, bare-spec form): `where`/`orderBy`/`groupBy`
-   * refuse a `sensitive` field at compile time, but a reducer over a sensitive
-   * field in the BARE-SPEC form (e.g. `aggregate({ x: sum('ssn') })`) is NOT
-   * refused — the reducer factories (`sum`/`min`/`max`/…) are standalone
-   * `(field: string)` functions with no collection-type context. This form is
-   * preserved as-is for backward compatibility.
-   *
-   * The BUILDER form closes this gap: `aggregate(b => ({ x: b.sum('field') }))`
-   * types the builder's field parameter as `QueryField<T, S>`, refusing any
-   * `sensitive` field at compile time. Use the builder form for new code that
-   * aggregates over a collection with sensitive fields.
-   *
-   */
-  aggregate<Spec extends ReduceSpec>(spec: Spec): Reduction<ReduceResult<Spec>>
-  aggregate<Spec extends ReduceSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): Reduction<ReduceResult<Spec>>
-  aggregate<Spec extends ReduceSpec>(
-    specOrBuild: Spec | ((b: ReducerBuilder<T, S, M>) => Spec),
-  ): Reduction<ReduceResult<Spec>> {
-    let spec = typeof specOrBuild === 'function'
-      ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)((reducerBuilder as unknown) as ReducerBuilder<T, S, M>)
-      : specOrBuild
-    // #1338 — a reducer over a joined alias used to be refused here. It now
-    // routes: the legs run (so the reducer sees the joined relation) and the
-    // spec is wrapped by a pipeline that delegates each aliased field to the
-    // RIGHT collection's own — which carries money's exact-BigInt rewrite and
-    // the `queryable: 'none'` posture gate together. Reducers without a field
-    // (e.g. `count()`) address nothing and are unaffected.
-    const aliases = this.aliasNames()
-    const aliasedReducer =
-      this.plan.joins.length > 0 &&
-      Object.values(spec).some(r => {
-        const f = (r as { field?: unknown }).field
-        return typeof f === 'string' && this.addressesAlias(f, aliases)
-      })
-    // Rewrite sum/min/max over Via-covered fields (e.g. money) into exact
-    // BigInt reducers before the strategy runs (covers static run() and
-    // live/MV paths).
-    spec = (aliasedReducer ? reduceViaFor(this.source.via, this.aliasVia()) : this.source.via)?.wrapReducers(spec) ?? spec
-    // #1347 — `countDistinct` needs the SAME canonicalizer the hash index
-    // buckets by, and only the source knows it. Bound here, beside the
-    // money rewrite, so both spec-wrapping seams stay in one place.
-    spec = bindDistinctReducers(spec, this.source.via)
-    // Closure over the current query. Produces the record set that
-    // the aggregation reduces — same pipeline as `count()`, skipping
-    // limit/offset because aggregation is over the full match set,
-    // not a paginated slice. (A paginated aggregation would be a
-    // different operation; see docs for rationale.)
-    const source = this.source
-    const clauses = this.plan.clauses
-    const joinCtx = this.joinContext
-    const hasCrossJoins = clauses.some(c => c.type === 'crossJoin')
-    const fullScan = aliasedReducer
-      // The reduced relation IS the joined one — same pipeline `count()` uses,
-      // with the legs forced on (#1338).
-      ? (): readonly unknown[] => this.matchedRecords('aggregate', true)
-      : (): readonly unknown[] => {
-        if (hasCrossJoins) {
-          if (!joinCtx) throw new Error('Query.aggregate(): crossJoin requires a join context')
-          return executeClausePipeline(source, clauses, joinCtx)
-        }
-        const { candidates, remainingClauses } = candidateRecords(source, clauses)
-        return remainingClauses.length === 0
-          ? candidates
-          : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
-      }
-
-    // #1341 — when the plan admits it, the match set is MAINTAINED across
-    // change events instead of re-scanned, so a live reduction folds over an
-    // incrementally-patched array. The reducers themselves still run a full
-    // fold: the array they see is byte-for-byte the one a re-scan would
-    // produce (same records, same candidate order), so an incremental result
-    // is not merely close to a re-run's — it is the identical computation.
-    const maintainer = this.incrementalMaintainer('records')
-    const executeRecords = maintainer ? (): readonly unknown[] => maintainer.rows() : fullScan
-
-    // Upstream for live mode. The left source always subscribes; a joined
-    // aggregation ALSO merges every right-side change stream (#1338) — the
-    // refusal's own doc named a live joined aggregate that silently stops
-    // updating as half the work, and it is this half.
-    const upstreams: ReductionUpstream[] = []
-    if (aliasedReducer) upstreams.push(...this.rightSideUpstreams())
-    if (source.subscribe) {
-      const subscribe = source.subscribe.bind(source)
-      upstreams.push(
-        maintainer
-          ? {
-              // The maintainer folds the delta in BEFORE the reduction reads,
-              // which is why it is wrapped here rather than subscribed
-              // separately — emitter callback order would otherwise decide
-              // whether the reduction saw the new record.
-              subscribe: (cb: () => void) => {
-                maintainer.attach()
-                const unsubscribe = subscribe(change => {
-                  // A predicate that throws must not escape into the emitter —
-                  // the maintainer drops its state and the reduction's own
-                  // re-run raises the same error where it can be caught.
-                  try {
-                    maintainer.apply(change)
-                  } catch {
-                    maintainer.invalidate()
-                  }
-                  cb()
-                })
-                // Detach on teardown: the Reduction survives its LiveReduction
-                // (`.run()` reuses the same closure), and a maintainer with no
-                // subscription feeding it would go quietly out of date.
-                return () => {
-                  maintainer.detach()
-                  unsubscribe()
-                }
-              },
-            }
-          : { subscribe: (cb: () => void) => subscribe(cb) },
-      )
-    }
-
-    // #1414 — the gate travels INTO the reduction rather than wrapping it.
-    // `Reduction.run()` is the synchronous terminal, and `await …aggregate(
-    // spec).run()` is what an async guard's Σ-over-siblings invariant writes;
-    // gating the builder call instead would break that awaited form.
-    return this.reduceStrategy.aggregate<Spec>(executeRecords, spec, upstreams, this.source.hydration)
-  }
-
-  /**
-   * Partition matching records into buckets keyed by a field, then
-   * terminate with `.aggregate(spec)` to compute per-bucket
-   * reducers..
-   *
-   * ```ts
-   * const byClient = invoices.query()
-   *   .where('status', '==', 'open')
-   *   .groupBy('clientId')
-   *   .aggregate({ total: sum('amount'), n: count() })
-   *   .run()
-   * // → [ { clientId: 'c1', total: 5250, n: 3 }, … ]
-   * ```
-   *
-   * Result rows carry the group key value under the grouping field
-   * name plus every reducer output from the spec. Buckets are
-   * emitted in first-seen order — consumers who want a specific
-   * ordering should `.sort()` downstream.
-   *
-   * **Cardinality caps:** a one-shot warning fires at 10_000
-   * distinct groups; `GroupCardinalityError` throws at 100_000.
-   * Grouping on a high-uniqueness field like `id` or `createdAt` is
-   * almost always a query mistake — the error message names the
-   * field and observed cardinality and suggests narrowing with
-   * `.where()` first.
-   *
-   * **Null / undefined keys:** records with a missing or explicitly
-   * `null` group field get their own buckets. `Map`-based
-   * partitioning distinguishes `undefined` from `null`, so the two
-   * cases do NOT merge. Consumers who want them merged should
-   * coalesce upstream with `.filter()`.
-   *
-   * **Joins are not applied unless the GROUP KEY addresses an alias** (#1338).
-   * For a left-side key the old rationale still holds — a leg is
-   * projection-only, so running one inside a grouping pipeline would be
-   * wasteful and could trigger `DanglingReferenceError` in strict mode for a
-   * call whose intent is purely to bucket-and-reduce. For an aliased key
-   * (`groupBy('client.region')`, the accounting-report shape) the legs run and
-   * the buckets are the joined relation's: the key is stamped under its DOTTED
-   * path (`row['client.region']`), and a left row whose right side is absent
-   * reads `undefined` and lands in the undefined bucket — the same bucket a
-   * missing left-side key gets, and still distinct from an explicit `null`.
-   *
-   * ⚠️ The decision is taken from the KEY, because the reducer spec arrives a
-   * call later. A reducer over an alias under a LEFT key is therefore REFUSED
-   * rather than folded as `undefined` — group by the alias, or aggregate
-   * without grouping.
-   *
-   * **Filter clauses (`.filter(fn)`):** grouped queries still
-   * support filter clauses in the underlying plan — they run in
-   * the same candidate/filter pipeline that `.aggregate()` uses.
-   * The performance caveat is the same: filter clauses cost O(N)
-   * per record and can't be index-accelerated.
-   */
-  // The `field` param is `QueryField<T, S>` so a sealed (`sensitive`) field is
-  // refused — grouping BY a sensitive field leaks its value distribution as
-  // group-key labels. With `S = never` this is exactly `string` (zero churn).
-  groupBy<F extends QueryField<T, S>>(field: F): GroupedQuery<T, F, S, M>
-  groupBy<F extends readonly [QueryField<T, S>, QueryField<T, S>, ...QueryField<T, S>[]]>(
-    ...fields: F
-  ): GroupedQueryN<T, F, S, M>
-  // Derived calendar keys (#1350). Listed last so the two field-name overloads
-  // above still win for plain string arguments — a `DateTruncKey` is an object
-  // and matches neither, so nothing existing re-resolves onto these.
-  groupBy(key: DateTruncKey): GroupedQuery<T, string, S, M>
-  // The string members stay `QueryField<T, S>`, so the sealed-field refusal
-  // still applies to every plain key in a mixed grouping.
-  groupBy(
-    ...keys: readonly [
-      QueryField<T, S> | DateTruncKey,
-      QueryField<T, S> | DateTruncKey,
-      ...(QueryField<T, S> | DateTruncKey)[],
-    ]
-  ): GroupedQueryN<T, readonly string[], S, M>
-  groupBy(...keys: readonly GroupKey[]): GroupedQuery<T, string, S, M> | GroupedQueryN<T, readonly string[], S, M> {
-    if (keys.length === 0) {
-      throw new Error('.groupBy() requires at least one field')
-    }
-    // A derived key is bucketed into an ordinary row field before the grouping
-    // pipeline runs, so everything downstream — cardinality caps, null/undefined
-    // bucket semantics, live re-grouping — keeps working unchanged.
-    const derived = keys.filter(isDateTruncKey)
-    const fields: readonly string[] = keys.map(groupKeyName)
-    // #1338 — a group key addressing an alias used to be refused. It now
-    // decides the shape of the whole grouped pipeline: the legs run, and the
-    // reducers are wrapped through the right side's pipeline.
-    //
-    // ⚠️ The decision is made HERE, from the group KEY alone, because the
-    // reducer spec does not exist yet — it arrives one call later, at
-    // `.aggregate()`. That is exactly why the left-key case installs a
-    // REFUSING binding rather than nothing: a reducer over an alias under a
-    // left-side key would otherwise fold undefined into every bucket, and the
-    // grouped terminal is not the one `Query.aggregate()`'s guard sees.
-    const aliases = this.aliasNames()
-    const keyIsAliased = this.plan.joins.length > 0 && fields.some(f => this.addressesAlias(f, aliases))
-    // Same record-producing closure as .aggregate() — grouped and
-    // non-grouped aggregations execute over the same candidate set.
-    // We inline the closure here instead of sharing a helper so the
-    // builder stays allocation-friendly for the hot path.
-    const source = this.source
-    const clauses = this.plan.clauses
-    const joinCtx = this.joinContext
-    const hasCrossJoins = clauses.some(c => c.type === 'crossJoin')
-    const executeRecords = keyIsAliased
-      ? (): readonly unknown[] => this.matchedRecords('groupBy', true)
-      : (): readonly unknown[] => {
-        if (hasCrossJoins) {
-          if (!joinCtx) throw new Error('Query.groupBy(): crossJoin requires a join context')
-          return executeClausePipeline(source, clauses, joinCtx)
-        }
-        const { candidates, remainingClauses } = candidateRecords(source, clauses)
-        return remainingClauses.length === 0
-          ? candidates
-          : filterRecords(candidates, remainingClauses, fnViewDecoder(source))
-      }
-    const executeGroupRecords = derived.length === 0
-      ? executeRecords
-      : (): readonly unknown[] => projectDateTruncKeys(executeRecords(), derived)
-
-    // #1341 (grouped half) — the upstream passes the DELTA through, not just a
-    // "something changed" ping, so `GroupedReduction.live()` can patch the one
-    // or two buckets a change touches instead of re-grouping everything. A cb
-    // that ignores the argument (every pre-#1341 caller) is unaffected.
-    const upstreams: ReductionUpstream[] = []
-    if (source.subscribe) {
-      const subscribe = source.subscribe.bind(source)
-      upstreams.push({ subscribe: (cb: (change?: SourceChange) => void) => subscribe(cb) })
-    }
-    if (keyIsAliased) upstreams.push(...this.rightSideUpstreams())
-    // Withheld for a plan the whitelist refuses, and for an aliased key (which
-    // implies joins, which the whitelist refuses anyway) — `.live()` then
-    // re-runs the whole grouping, exactly as it did before.
-    const maintenance = keyIsAliased ? undefined : this.groupMaintenance(derived)
-
-    // The pipeline the reducers are wrapped with: the right side's rewrite
-    // when the legs run, the refusal when they do not (#1338).
-    const reduceVia = keyIsAliased
-      ? reduceViaFor(this.source.via, this.aliasVia())
-      : refuseAliasReduceVia(this.source.via, aliases)
-
-    // Dict-label resolution is single-field only — the <field>Label
-    // projection has no meaningful shape for composite keys. A derived
-    // calendar key is never a dictKey, so it skips the lookup entirely.
-    if (fields.length === 1) {
-      const field = fields[0]!
-      const dictLabelResolver = derived.length > 0
-        ? undefined
-        : buildDictLabelResolver(this.joinContext, field)
-      return this.reduceStrategy.groupBy<T, string, S, M>(
-        executeGroupRecords,
-        field,
-        upstreams,
-        dictLabelResolver,
-        reduceVia,
-        maintenance,
-      )
-    }
-    return this.reduceStrategy.groupByN<T, readonly string[], S, M>(
-      executeGroupRecords,
-      fields,
-      upstreams,
-      reduceVia,
-      maintenance,
-    )
-  }
-
-  /**
-   * SQL window functions over the query's result rows (#1349) — terminate with
-   * `.select(spec)`.
-   *
-   * ```ts
-   * invoices.query()
-   *   .where('status', '==', 'open')
-   *   .window({ partitionBy: 'clientId', orderBy: 'date' })
-   *   .select({ balance: runningSum('amount'), prev: lag('amount', 1), n: rowNumber() })
-   *   .run()
-   * ```
-   *
-   * ⭐ Distinguished from `.groupBy()` by ARITY, not by capability: grouping
-   * emits one row per bucket and drops the source rows; a window keeps EVERY
-   * row and attaches per-row values computed over its partition.
-   *
-   * **The record set is `toArray()`'s** — the full pipeline, including joins,
-   * `orderBy`, `offset`/`limit` and the Via decode. That differs deliberately
-   * from `.groupBy()`, which reads the candidate/filter pipeline only: a
-   * window returns ROWS, so the query's own ordering and paging are exactly
-   * what decides which rows there are and how they are presented. `orderBy`
-   * inside the window decides only how a partition is WALKED.
-   *
-   * **Frame:** `rows unbounded preceding → current row`, and only that in v1.
-   *
-   * `partitionBy` / `orderBy` accept a `dateTrunc()` key (#1350) alongside
-   * plain field names; the derived bucket is used for partitioning and is not
-   * stamped on the output row. A sealed (`sensitive`) field is refused at
-   * compile time, same as `.groupBy()`.
-   *
-   * ⛔ **Not an `explain()` node.** `explain()` is a terminal on `Query`;
-   * `.window()` leaves `Query` for `WindowedQuery`, so there is nothing past
-   * here to add a node to — the same reason #1336's post-group ops are absent.
-   */
-  window(spec: WindowSpec<QueryField<T, S>>): WindowedQuery<T> {
-    const upstreams: ReductionUpstream[] = []
-    if (this.source.subscribe) {
-      const subscribe = this.source.subscribe.bind(this.source)
-      upstreams.push({ subscribe: (cb: () => void) => subscribe(cb) })
-    }
-    return this.reduceStrategy.window<T>(
-      () => this.toArray() as readonly unknown[],
-      spec as WindowSpec,
-      upstreams,
-      this.source.via,
-    )
-  }
-
-  /**
-   * Re-run the query whenever the source notifies of changes.
-   * Returns an unsubscribe function. The callback receives the latest result.
-   * Throws if the source does not support subscriptions.
-   *
-   * **For joined queries, prefer `.live()`** — `subscribe()`
-   * only re-fires on LEFT-side changes, so joined data can be
-   * stale if the right side mutates between emissions. `.live()`
-   * merges change streams from every join target.
-   */
-  subscribe(cb: (result: T[]) => void): () => void {
-    const _h = this.source.hydration
-    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'subscribe', () => this.subscribe(cb))
-    if (!this.source.subscribe) {
-      throw new Error('Query source does not support subscriptions. Pass a source with a subscribe() method.')
-    }
-    cb(this.toArray())
-    return this.source.subscribe(() => cb(this.toArray()))
-  }
-
-  /**
-   * Reactive terminal — returns a `LiveQuery<T>` that re-runs the
-   * query and updates its `value` whenever any source feeding it
-   * mutates..
-   *
-   * For non-joined queries, `.live()` is a convenience over the
-   * existing `.subscribe()` callback shape: a hand-rolled reactive
-   * primitive with `value` / `error` fields and a `subscribe(cb)`
-   * notification channel. Frame-agnostic — Vue / React / Solid
-   * adapters wrap it in their own primitive.
-   *
-   * For joined queries, `.live()` additionally subscribes to every
-   * join target's change stream. Mutations on a right-side
-   * collection (insert / update / delete of a client referenced by
-   * an invoice) re-fire the live query and re-evaluate every
-   * dependent left row. Right-side targets are deduped by
-   * collection name, so a chain that joins the same target twice
-   * (e.g. billing client + shipping client → both 'clients') only
-   * subscribes once.
-   *
-   * **Ref-mode behavior on right-side disappearance** — matches the
-   * eager `.toArray()` contract from :
-   *   - `strict`  → re-run throws `DanglingReferenceError`. The
-   *     LiveQuery catches the throw, stores it in `live.error`, and
-   *     notifies listeners (the throw does NOT propagate out of
-   *     the source's change handler — that would tear down the
-   *     emitter). Consumers check `live.error` after each
-   *     notification and render an error state in the UI.
-   *   - `warn`    → joined value flips to `null`; the existing
-   *     warn-channel deduplication keeps repeated re-runs from
-   *     spamming the console.
-   *   - `cascade` → no special handling needed; the cascade-
-   *     delete mechanism propagates the right-side delete into the
-   *     left collection on the next tick, and the live query
-   *     naturally re-fires with the orphaned left rows gone.
-   *
-   * Always call `live.stop()` when finished — it tears down every
-   * upstream subscription. The Vue layer's `onUnmounted` hook
-   * should call `stop()` automatically; raw consumers must do it
-   * themselves.
-   *
-   * **Incremental maintenance (#1341).** For a plan
-   * `incrementalMaintainer()` accepts — no joins, no `.filter(fn)`, no
-   * label-sort, and nothing an index would serve in index order (an `==`/`in`
-   * probe, #1344's sorted-index range, or #1344's `orderBy(f).limit(n)`
-   * index page) — the result set is PATCHED per change
-   * event instead of re-run: one predicate evaluation for the changed record,
-   * a binary search, a splice. Everything else, and any change event that
-   * arrives without a delta, still re-runs the whole plan. Either way the
-   * emitted value is identical to `toArray()` — the maintainer reuses this
-   * query's own membership test and sort comparator.
-   *
-   * `options.batch` coalesces a burst of changes into one recompute and one
-   * notification on a microtask. It is OFF by default because it makes
-   * `live.value` stale until the microtask runs: a consumer that reads
-   * synchronously after `await put()` would see the previous value.
-   *
-   * **Limitations:**
-   *   - No re-planning under live mutations — the planner picks
-   *     once at subscription time and reuses the same plan.
-   *   - Streaming live joins are deferred.
-   */
-  live(options?: { batch?: boolean }): LiveQuery<T> {
-    const _h = this.source.hydration
-    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'live', () => this.live(options))
-    const upstreams: LiveUpstream[] = []
-
-    // Left-side change stream — every live query subscribes to
-    // its source if the source supports subscriptions.
-    if (this.source.subscribe) {
-      const leftSubscribe = this.source.subscribe.bind(this.source)
-      upstreams.push({
-        subscribe: (cb: () => void) => leftSubscribe(cb),
-      })
-    }
-
-    // Right-side change streams — only for joined queries. Dedup
-    // by target name so a chain joining the same target twice
-    // doesn't double-subscribe and double-fire on every right-side
-    // mutation.
-    if (this.plan.joins.length > 0 && this.joinContext) {
-      const subscribed = new Set<string>()
-      for (const leg of this.plan.joins) {
-        if (subscribed.has(leg.target)) continue
-        subscribed.add(leg.target)
-        const rightSource = this.joinContext.resolveSource(leg.target)
-        if (rightSource?.subscribe) {
-          const rightSubscribe = rightSource.subscribe.bind(rightSource)
-          upstreams.push({
-            subscribe: (cb: () => void) => rightSubscribe(cb),
-          })
-        }
-      }
-    }
-
-    // Cross-join right-side change streams — symmetric with FK joins above.
-    if (this.joinContext) {
-      const subscribedCross = new Set<string>()
-      for (const clause of this.plan.clauses) {
-        if (clause.type !== 'crossJoin') continue
-        if (subscribedCross.has(clause.target)) continue
-        subscribedCross.add(clause.target)
-        const rightSource = this.joinContext.resolveSource(clause.target)
-        if (rightSource?.subscribe) {
-          const rightSubscribe = rightSource.subscribe.bind(rightSource)
-          upstreams.push({
-            subscribe: (cb: () => void) => rightSubscribe(cb),
-          })
-        }
-      }
-    }
-
-    // The recompute is just toArray bound to this query — same
-    // pipeline as eager execution, including join application. It stays the
-    // fallback even when a maintainer is attached.
-    const maintainer = this.incrementalMaintainer('rows')
-    return buildLiveQuery<T>(() => this.toArray(), upstreams, {
-      ...(options?.batch === true ? { batch: true } : {}),
-      ...(maintainer ? { maintainer } : {}),
-    })
-  }
-
-  /**
-   * Build the #1341 delta maintainer for this plan, or `undefined` when the
-   * plan shape or the source cannot support one (the query then re-runs in
-   * full, exactly as it did before #1341).
-   *
-   * Everything the maintainer needs is taken from THIS query so the two paths
-   * cannot diverge: `matches` is the same `filterRecords` call the eager
-   * pipeline makes, `compare` is the same comparator `sortRecords` sorts with,
-   * and `decode` is the same Via result decode `toArray()` applies after
-   * slicing.
-   */
-  private incrementalMaintainer(mode: 'rows' | 'records'): LiveMaintainer | undefined {
-    const source = this.source
-    const snapshotEntries = source.snapshotEntries?.bind(source)
-    const lookupById = source.lookupById?.bind(source)
-    if (!snapshotEntries || !lookupById) return undefined
-    // `.aggregate()` reduces the whole match set in candidate order — it never
-    // sorts, offsets, limits or decodes — so its maintainer is the same engine
-    // with the ordering/windowing half switched off.
-    const orderBy = mode === 'rows' ? this.plan.orderBy : []
-    const limit = mode === 'rows' ? this.plan.limit : undefined
-    const indexes = source.getIndexes?.()
-    const probe = indexes
-      ? { covers: (f: string) => indexes.has(f), sorted: (f: string) => indexes.hasSorted(f) }
-      : null
-    if (!canMaintainIncrementally({ ...this.plan, orderBy, limit }, probe)) return undefined
-
-    const clauses = this.plan.clauses
-    const decodeForFns = fnViewDecoder(source)
-    const via = source.via
-    // The ordering comes from the SAME key plan `sortRecords` builds and the
-    // keyset cursor compares against (#1346) — one definition of "what order
-    // is this query in", so the maintained order cannot drift from a re-run's.
-    // `by: 'label'` is refused above, so no label maps are needed here.
-    const keyPlan = orderBy.length > 0 ? buildOrderKeyPlan(orderBy, via) : undefined
-    return new LiveMaintainer({
-      snapshotEntries,
-      lookupById,
-      matches: record => filterRecords([record], clauses, decodeForFns).length === 1,
-      ...(keyPlan
-        ? {
-            order: {
-              keyOf: (record: unknown) => orderKeyOf(keyPlan, record),
-              compare: (a: readonly unknown[], b: readonly unknown[]) => compareOrderKeys(keyPlan, a, b),
-            },
-          }
-        : {}),
-      offset: mode === 'rows' ? this.plan.offset : 0,
-      limit,
-      ...(mode === 'rows' && via?.hasResultDecode
-        ? { decode: (rows: readonly unknown[]) => this.decodeVia(rows) }
-        : {}),
-    })
-  }
-
-  /**
-   * Build the #1341 grouped-maintenance seam for this plan, or `undefined`
-   * when the plan shape or the source cannot support one (a grouped live
-   * reduction then re-runs in full, exactly as it did before).
-   *
-   * Same whitelist and the same three inputs `incrementalMaintainer('records')`
-   * uses, for the same reason: `.groupBy()`'s record pipeline IS
-   * `.aggregate()`'s — `candidateRecords` + `filterRecords`, with no sort, no
-   * window and no Via result decode — so `orderBy`/`limit` are stripped before
-   * the whitelist is asked. `matches` is the same `filterRecords` call the
-   * eager pipeline makes, which is what stops the two paths from drifting.
-   *
-   * The one addition is `project`: `.groupBy(dateTrunc(...))` (#1350) stamps a
-   * derived key onto each row AFTER filtering and before bucketing, and the
-   * maintainer has to stamp it too or it would bucket on a field that is not
-   * there. It is a pure per-record map, which is the only kind of projection
-   * this hook may carry.
-   */
-  private groupMaintenance(derived: readonly DateTruncKey[]): GroupMaintenanceSource | undefined {
-    const source = this.source
-    const snapshotEntries = source.snapshotEntries?.bind(source)
-    const lookupById = source.lookupById?.bind(source)
-    if (!snapshotEntries || !lookupById) return undefined
-    const indexes = source.getIndexes?.()
-    const probe = indexes
-      ? { covers: (f: string) => indexes.has(f), sorted: (f: string) => indexes.hasSorted(f) }
-      : null
-    if (!canMaintainIncrementally({ ...this.plan, orderBy: [], limit: undefined }, probe)) {
-      return undefined
-    }
-    const clauses = this.plan.clauses
-    const decodeForFns = fnViewDecoder(source)
-    return {
-      snapshotEntries,
-      lookupById,
-      matches: (record: unknown) => filterRecords([record], clauses, decodeForFns).length === 1,
-      ...(derived.length > 0
-        ? { project: (record: unknown) => projectDateTruncKeys([record], derived)[0] }
-        : {}),
-    }
-  }
-
-  /**
    * Return the plan as a JSON-friendly object. FilterClause entries are
    * stripped (their `fn` cannot be serialized) and replaced with
    * { type: 'filter', fn: '[function]' } so devtools can still see them.
@@ -2558,190 +1345,54 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     return serializePlan(this.plan)
   }
 
-  /**
-   * Describe how this plan WOULD run (#1348): the dispatch per clause
-   * (`index:hash` vs `scan`, and why), row estimates taken from real index
-   * cardinalities, join strategy and side sizes against the row ceiling,
-   * whether ordering/pagination lands pre- or post-join, and which
-   * cardinality caps are close to tripping. `.text` renders one line per
-   * node.
-   *
-   * ⛔ Purely observational — it probes index buckets and reads snapshot
-   * sizes, never executes the plan. A terminal returns the same thing
-   * whether or not `explain()` was called. See `query/explain.ts`.
-   */
-  explain(): QueryExplanation {
-    return explainPlan(this.source, this.plan, this.joinContext)
-  }
-
-  /**
-   * Recursive traversal over ONE declared, self-referencing `ref()` field
-   * (#1352) — the org-chart / bill-of-materials / parent-client shape that
-   * otherwise forces the consumer to hand-roll recursion.
-   *
-   * ```ts
-   * people.query().where('name', '==', 'Dana')
-   *   .traverse('parentId', { direction: 'up', maxDepth: 10 })
-   * // → [{ id: 'dana', record, depth: 0, path: ['dana'] },
-   * //    { id: 'bea',  record, depth: 1, path: ['dana', 'bea'] }, …]
-   * ```
-   *
-   * **A TERMINAL.** It returns rows, not a `Query`, so it composes with
-   * `where()` / `orderBy()` / `limit()` on the way IN, not on the way out.
-   *
-   * **Seeds are this query's matched records** — the clauses choose the roots
-   * of the walk, not which nodes the walk may pass through. A traversal from
-   * one seed is `ancestorsOf` / `descendantsOf` below.
-   *
-   * **`maxDepth` is required**, with no default: an unbounded walk over a
-   * large collection is a denial of service against your own UI, and a
-   * silent default would truncate a result without saying so.
-   *
-   * **Cycles terminate.** A parent chain can be circular through user error,
-   * and an unguarded BFS hangs the tab. The default `{ onCycle: 'stop' }`
-   * prunes a node the walk is already standing on; `'throw'` raises
-   * `TraversalCycleError` for hierarchies that are supposed to be acyclic.
-   *
-   * **A node is emitted once**, at its shallowest depth — so a diamond (two
-   * seeds converging on one ancestor) yields ONE row for that ancestor,
-   * carrying the path of whichever branch reached it first.
-   *
-   * **Declared refs only.** This is not a general graph engine: the field
-   * must carry a `ref()` whose target is this same collection.
-   *
-   * **Cost.** Every hop reads the vault's already-decrypted in-memory cache
-   * (`query()` is eager-mode only), so a depth-5 traversal costs
-   * `depth × frontier` Map lookups and ZERO additional decrypts — the
-   * AES-GCM work was paid once at `openVault()`. `direction: 'down'` adds one
-   * O(n) pass to build the reverse-FK index; `'up'` adds nothing.
-   *
-   * ⛔ **Not an `explain()` node.** `explain()` describes the plan, and a
-   * traversal is a terminal over the plan's result rather than a clause in
-   * it — the same reason `.window()` and #1336's post-group ops are absent.
-   * `explain()` on the seed query still describes how the SEEDS are found.
-   */
-  traverse(field: QueryField<T, S>, opts: TraverseOptions): TraversalRow<T>[] {
-    // Validation FIRST: a misdeclared ref is a programming error whose own
-    // message must survive #1414's gate, not be masked by it.
-    this.assertSelfRef(field, 'traverse')
-    const _h = this.source.hydration
-    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, 'traverse', () => this.traverse(field, opts))
-    return this.runTraverse(field, this.ids(), opts)
-  }
-
-  /**
-   * `.traverse()` sugar: every ancestor of one record, that record included
-   * at `depth: 0`. See {@link traverse} for the full contract.
-   *
-   * Refused on a query that already carries clauses — the seed is named
-   * explicitly here, so a `where()` would silently do nothing. Use
-   * `.traverse()` when the seeds come from a query.
-   */
-  ancestorsOf(
-    id: string,
-    field: QueryField<T, S>,
-    opts: { maxDepth: number; onCycle?: CyclePolicy },
-  ): TraversalRow<T>[] {
-    return this.traverseFromId(id, field, 'up', opts)
-  }
-
-  /**
-   * `.traverse()` sugar: every descendant of one record, that record included
-   * at `depth: 0`. See {@link traverse} for the full contract.
-   */
-  descendantsOf(
-    id: string,
-    field: QueryField<T, S>,
-    opts: { maxDepth: number; onCycle?: CyclePolicy },
-  ): TraversalRow<T>[] {
-    return this.traverseFromId(id, field, 'down', opts)
-  }
-
-  private traverseFromId(
-    id: string,
-    field: QueryField<T, S>,
-    direction: TraverseDirection,
-    opts: { maxDepth: number; onCycle?: CyclePolicy },
-  ): TraversalRow<T>[] {
-    const _h = this.source.hydration
-    if (_h !== undefined && !_h.isHydrated()) return gateTerminal(_h, direction === 'up' ? 'ancestorsOf' : 'descendantsOf', () => this.traverseFromId(id, field, direction, opts))
-    const sugar = direction === 'up' ? 'ancestorsOf' : 'descendantsOf'
-    const plan = this.plan
-    if (
-      plan.clauses.length > 0 ||
-      plan.orderBy.length > 0 ||
-      plan.joins.length > 0 ||
-      plan.limit !== undefined ||
-      plan.offset !== 0
-    ) {
-      throw new Error(
-        `Query.${sugar}("${id}"): this query already carries clauses, but ${sugar}() ` +
-          `seeds from the id you passed — the clauses would silently do nothing. ` +
-          `Use .traverse("${field}", { direction: '${direction}', … }), whose seeds ` +
-          `ARE the query's matched records, or call ${sugar}() on a bare ` +
-          `collection.query().`,
-      )
-    }
-    this.assertSelfRef(field, sugar)
-    return this.runTraverse(field, [id], { ...opts, direction })
-  }
-
-  /**
-   * The one place a traversal runs. Both entry points share it so they cannot
-   * drift on Via decoding or on which source view the walk reads.
-   */
-  private runTraverse(
-    field: string,
-    seeds: readonly string[],
-    opts: TraverseOptions,
-  ): TraversalRow<T>[] {
-    const rows = runTraversal(this.source, field, seeds, opts)
-    // Same result decode `toArray()` applies — a traversal reads the raw
-    // cache records, so without this a money field would serve its stored
-    // scaled integer here and its canonical decimal everywhere else.
-    return rows.map(row => ({ ...row, record: this.decodeVia([row.record])[0] }) as TraversalRow<T>)
-  }
-
-  /**
-   * Plan-time validation shared by `.traverse()` and its sugar: the field must
-   * carry a `ref()`, and that ref must point back at this same collection.
-   *
-   * The second half is what keeps this from becoming a general graph engine.
-   * A ref to ANOTHER collection has no second hop — the target's records do
-   * not carry this field — so a two-collection "traversal" is a `.join()`
-   * wearing the wrong name, and would walk exactly one level before stopping
-   * for reasons the caller could not see.
-   */
-  private assertSelfRef(field: string, caller: string): void {
-    if (!this.joinContext) {
-      throw new Error(
-        `Query.${caller}(): requires a collection-backed query. Use collection.query() ` +
-          `instead of the Query constructor directly (the direct constructor is only ` +
-          `used for tests with plain-object sources).`,
-      )
-    }
-    const descriptor = this.joinContext.resolveRef(field)
-    if (!descriptor) {
-      throw new RefNotDeclaredError({
-        collection: this.joinContext.leftCollection,
-        field,
-        message:
-          `Query.${caller}(): no ref() declared for field "${field}" on collection ` +
-          `"${this.joinContext.leftCollection}". Traversal walks DECLARED refs only — ` +
-          `add refs: { ${field}: ref('${this.joinContext.leftCollection}') } to the ` +
-          `collection options, then retry.`,
-      })
-    }
-    if (descriptor.target !== this.joinContext.leftCollection) {
-      throw new Error(
-        `Query.${caller}(): field "${field}" refs "${descriptor.target}", but traversal ` +
-          `requires a self-referencing ref — one whose target is the collection being ` +
-          `queried ("${this.joinContext.leftCollection}"). A ref across collections has ` +
-          `no second hop; use .join("${field}", { as: … }) for that.`,
-      )
-    }
-  }
 }
+
+// ─── #1458 — the extension stubs ─────────────────────────────────────────
+//
+// One entry per method that ships in a group other than Find. Installed on
+// `Query.prototype` at module load and OVERWRITTEN by the group's own
+// `install()` when its subpath is imported.
+//
+// ⭐ **Deliberately not class members.** A stub declared on the class would own
+// the method's TYPE, and the whole mechanism depends on the type arriving with
+// the subpath: `interface Query extends RelateSurface` cannot merge `join`
+// into a class that already declares it. So these are installed
+// descriptor-wise, invisible to TypeScript — which is exactly right, because
+// the compile error for a missing group is the primary signal and this is the
+// runtime backstop underneath it.
+//
+// ⚠️ Do not "improve" this into a Proxy. A missing method must be a throw at
+// the call, not a trap on every property read of every Query in the process.
+const EXTENSION_METHODS: readonly (readonly [string, string])[] = [
+  ['subscribe', '@noy-db/hub/query/live'],
+  ['live', '@noy-db/hub/query/live'],
+  ['aggregate', '@noy-db/hub/query/reduce'],
+  ['groupBy', '@noy-db/hub/query/reduce'],
+  ['window', '@noy-db/hub/query/reduce'],
+  ['distinct', '@noy-db/hub/query/reduce'],
+  ['join', '@noy-db/hub/query/relate'],
+  ['joinOn', '@noy-db/hub/query/relate'],
+  ['rightJoin', '@noy-db/hub/query/relate'],
+  ['fullOuterJoin', '@noy-db/hub/query/relate'],
+  ['crossJoin', '@noy-db/hub/query/relate'],
+  ['crossJoinWith', '@noy-db/hub/query/relate'],
+  ['traverse', '@noy-db/hub/query/relate'],
+  ['ancestorsOf', '@noy-db/hub/query/relate'],
+  ['descendantsOf', '@noy-db/hub/query/relate'],
+  ['explain', '@noy-db/hub/query/relate'],
+]
+
+for (const [method, subpath] of EXTENSION_METHODS) {
+  Object.defineProperty(Query.prototype, method, {
+    value: function extensionMissing(): never {
+      throw new QueryExtensionMissingError(method, subpath)
+    },
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  })
+}
+
 
 /**
  * Index-aware execution: try the indexed fast path first, fall back to a
@@ -3122,7 +1773,8 @@ interface CandidateResult {
  * the most selective index, intersect multiple indexes, or push composite
  * keys through. For the single-index fast path is good enough.
  */
-function candidateRecords(source: InternalSource, clauses: readonly Clause[]): CandidateResult {
+/** @internal #1458 — used by the extension mixins in `query/reduce/`. */
+export function candidateRecords(source: InternalSource, clauses: readonly Clause[]): CandidateResult {
   const indexes = source.getIndexes?.()
   if (!indexes || !source.lookupById || clauses.length === 0) {
     return { candidates: source.snapshot(), remainingClauses: clauses }
@@ -3332,7 +1984,8 @@ export function executePlan(records: readonly unknown[], plan: QueryPlan): unkno
  * into raw stored space at build time. Returns undefined when the
  * source's Via pipeline declares no result decode.
  */
-function fnViewDecoder(source: InternalSource): ((r: unknown) => unknown) | undefined {
+/** @internal #1458 — used by `query/internal/maintenance.ts`. */
+export function fnViewDecoder(source: InternalSource): ((r: unknown) => unknown) | undefined {
   const via = source.via
   if (!via || !via.hasResultDecode) return undefined
   return r => via.decodeResults(r)
@@ -3385,7 +2038,8 @@ function compileClause(clause: Clause): CompiledClause {
   return (r, fnView) => evaluateClause(r, clause, fnView)
 }
 
-function filterRecords(
+/** @internal #1458 — used by `query/internal/maintenance.ts`. */
+export function filterRecords(
   records: readonly unknown[],
   clauses: readonly Clause[],
   decodeForFns?: (r: unknown) => unknown,
@@ -3446,7 +2100,8 @@ function anyMatches(
  *
  * Precondition: `joinContext` must be non-null when any `CrossJoinClause` is in `clauses`.
  */
-function executeClausePipeline(
+/** @internal #1458 — used by the extension mixins in `query/reduce/`. */
+export function executeClausePipeline(
   source: InternalSource,
   clauses: readonly Clause[],
   joinContext: JoinContext,
@@ -3476,82 +2131,6 @@ function executeClausePipeline(
   }
 
   return rel
-}
-
-/**
- * Expand `leftRel` by cross-joining with `rightSource`. Enforces the cost ceiling
- * BEFORE allocating the expanded relation (full cartesian) or cumulatively
- * (lateral form). Throws `CrossJoinTooLargeError` on breach.
- */
-function applyCrossJoin(
-  leftRel: unknown[],
-  clause: CrossJoinClause,
-  rightSource: JoinableSource,
-): unknown[] {
-  const rightRows = rightSource.snapshot()
-  const maxRows = clause.maxRows ?? DEFAULT_CROSS_JOIN_MAX_ROWS
-  const { as } = clause
-
-  // `outer` substitutes a single null right-hand row wherever the right side is
-  // empty, which is exactly what the documented `?? [null]` idiom did by hand
-  // (#1130). Emitting `{ ...left, [as]: null }` IS the outer-join row — the flag
-  // makes it typed and explicit rather than a trick a later "simplification"
-  // silently removes. Cost accounting is unchanged: a substituted row is one
-  // row, and it counts toward the ceiling like any other.
-  const outer = clause.outer === true
-
-  // #1289 — `leftAs` set means BOTH sides are aliased (`.crossJoinWith()`),
-  // so the row is a pair rather than a left row wearing one extra field.
-  const { leftAs } = clause
-  const emit =
-    leftAs === undefined
-      ? (left: Record<string, unknown>, right: unknown): unknown => ({ ...left, [as]: right })
-      : (left: Record<string, unknown>, right: unknown): unknown => ({ [leftAs]: left, [as]: right })
-
-  if (!clause.on) {
-    const rightSide = outer && rightRows.length === 0 ? [null] : rightRows
-    const product = leftRel.length * rightSide.length
-    if (product > maxRows) {
-      throw new CrossJoinTooLargeError({ target: clause.target, expected: product, limit: maxRows })
-    }
-    const expanded: unknown[] = []
-    for (const left of leftRel) {
-      const leftObj = left as Record<string, unknown>
-      for (const right of rightSide) {
-        expanded.push(emit(leftObj, right))
-      }
-    }
-    return expanded
-  }
-
-  // Lateral — ceiling is cumulative (post-filter count)
-  const expanded: unknown[] = []
-  let cumulative = 0
-  for (const left of leftRel) {
-    const callbackResult = clause.on(left)
-    let filteredRight: readonly unknown[]
-    if (Array.isArray(callbackResult)) {
-      filteredRight = callbackResult
-    } else {
-      filteredRight = (rightRows as unknown[]).filter(
-        callbackResult as (r: unknown) => boolean,
-      )
-    }
-    if (outer && filteredRight.length === 0) filteredRight = [null]
-    cumulative += filteredRight.length
-    if (cumulative > maxRows) {
-      throw new CrossJoinTooLargeError({
-        target: clause.target,
-        expected: cumulative,
-        limit: maxRows,
-      })
-    }
-    const leftObj = left as Record<string, unknown>
-    for (const right of filteredRight) {
-      expanded.push(emit(leftObj, right))
-    }
-  }
-  return expanded
 }
 
 /**
@@ -3704,7 +2283,8 @@ function lowerBound<T>(arr: readonly T[], pred: (item: T) => boolean): number {
   return lo
 }
 
-function buildOrderKeyPlan(
+/** @internal #1458 — used by `query/internal/maintenance.ts`. */
+export function buildOrderKeyPlan(
   orderBy: readonly OrderBy[],
   via?: ViaPipeline,
   labelMaps?: Map<string, (code: string) => string | undefined>,
@@ -3726,7 +2306,8 @@ function buildOrderKeyPlan(
 }
 
 /** The sort-key tuple of one record, in `orderBy` order. */
-function orderKeyOf(plan: OrderKeyPlan, record: unknown): unknown[] {
+/** @internal #1458 — used by `query/internal/maintenance.ts`. */
+export function orderKeyOf(plan: OrderKeyPlan, record: unknown): unknown[] {
   return plan.entries.map(({ field, labelResolver }) => {
     const v = readField(record, field)
     // dictKey/lookup label-sort: compare resolved labels (fallback to the
@@ -3736,7 +2317,8 @@ function orderKeyOf(plan: OrderKeyPlan, record: unknown): unknown[] {
   })
 }
 
-function compareOrderKeys(plan: OrderKeyPlan, a: readonly unknown[], b: readonly unknown[]): number {
+/** @internal #1458 — used by `query/internal/maintenance.ts`. */
+export function compareOrderKeys(plan: OrderKeyPlan, a: readonly unknown[], b: readonly unknown[]): number {
   for (let i = 0; i < plan.entries.length; i++) {
     const { direction, labelResolver, via, viaField } = plan.entries[i]!
     const av = a[i]
@@ -3961,7 +2543,8 @@ function canonicalCtxHash(ctx: unknown): string {
  *
  * @internal
  */
-function buildDictLabelResolver(
+/** @internal #1458 — used by the extension mixins in `query/reduce/`. */
+export function buildDictLabelResolver(
   joinCtx: JoinContext | undefined,
   field: string,
 ):

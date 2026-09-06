@@ -15,6 +15,18 @@ export const ENTRIES = {
   'forget/index': 'src/with-audit/forget/index.ts',
   'sealed-record/index': 'src/with-audit/sealed-record/index.ts',
   'query/index': 'src/kernel/query/index.ts',
+  // #1458 — the three query-tier extensions. Each is a SIDE-EFFECT entry
+  // (it patches Query.prototype on load) and each is named in package.json's
+  // `sideEffects` array; see `src/kernel/query/relate/index.ts`.
+  'query/live/index': 'src/kernel/query/live/index.ts',
+  'query/reduce/index': 'src/kernel/query/reduce/index.ts',
+  'query/relate/index': 'src/kernel/query/relate/index.ts',
+  // `query/all` — Find plus all three groups, and the module the ROOT BARREL
+  // takes `Query` from. It is an entry for a build-shape reason as much as a
+  // published one: an entry that another entry also imports becomes a SHARED
+  // CHUNK, which is what keeps the install calls droppable-with-Query instead
+  // of inlined into `dist/index.js` unconditionally. See src/kernel/query/all.ts.
+  'query/all/index': 'src/kernel/query/all.ts',
   'debug/index': 'src/kernel/debug.ts',
   'blobs/index': 'src/via/blob/index.ts',
   'indexing/index': 'src/with-lookup/indexing/index.ts',

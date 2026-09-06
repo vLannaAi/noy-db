@@ -58,20 +58,19 @@
  */
 
 import type { QueryField } from '../types.js'
-import type { ReducerBuilder } from '../../with-lookup/reduce/reducers.js'
-import { bindDistinctReducers, reducerBuilder } from '../../with-lookup/reduce/reducers.js'
 import type { Clause, FieldClause, Operator } from './predicate.js'
-import { evaluateClause, hasFnClause, normalizeMatches, normalizeSubqueryOperand, readPath } from './predicate.js'
-import type {
-  ReduceSpec,
-  ReduceResult,
-} from '../../with-lookup/reduce/reduction.js'
-import type { JoinContext, JoinLeg, JoinableSource } from './join.js'
-import { splitAroundJoins } from './join.js'
-import { DanglingReferenceError, FieldNotQueryableError, GroupCardinalityError, RefNotDeclaredError } from '../errors.js'
+import { evaluateClause, hasFnClause, normalizeMatches, normalizeSubqueryOperand } from './predicate.js'
+import type { ReduceSpec, ReduceResult } from '../../with-lookup/reduce/reduction.js'
+// ─── #1458 — Relate is TYPE-ONLY here, same as in `builder.ts` ───────────
+// The streaming iterator has to be able to run a plan that carries legs; it
+// cannot BUILD one. `splitAroundJoins` is the Find-side shim (join-conditional,
+// with the empty answer inline) that `builder.ts` publishes for both builders,
+// so the two cannot drift on what "pre-join" means.
+import type { JoinContext, JoinLeg } from './relate/join.js'
+import type { ScanJoinResolver } from './relate/scan-methods.js'
+import { splitAroundJoins } from './builder.js'
+import { FieldNotQueryableError, QueryExtensionMissingError } from '../errors.js'
 import type { ViaPipeline } from '../via/pipeline.js'
-import type { DateTruncKey } from './date-trunc.js'
-import { groupKeyName, isDateTruncKey, projectDateTruncKeys } from './date-trunc.js'
 
 /**
  * Result of the multi-spec `.aggregate([specA, specB, …])` form (#1340) — a
@@ -141,6 +140,16 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
    * the scan stream carries no locale context, mirroring `Query.toArray()`.
    */
   private readonly via: ViaPipeline | undefined
+
+  // ─── #1458 — installed by the extension subpaths ────────────────────────
+  //
+  // `ScanBuilder` is split the same way `Query` is: Find here, Reduce and
+  // Relate in `@noy-db/hub/query/{reduce,relate}`. These two are declared
+  // rather than defined because the ITERATOR below calls them, and it stays in
+  // Find — both calls are behind `joins.length === 0`, which only Relate's
+  // `join()` can make false.
+  declare protected buildJoinResolvers: () => ScanJoinResolver[]
+  declare protected applyOneJoinStreaming: (record: unknown, resolver: ScanJoinResolver) => unknown
 
   constructor(
     pageProvider: ScanPageProvider<T>,
@@ -246,140 +255,6 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
     )
   }
 
-  /**
-   * Resolve a `ref()`-declared foreign key per record as the scan
-   * stream flows, attaching the right-side record (or null) under
-   * `opts.as`. — streaming joins over `scan()`.
-   *
-   * ```ts
-   * for await (const inv of invoices.scan().join('clientId', { as: 'client' })) {
-   *   await processInvoice(inv) // inv.client is attached
-   * }
-   *
-   * // Or terminate with .aggregate() for streaming joined aggregation
-   * const { total } = await invoices.scan()
-   *   .where('status', '==', 'open')
-   *   .join('clientId', { as: 'client' })
-   *   .aggregate({ total: sum('amount') })
-   * ```
-   *
-   * **The key difference from eager `.join()`:** the LEFT
-   * side streams page-by-page from the adapter and is never
-   * materialized. Memory ceiling on the left is O(pageSize), not
-   * O(rowCount). This is what makes streaming joins suitable for
-   * collections that exceed the eager join's 50_000-row ceiling.
-   *
-   * **Right-side strategy** is auto-selected per leg:
-   *   - **Indexed** — right source exposes `lookupById`, so each
-   *     left row costs O(1). This is the common path for
-   *     Collection right sides, which back `lookupById` with a Map
-   *     lookup over the in-memory cache. The right collection must
-   *     be in eager mode (the same constraint as eager join's
-   *     `querySourceForJoin` from ).
-   *   - **Hash** — right source has only `snapshot()`. Build a
-   *     `Map<id, record>` once at iteration start, probe per left
-   *     row. Same correctness, same per-row cost as the indexed
-   *     path; the difference is the upfront cost of materializing
-   *     the right side once.
-   *
-   * Both strategies hold the right side in memory for the duration
-   * of the iteration. The "streaming" property applies to the LEFT
-   * side only — true left-and-right streaming joins (where neither
-   * side fits in memory) require a sort-merge join planner that's
-   * out of scope for.
-   *
-   * **Ref-mode semantics** match eager `.join()` exactly:
-   *   - `strict`  → throws `DanglingReferenceError` mid-stream
-   *     when a left record points at a non-existent right id.
-   *     The throw aborts the async iterator — consumers should
-   *     wrap the `for await` in try/catch if they want to recover.
-   *   - `warn`    → attaches `null` and emits a one-shot warning
-   *     per unique dangling pair (deduped via the same warn
-   *     channel as eager join).
-   *   - `cascade` → attaches `null` silently. A delete-time mode;
-   *     dangling refs at read time are mid-flight or pre-existing
-   *     orphans, not a DSL error.
-   *
-   * Left records with null/undefined FK values attach `null`
-   * regardless of mode — same "no reference at all" policy as
-   * eager join and write-time `enforceRefsOnPut`.
-   *
-   * **Multi-FK chaining** is supported via repeated `.join()`
-   * calls: each leg resolves an independent ref. Each leg
-   * independently picks its right-side strategy and applies its
-   * own ref mode.
-   *
-   * **Joins are NOT applied** to a `.aggregate()` terminal that
-   * doesn't reference joined fields — wait, that's not quite
-   * right. The streaming path actually DOES apply joins before
-   * `.aggregate()` because the join attaches a field that the
-   * spec might reference. Unlike `Query.aggregate()` (which skips
-   * joins entirely as a projection-only short-circuit), the
-   * streaming aggregation can't know whether the spec touches a
-   * joined field, so it always applies joins. Consumers who want
-   * unjoined streaming aggregation should leave `.join()` off the
-   * chain — the chain is composable for a reason.
-   *
-   * Every JoinLeg carries `partitionScope: 'all'`, plumbed through but never
-   * read. Same seam as the eager join — see {@link JoinLeg.partitionScope}.
-   */
-  join<As extends string, R = unknown>(
-    field: QueryField<T, S>,
-    opts: { as: As },
-  ): ScanBuilder<T & Record<As, R | null>, S, M> {
-    if (!this.joinContext) {
-      throw new Error(
-        `ScanBuilder.join() requires a join context. Use ` +
-          `collection.scan() to construct a join-capable scan instead ` +
-          `of the ScanBuilder constructor directly (the direct ` +
-          `constructor is only used for tests with synthetic page ` +
-          `providers).`,
-      )
-    }
-    const descriptor = this.joinContext.resolveRef(field)
-    if (!descriptor) {
-      // Typed for the same reason `Query.join()` is (#1139) — see RefNotDeclaredError.
-      throw new RefNotDeclaredError({
-        collection: this.joinContext.leftCollection,
-        field,
-        message:
-          `ScanBuilder.join(): no ref() declared for field "${field}" on ` +
-          `collection "${this.joinContext.leftCollection}". Add ` +
-          `refs: { ${field}: ref('<target-collection>') } to the ` +
-          `collection options, then retry.`,
-      })
-    }
-    const leg: JoinLeg = {
-      field,
-      as: opts.as,
-      target: descriptor.target,
-      mode: descriptor.mode,
-      strategy: undefined,
-      maxRows: undefined,
-      // Always 'all', never read by the streaming executor. This is the
-      // path where partition pruning would actually pay (every listPage()
-      // page is decrypted) — and the path blocked on a store-contract
-      // change. See JoinLeg.partitionScope constraint 2 (#1342).
-      partitionScope: 'all',
-    }
-    return new ScanBuilder<T & Record<As, R | null>, S, M>(
-      this.pageProvider as unknown as ScanPageProvider<T & Record<As, R | null>>,
-      this.pageSize,
-      this.clauses,
-      [...this.joins, leg],
-      this.joinContext,
-      this.via,
-    )
-  }
-
-  /**
-   * Iterate the scan as an async iterable. Walks the page
-   * provider's cursors forward until exhaustion, applying every
-   * clause per record — only matching records are yielded.
-   *
-   * Backward-compatible with the previous async-generator `scan()`
-   * return type for `for await … of` consumers.
-   */
   async *[Symbol.asyncIterator](): AsyncIterator<T> {
     // One-time setup: resolve every join leg's right-side source
     // and pick its strategy (lookupById per row vs hash from
@@ -432,347 +307,6 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
   }
 
   /**
-   * Per-leg right-side resolution state. Built once at iteration
-   * start and reused for every left record. Two strategies:
-   *
-   *   - `lookupById`: present when the right source exposes the
-   *     hook directly (typical Collection right side). Per-row
-   *     cost is O(1).
-   *   - `hashByPrimaryKey`: built from `snapshot()` when no
-   *     lookupById. Per-row cost is O(1) after the upfront O(N)
-   *     materialization. Same as eager join's hash strategy.
-   *
-   * `warnedKeys` is the per-leg dedup set for ref-mode 'warn'. We
-   * key on `field→target:refId` so the same dangling pair only
-   * warns once per iteration. The dedup is per-iteration, not
-   * per-process — a long-running scan that re-iterates would warn
-   * again, which is the desired behavior (the data may have
-   * changed between iterations).
-   */
-  private buildJoinResolvers(): Array<{
-    leg: JoinLeg
-    source: JoinableSource
-    lookupById: ((id: string) => unknown) | null
-    hashByPrimaryKey: ReadonlyMap<string, unknown> | null
-    warnedKeys: Set<string>
-  }> {
-    if (!this.joinContext) {
-      // Unreachable — .join() throws if joinContext is missing.
-      // Belt-and-braces because the iterator is invoked via
-      // Symbol.asyncIterator on a builder that may have been
-      // constructed via the direct constructor with pre-populated
-      // joins.
-      throw new Error(
-        `ScanBuilder iterator: ${this.joins.length} join leg(s) ` +
-          `present but no JoinContext attached. Use collection.scan() ` +
-          `to construct a join-capable scan.`,
-      )
-    }
-    const resolvers: Array<{
-      leg: JoinLeg
-      source: JoinableSource
-      lookupById: ((id: string) => unknown) | null
-      hashByPrimaryKey: ReadonlyMap<string, unknown> | null
-      warnedKeys: Set<string>
-    }> = []
-    for (const leg of this.joins) {
-      // #1339 — unreachable today (`ScanBuilder` builds its own ref legs and
-      // has no `.joinOn()`), and loud rather than silent if that ever
-      // changes: a declared `on` is many-to-many, so it emits one row per
-      // match, which the one-record-in/one-record-out streaming contract
-      // below cannot express.
-      if (leg.on !== undefined) {
-        throw new Error(
-          `ScanBuilder: the declared \`on\` join leg "${leg.as}" cannot stream — it emits one row ` +
-            `per match, while scan() yields one row per stored record. Use collection.query().joinOn().`,
-        )
-      }
-      const source = this.joinContext.resolveSource(leg.target)
-      if (!source) {
-        throw new Error(
-          `ScanBuilder.join() cannot resolve target collection ` +
-            `"${leg.target}" (referenced from field "${leg.field}" on ` +
-            `"${this.joinContext.leftCollection}"). Make sure the target ` +
-            `collection has been opened via vault.collection() ` +
-            `at least once before iterating the scan.`,
-        )
-      }
-      // Strategy selection: prefer lookupById when available
-      // (O(1) per row, no upfront cost), fall back to hashing
-      // snapshot() once otherwise.
-      let lookupById: ((id: string) => unknown) | null = null
-      let hashByPrimaryKey: ReadonlyMap<string, unknown> | null = null
-      if (source.lookupById) {
-        // Bind through an arrow so the lookupById's `this`
-        // doesn't drift — same pattern as the eager join's
-        // strategy resolver.
-        const fn = source.lookupById.bind(source)
-        lookupById = (id: string): unknown => fn(id)
-      } else {
-        const map = new Map<string, unknown>()
-        for (const record of source.snapshot()) {
-          const rawId = readPath(record, 'id')
-          const key = coerceRefKey(rawId)
-          if (key !== null) map.set(key, record)
-        }
-        hashByPrimaryKey = map
-      }
-      resolvers.push({
-        leg,
-        source,
-        lookupById,
-        hashByPrimaryKey,
-        warnedKeys: new Set<string>(),
-      })
-    }
-    return resolvers
-  }
-
-  /**
-   * Resolve a single join leg for one left record and return the
-   * left record with the joined field attached under
-   * `leg.as`. Pure function over `(left, resolver)`; never
-   * mutates the input.
-   *
-   * Ref-mode dispatch matches eager `applyJoins` from :
-   *   - null/undefined FK → attach null silently (always allowed)
-   *   - dangling FK + strict → throw `DanglingReferenceError`
-   *   - dangling FK + warn → attach null, warn-once per pair
-   *   - dangling FK + cascade → attach null silently
-   */
-  private applyOneJoinStreaming(
-    left: unknown,
-    resolver: {
-      leg: JoinLeg
-      source: JoinableSource
-      lookupById: ((id: string) => unknown) | null
-      hashByPrimaryKey: ReadonlyMap<string, unknown> | null
-      warnedKeys: Set<string>
-    },
-  ): unknown {
-    if (left === null || typeof left !== 'object') {
-      // Pathological input; matches eager join's defensive return.
-      return left
-    }
-    const { leg } = resolver
-    const rawId = readPath(left, leg.field)
-    const refKey = coerceRefKey(rawId)
-    let right: unknown = undefined
-    if (refKey !== null) {
-      if (resolver.lookupById !== null) {
-        right = resolver.lookupById(refKey)
-      } else if (resolver.hashByPrimaryKey !== null) {
-        right = resolver.hashByPrimaryKey.get(refKey)
-      }
-    }
-
-    const merged: Record<string, unknown> = {
-      ...(left as Record<string, unknown>),
-    }
-    if (right === undefined) {
-      // No matching record. Distinguish "no ref at all" (null FK)
-      // from "dangling ref" (FK pointed at nothing).
-      if (refKey !== null && leg.mode === 'strict') {
-        throw new DanglingReferenceError({
-          field: leg.field,
-          target: leg.target,
-          refId: refKey,
-          message:
-            `ScanBuilder.join() strict dangling: record references ` +
-            `"${leg.target}:${refKey}" via field "${leg.field}", but no ` +
-            `such record exists. Use ref() mode 'warn' or 'cascade' if ` +
-            `dangling refs are acceptable, or run ` +
-            `vault.checkIntegrity() to find and fix the orphans.`,
-        })
-      }
-      if (refKey !== null && leg.mode === 'warn') {
-        const dedupKey = `${leg.field}→${leg.target}:${refKey}`
-        if (!resolver.warnedKeys.has(dedupKey)) {
-          resolver.warnedKeys.add(dedupKey)
-          console.warn(
-            `[noy-db] ScanBuilder.join() encountered dangling ref in ` +
-              `'warn' mode: field "${leg.field}" → "${leg.target}:` +
-              `${refKey}" not found. Attaching null.`,
-          )
-        }
-      }
-      // strict already threw above; warn falls through here; cascade
-      // hits this path silently.
-      merged[leg.as] = null
-    } else {
-      merged[leg.as] = right
-    }
-    return merged
-  }
-
-  /**
-   * Reduce the scan stream through a named set of reducers and
-   * return the final aggregated shape.
-   *
-   * Memory is O(reducers): one mutable state slot per spec key.
-   * Records flow through the pipeline one at a time via
-   * `for await` and are discarded after their `step()` is applied
-   * — never collected into an array. This is the distinguishing
-   * property from `Query.aggregate()`, which materializes the full
-   * match set first.
-   *
-   * Reuses the same reducer protocol as `Query.aggregate()`,
-   * so `count()`, `sum(field)`, `avg(field)`, `min(field)`,
-   * `max(field)` all work unchanged. The `{ seed }` parameter
-   * plumbing from  constraint #2 is honored transparently — the
-   * factories ignore it in and the scan executor never
-   * touches the per-reducer state construction.
-   *
-   * **Returns a Promise**, unlike `Query.aggregate().run()` which
-   * is synchronous. The scan is inherently async because it walks
-   * adapter pages, so the terminal has to be too. Consumers
-   * destructure with await:
-   *
-   * ```ts
-   * const { total, n } = await invoices.scan()
-   *   .where('year', '==', 2025)
-   *   .aggregate({ total: sum('amount'), n: count() })
-   * ```
-   *
-   * **No `.live()` in.** `scan().aggregate().live()` would
-   * require reconciling an unbounded streaming iteration with a
-   * change-stream subscription — a design problem, not just a code
-   * one. Consumers with huge collections and live needs should
-   * narrow with `.where()` enough to fit in the 50k `query()`
-   * limit and use `query().aggregate().live()` instead.
-   *
-   * Consults the Via pipeline's posture before reducing (#629 Task 8 review
-   * fix wave 1): a reducer over a field whose posture is `queryable: 'none'`
-   * throws `FieldNotQueryableError` here, metadata-only — via
-   * `ViaPipeline.refuseUnqueryableReducers`, NOT the full `wrapReducers`
-   * (which would also activate money's exact-reducer rewrite, a path this
-   * method has never run and must not start running as a side effect of
-   * this gate).
-   */
-  // `const` so an inline `[specA, specB]` infers as a TUPLE, not a `Spec[]` —
-  // that is what makes `const [a, b] = await …` land on the right shapes.
-  async aggregate<const Specs extends readonly ReduceSpec[]>(specs: Specs): Promise<MultiReduceResult<Specs>>
-  async aggregate<Spec extends ReduceSpec>(spec: Spec): Promise<ReduceResult<Spec>>
-  async aggregate<Spec extends ReduceSpec>(build: (b: ReducerBuilder<T, S, M>) => Spec): Promise<ReduceResult<Spec>>
-  async aggregate<Spec extends ReduceSpec>(
-    specOrBuild: Spec | readonly ReduceSpec[] | ((b: ReducerBuilder<T, S, M>) => Spec),
-  ): Promise<ReduceResult<Spec> | unknown[]> {
-    // #1340 — the multi-spec form. N independent specs, ONE pass: the states
-    // for every spec are stepped from the same yielded record, so the page
-    // provider is walked exactly once no matter how many specs are passed.
-    // (Calling `.aggregate(specA)` then `.aggregate(specB)` costs two full
-    // scans — the immutable-builder docs above say so, and this is the fix.)
-    if (Array.isArray(specOrBuild)) return this.aggregateMany(specOrBuild as readonly ReduceSpec[])
-    // Opt-in builder form `aggregate(b => spec)`: `b`'s field args are
-    // `QueryField<T, S>`, refusing sensitive fields (the standalone-spec form
-    // stays unrefused for back-compat), and `sum`/`min`/`max` over a declared
-    // `moneyFields` (`M`) member return a `MoneyString`. Mirrors `Query.aggregate`.
-    const spec: Spec = typeof specOrBuild === 'function'
-      ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)(reducerBuilder as unknown as ReducerBuilder<T, S, M>)
-      // `Array.isArray` above does not narrow a READONLY array out of the
-      // union, so the array arm is already returned and this cast is the
-      // remainder — a plain spec.
-      : (specOrBuild as Spec)
-    this.via?.refuseUnqueryableReducers(spec)
-    const keys = Object.keys(spec)
-    // Per-reducer state. Exactly |keys| entries, never grows with
-    // the record count — that's the O(reducers) memory guarantee.
-    const state: Record<string, unknown> = {}
-    for (const key of keys) {
-      state[key] = spec[key]!.init()
-    }
-
-    // Record-by-record streaming step. `for await (… of this)`
-    // invokes the Symbol.asyncIterator above, which honors the
-    // clause list, so filtered-out records never reach the step
-    // loop — they're dropped at the iterator boundary.
-    for await (const record of this) {
-      for (const key of keys) {
-        state[key] = spec[key]!.step(state[key], record)
-      }
-    }
-
-    const result: Record<string, unknown> = {}
-    for (const key of keys) {
-      result[key] = spec[key]!.finalize(state[key])
-    }
-    return result as ReduceResult<Spec>
-  }
-
-  /**
-   * The multi-spec `.aggregate([specA, specB, …])` executor (#1340).
-   *
-   * One iteration of the scan, `Σ|spec|` reducer states — memory stays
-   * O(reducers) exactly as the single-spec terminal's does, with the sum taken
-   * across specs instead of within one. Every spec's state is stepped from the
-   * SAME yielded record, so the page provider is read once per page.
-   *
-   * Semantics per spec are identical to the single-spec form, deliberately:
-   * the posture gate is `refuseUnqueryableReducers` (metadata only), NOT the
-   * full `wrapReducers` — so `aggregate([a, b])` returns exactly what
-   * `aggregate(a)` and `aggregate(b)` return, and the array form is a pure
-   * cost optimisation with no behavioural delta to reason about. (The grouped
-   * scan path DOES wrap — it has to agree with the eager grouped path, which
-   * wraps. See `scan-groupby.ts`.)
-   */
-  private async aggregateMany(specs: readonly ReduceSpec[]): Promise<unknown[]> {
-    for (const spec of specs) this.via?.refuseUnqueryableReducers(spec)
-    const keysPerSpec = specs.map((spec) => Object.keys(spec))
-    const states: Record<string, unknown>[] = specs.map((spec, i) => {
-      const state: Record<string, unknown> = {}
-      for (const key of keysPerSpec[i]!) state[key] = spec[key]!.init()
-      return state
-    })
-
-    for await (const record of this) {
-      for (let i = 0; i < specs.length; i++) {
-        const spec = specs[i]!
-        const state = states[i]!
-        for (const key of keysPerSpec[i]!) state[key] = spec[key]!.step(state[key], record)
-      }
-    }
-
-    return specs.map((spec, i) => {
-      const result: Record<string, unknown> = {}
-      for (const key of keysPerSpec[i]!) result[key] = spec[key]!.finalize(states[i]![key])
-      return result
-    })
-  }
-
-  /**
-   * Group the scan stream and reduce each group — `#1340`.
-   *
-   * ```ts
-   * const byClient = await invoices.scan()
-   *   .where('status', '==', 'open')
-   *   .groupBy('clientId', { maxGroups: 5_000 })
-   *   .aggregate({ total: sum('amount'), n: count() })
-   * ```
-   *
-   * ⚠️ **This is the one scan terminal whose memory is NOT O(pageSize).** It
-   * holds one reducer state per group, which is why the budget is explicit:
-   * `maxGroups` defaults to the eager path's 100_000-group ceiling and is
-   * REFUSED — never truncated — the moment a scan would exceed it. Price the
-   * budget before raising it: an exact `median`/`percentile`, a `mode` or a
-   * `countDistinct` holds O(values) per group, so an unbounded scan wants
-   * `{ approx: true }` on the quantiles. Full rationale in `scan-groupby.ts`.
-   *
-   * The key may be a field name or a `dateTrunc()` derived calendar key (the
-   * monthly-rollup shape); grouping BY a `sensitive` field is refused at
-   * compile time, same as `Query.groupBy()`.
-   */
-  groupBy<F extends QueryField<T, S>>(field: F, opts?: { maxGroups?: number }): ScanGroupedScan<T, F, S, M>
-  groupBy(key: DateTruncKey, opts?: { maxGroups?: number }): ScanGroupedScan<T, string, S, M>
-  groupBy(key: QueryField<T, S> | DateTruncKey, opts?: { maxGroups?: number }): ScanGroupedScan<T, string, S, M> {
-    return new ScanGroupedScan<T, string, S, M>(
-      this,
-      key as string | DateTruncKey,
-      opts?.maxGroups ?? SCAN_GROUPBY_DEFAULT_MAX_GROUPS,
-      this.via,
-    )
-  }
-
-  /**
    * Evaluate the clause list against a single record. Linear in
    * the clause count; short-circuits on first false. Clauses on a
    * scan are always re-evaluated per record — no index-accelerated
@@ -796,24 +330,26 @@ export class ScanBuilder<T, S extends keyof T = never, M extends keyof T & strin
   }
 }
 
-/**
- * Coerce an unknown FK value into a lookup key string.
- *
- * Mirror of the same helper in `query/join.ts` — kept local to
- * `scan-builder.ts` to avoid pulling the eager join executor's
- * surface area into this file. Strings and numbers convert to
- * string keys; everything else (objects, arrays, booleans, null,
- * undefined) returns null and is treated as "no ref at all".
- *
- * Matches the write-time `enforceRefsOnPut` policy: nullish ref
- * values are never dangling, regardless of mode.
- */
-function coerceRefKey(value: unknown): string | null {
-  if (value === null || value === undefined) return null
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'bigint') return String(value)
-  return null
+// ─── #1458 — ScanBuilder's extension stubs ────────────────────────────────
+// Same mechanism, and the same reason for not declaring them on the class, as
+// `builder.ts`'s block: the method's TYPE must arrive with its subpath.
+const SCAN_EXTENSION_METHODS: readonly (readonly [string, string])[] = [
+  ['aggregate', '@noy-db/hub/query/reduce'],
+  ['groupBy', '@noy-db/hub/query/reduce'],
+  ['join', '@noy-db/hub/query/relate'],
+]
+
+for (const [method, subpath] of SCAN_EXTENSION_METHODS) {
+  Object.defineProperty(ScanBuilder.prototype, method, {
+    value: function scanExtensionMissing(): never {
+      throw new QueryExtensionMissingError(`scan().${method}`, subpath)
+    },
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  })
 }
+
 
 /**
  * ── Grouped streaming reduction over a `scan()` — `#1340` ──────────────────
@@ -876,127 +412,3 @@ function coerceRefKey(value: unknown): string | null {
  * reducer protocol or a new grandfather entry; neither is worth it for a
  * class that only exists to terminate `ScanBuilder.groupBy()`.
  */
-
-/**
- * Default group ceiling — the same constant the eager `.groupBy()` enforces.
- * Duplicated as a literal rather than imported from
- * `with-lookup/reduce/groupby.ts` on purpose: that module carries the eager
- * `groupAndReduce` + `GroupedReduction` classes, and the always-on kernel must
- * not pull them in to read one number. The pairing is asserted by a test.
- */
-export const SCAN_GROUPBY_DEFAULT_MAX_GROUPS = 100_000
-
-/**
- * Single-field spelling of `canonicalGroupKey` (`with-lookup/reduce/canonical-key.ts`).
- *
- * ⛔ Inlined, not imported, and not by preference: `check-architecture`'s
- * `port-layering` rule grandfathers this file for exactly two
- * `with-lookup/reduce/*` specifiers (`reducers.js`, `reduction.js`), and
- * `canonical-key.js` is not one of them — a new one may not be added
- * silently. The eager helper sorts its field list and serialises
- * each value — with exactly one field, that reduces to this line, including
- * the part that matters: `undefined` gets a sentinel so a MISSING key and an
- * explicit `null` land in different buckets, as they do under
- * `Query.groupBy()`. The agreement is held by test, not by comment
- * (`query-scan-groupby.test.ts` — null/undefined bucketing, and full equality
- * with the eager path).
- */
-function scanGroupKey(field: string, value: unknown): string {
-  return `${field}=${value === undefined ? 'undefined' : JSON.stringify(value)}`
-}
-
-/** Group-key result-row shape: the key under its own name, plus the reducers. */
-export type ScanGroupedRow<F extends string, R> = { [K in F]: unknown } & R
-
-/**
- * Chainable wrapper returned by `ScanBuilder.groupBy()`. The only operation on
- * it is `.aggregate()` — same minimal shape as `GroupedQuery`.
- */
-export class ScanGroupedScan<
-  T,
-  F extends string,
-  S extends keyof T = never,
-  M extends keyof T & string = never,
-> {
-  constructor(
-    private readonly stream: AsyncIterable<T>,
-    private readonly key: string | DateTruncKey,
-    private readonly maxGroups: number,
-    private readonly via: ViaPipeline | undefined,
-  ) {
-    if (!Number.isInteger(maxGroups) || maxGroups < 1) {
-      throw new Error(
-        `scan().groupBy(): { maxGroups: ${String(maxGroups)} } must be a positive integer — ` +
-          `it is the declared ceiling on how many reducer states the grouped scan may hold.`,
-      )
-    }
-  }
-
-  /**
-   * Fold the scan into one row per group. Resolves to `R[]`, ordered by each
-   * group's FIRST-SEEN position in the stream (`Map` insertion order), which
-   * is the same ordering rule the eager path documents.
-   *
-   * ```ts
-   * const byMonth = await invoices.scan()
-   *   .where('status', '==', 'paid')
-   *   .groupBy(dateTrunc('closedAt', 'month', { as: 'month', timeZone: 'UTC' }), { maxGroups: 240 })
-   *   .aggregate({ total: sum('amount'), n: count() })
-   * ```
-   */
-  async aggregate<Spec extends ReduceSpec>(spec: Spec): Promise<ScanGroupedRow<F, ReduceResult<Spec>>[]>
-  async aggregate<Spec extends ReduceSpec>(
-    build: (b: ReducerBuilder<T, S, M>) => Spec,
-  ): Promise<ScanGroupedRow<F, ReduceResult<Spec>>[]>
-  async aggregate<Spec extends ReduceSpec>(
-    specOrBuild: Spec | ((b: ReducerBuilder<T, S, M>) => Spec),
-  ): Promise<ScanGroupedRow<F, ReduceResult<Spec>>[]> {
-    const raw: Spec =
-      typeof specOrBuild === 'function'
-        ? (specOrBuild as (b: ReducerBuilder<T, S, M>) => Spec)(reducerBuilder as unknown as ReducerBuilder<T, S, M>)
-        : specOrBuild
-    // Same reducer rewriting as the eager grouped path, and for the same
-    // reason: a money `sum` must accumulate per-currency BigInt totals, and a
-    // `countDistinct` must dedup on the canonical index key — otherwise a
-    // grouped scan and a grouped query disagree on identical data.
-    // `wrapReducers` runs the `queryable: 'none'` posture refusal itself.
-    const spec: ReduceSpec = bindDistinctReducers(this.via ? this.via.wrapReducers(raw) : raw, this.via)
-    const keys = Object.keys(spec)
-
-    const field = groupKeyName(this.key)
-    const derived: readonly DateTruncKey[] = isDateTruncKey(this.key) ? [this.key] : []
-    const groups = new Map<string, { keyValue: unknown; state: Record<string, unknown> }>()
-
-    for await (const record of this.stream) {
-      // A derived calendar key is stamped onto a shallow copy before bucketing
-      // — the reducers then see an ordinary row carrying an ordinary field,
-      // exactly as they do under `Query.groupBy(dateTrunc(...))`.
-      const row = derived.length === 0 ? record : projectDateTruncKeys([record], derived)[0]!
-      const keyValue = readPath(row, field)
-      const dedupKey = scanGroupKey(field, keyValue)
-      let group = groups.get(dedupKey)
-      if (group === undefined) {
-        if (groups.size >= this.maxGroups) {
-          // Loud and early: the state for this group is never allocated, so
-          // the refusal fires at the budget, not after blowing through it.
-          throw new GroupCardinalityError(field, groups.size + 1, this.maxGroups, 'scan')
-        }
-        const state: Record<string, unknown> = {}
-        for (const k of keys) state[k] = spec[k]!.init()
-        group = { keyValue, state }
-        groups.set(dedupKey, group)
-      }
-      for (const k of keys) group.state[k] = spec[k]!.step(group.state[k], row)
-    }
-
-    const out: ScanGroupedRow<F, ReduceResult<Spec>>[] = []
-    for (const group of groups.values()) {
-      // Group key first, then the reducer outputs — same row shape as the
-      // eager path, which tests assert by key order.
-      const outRow: Record<string, unknown> = { [field]: group.keyValue }
-      for (const k of keys) outRow[k] = spec[k]!.finalize(group.state[k])
-      out.push(outRow as ScanGroupedRow<F, ReduceResult<Spec>>)
-    }
-    return out
-  }
-}

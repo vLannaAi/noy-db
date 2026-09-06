@@ -19,9 +19,14 @@
 import { describe, it, expect } from 'vitest'
 import { Query } from '../src/kernel/query/index.js'
 import type { QuerySource } from '../src/kernel/query/index.js'
-import type { JoinContext, JoinableSource, JoinLeg } from '../src/kernel/query/join.js'
+import type { JoinContext, JoinableSource, JoinLeg } from '../src/kernel/query/relate/join.js'
 import { summarizeQueryPlan } from '../src/with-formula/materialized-views/dependency-analyzer.js'
 import { computeQueryHash } from '../src/with-formula/materialized-views/query-hash.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/relate/index.js'
 
 interface Invoice {
   id: string

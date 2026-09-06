@@ -19,6 +19,11 @@ import { NOYDB_FORMAT_VERSION } from '../src/kernel/types.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { envelopePayloadHash } from '../src/with-commit/history/ledger/hash.js'
 import { sha256Hex } from '../src/with-commit/history/ledger/entry.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/relate/index.js'
 
 interface Person {
   id: string

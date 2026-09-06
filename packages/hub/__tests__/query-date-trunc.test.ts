@@ -15,7 +15,7 @@ import {
   groupKeyName,
   groupKeySourceField,
   projectDateTruncKeys,
-} from '../src/kernel/query/date-trunc.js'
+} from '../src/kernel/query/reduce/date-trunc.js'
 
 const at = (iso: string): Date => new Date(iso)
 
@@ -183,6 +183,11 @@ import { sum, count, withReduce } from '../src/with-lookup/reduce/index.js'
 import { computeQueryHash } from '../src/with-formula/materialized-views/query-hash.js'
 import { summarizeUnionPlan } from '../src/with-formula/materialized-views/dependency-analyzer.js'
 import type { MaterializedViewSpec } from '../src/with-formula/materialized-views/types.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/reduce/index.js'
 
 const AGG = withReduce()
 

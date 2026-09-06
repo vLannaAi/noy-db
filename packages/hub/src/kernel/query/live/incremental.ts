@@ -62,8 +62,8 @@
  * rather than two that drift.
  */
 
-import type { Clause } from './predicate.js'
-import type { OrderBy } from './builder.js'
+import type { Clause } from '../predicate.js'
+import type { OrderBy } from '../builder.js'
 
 /**
  * The delta a source hands to its `subscribe` callback: which record changed

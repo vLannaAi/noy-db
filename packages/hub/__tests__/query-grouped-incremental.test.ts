@@ -17,12 +17,18 @@
 
 import { describe, it, expect } from 'vitest'
 import { Query, type QuerySource } from '../src/kernel/query/builder.js'
-import { dateTrunc } from '../src/kernel/query/date-trunc.js'
+import { dateTrunc } from '../src/kernel/query/reduce/date-trunc.js'
 import { withReduce, count, sum, avg, min, max } from '../src/with-lookup/reduce/index.js'
 import { GroupedMaintainer } from '../src/with-lookup/reduce/index.js'
 import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import { memoryStore } from '../src/kernel/memory-store.js'
 import type { Collection } from '../src/kernel/collection.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/live/index.js'
+import '../src/kernel/query/reduce/index.js'
 
 interface Row {
   id: string

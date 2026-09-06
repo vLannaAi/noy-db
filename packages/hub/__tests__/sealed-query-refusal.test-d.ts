@@ -6,7 +6,7 @@ import { describe, it, expectTypeOf } from 'vitest'
 import { createNoydb, money } from '../src/index.js'
 import { sum } from '../src/with-lookup/reduce/index.js'
 import { memoryStore } from '../src/kernel/memory-store.js'
-import { dateTrunc } from '../src/kernel/query/index.js'
+import { dateTrunc } from '../src/kernel/query/reduce/index.js'
 
 interface Person { id: string; name: string; ssn: string; age: number }
 

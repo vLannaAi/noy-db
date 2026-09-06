@@ -1,4 +1,16 @@
 /**
+ * ⚠️ #1458 — this file is SHARED, not Reduce's.
+ *
+ * It moved into `query/reduce/` with `distinct()` and moved straight back: the
+ * eager index layer (`with-lookup/indexing/eager-indexes.ts`) canonicalises its
+ * bucket keys through `stringifyBucketKey` / `isProbeableBucketKey`, so
+ * `@noy-db/hub/query` reaches it at runtime through the index fast path and the
+ * query-tiers closure check said so. Two callers with different lifetimes —
+ * `distinctKeyOf` for Reduce, the bucket-key pair for Find's indexes — and the
+ * canonicalisation must be ONE definition or a probe and a bucket disagree.
+ */
+
+/**
  * The ONE definition of "are these two field values the same value?" (#1347).
  *
  * `distinct()`, `countDistinct()` and the eager hash index all have to answer

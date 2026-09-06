@@ -12,7 +12,7 @@
 
 import { getAtPath } from '../../kernel/paths.js'
 import { UnknownDictCodeError, ValidationError } from '../../kernel/errors.js'
-import type { JoinableSource } from '../../kernel/query/index.js'
+import type { JoinableSource } from '../../kernel/query/relate/join.js'
 import type { FieldRef, ViaGraph } from '../../kernel/via/graph.js'
 import type { StaticDictDescriptor } from '../../port/with/i18n-strategy.js'
 import { dictCollectionName, type LookupHandle } from './handle.js'

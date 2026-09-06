@@ -77,8 +77,8 @@ import type {
   PatchDelta,
   PatchOutcome,
   SourceChange,
-} from '../../kernel/query/incremental.js'
-import { LiveMaintainer } from '../../kernel/query/incremental.js'
+} from '../../kernel/query/live/incremental.js'
+import { LiveMaintainer } from '../../kernel/query/live/incremental.js'
 import { readPath } from '../../kernel/query/predicate.js'
 import { canonicalGroupKey } from './canonical-key.js'
 import { GroupCardinalityError } from '../../kernel/errors.js'

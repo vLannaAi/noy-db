@@ -18,10 +18,15 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ListPageResult } from '../src/kernel/types.js'
 import { ConflictError, GroupCardinalityError } from '../src/kernel/errors.js'
 import { ScanBuilder, type ScanPageProvider } from '../src/kernel/query/index.js'
-import { dateTrunc } from '../src/kernel/query/date-trunc.js'
+import { dateTrunc } from '../src/kernel/query/reduce/date-trunc.js'
 import { count, sum, avg, max, median, withReduce, GROUPBY_MAX_CARDINALITY } from '../src/with-lookup/reduce/index.js'
-import { SCAN_GROUPBY_DEFAULT_MAX_GROUPS } from '../src/kernel/query/scan-builder.js'
+import { SCAN_GROUPBY_DEFAULT_MAX_GROUPS } from '../src/kernel/query/reduce/scan-methods.js'
 import { money } from '../src/via/money/index.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/reduce/index.js'
 
 /** Inline memory adapter with a real `listPage` — same shape as the scan tests. */
 function toMemory(): NoydbStore {

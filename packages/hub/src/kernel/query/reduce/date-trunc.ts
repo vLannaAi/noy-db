@@ -56,7 +56,7 @@
  * Portability: `Intl` is a language global, so this file stays inside hub's
  * no-Node-built-ins boundary and adds no dependency.
  */
-import { civilDateOf } from './civil-date.js'
+import { civilDateOf } from '../civil-date.js'
 
 /** Calendar units `dateTrunc()` can bucket into. */
 export type DateTruncUnit = 'day' | 'week' | 'month' | 'quarter' | 'year'

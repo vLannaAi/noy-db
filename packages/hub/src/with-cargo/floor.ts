@@ -50,8 +50,8 @@ export type { Collection } from '../kernel/collection.js'
 export type { Noydb } from '../kernel/noydb.js'
 export type { Operator } from '../kernel/query/predicate.js'
 export type { Query } from '../kernel/query/builder.js'
-export type { JoinStrategy } from '../kernel/query/join.js'
-export type { LiveQuery } from '../kernel/query/live.js'
+export type { JoinStrategy } from '../kernel/query/relate/join.js'
+export type { LiveQuery } from '../kernel/query/live/live.js'
 export type {
   ReduceResult,
   ReduceSpec,

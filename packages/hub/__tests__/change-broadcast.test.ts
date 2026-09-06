@@ -14,6 +14,11 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { enableChangeBroadcast, defaultChangeChannel, changeChannelName, type ChangeSignal } from '../src/with-sync/change-broadcast.js'
 import { toMemory } from '../../to-memory/src/index.js'
 import type { TabChannel } from '../src/with-sync/tab-coordination.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/live/index.js'
 
 /**
  * In-memory bus. `sent` records every payload EVERY endpoint posted, in order —

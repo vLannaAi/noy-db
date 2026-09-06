@@ -27,6 +27,11 @@ import { CollectionIndexes } from '../src/with-lookup/indexing/eager-indexes.js'
 import { createNoydb } from '../src/kernel/noydb.js'
 import { memoryStore } from '../src/kernel/memory-store.js'
 import { withIndexing } from '../src/with-lookup/indexing/index.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/relate/index.js'
 
 const D1 = new Date('2026-04-01T00:00:00.000Z')
 const D2 = new Date('2026-05-01T00:00:00.000Z')

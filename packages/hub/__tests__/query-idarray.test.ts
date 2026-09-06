@@ -4,7 +4,8 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, money } from '../src/index.js'
 import { Query } from '../src/kernel/query/builder.js'
-import type { QuerySource, JoinContext, JoinableSource } from '../src/kernel/query/index.js'
+import type { QuerySource } from '../src/kernel/query/index.js'
+import type { JoinContext, JoinableSource } from '../src/kernel/query/relate/index.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 

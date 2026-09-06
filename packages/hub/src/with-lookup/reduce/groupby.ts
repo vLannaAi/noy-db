@@ -82,7 +82,7 @@ import {
 } from './group-core.js'
 import { GroupedMaintainer } from './incremental-group.js'
 import type { GroupMaintenanceStats } from './incremental-group.js'
-import type { GroupMaintenanceSource, SourceChange } from '../../kernel/query/incremental.js'
+import type { GroupMaintenanceSource, SourceChange } from '../../kernel/query/live/incremental.js'
 import type { MoneyDescriptor } from '../../via/money/descriptor.js'
 import type { ViaPipeline } from '../../kernel/via/pipeline.js'
 import { viaBinder } from '../../kernel/via/index.js'

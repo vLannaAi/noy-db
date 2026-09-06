@@ -26,14 +26,14 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 function repoPath(rel: string): string {
   return fileURLToPath(new URL(`../../../../${rel}`, import.meta.url))
 }
 
 const CHECK_SCRIPT = repoPath('scripts/check-architecture.mjs')
-const JOIN_TS = repoPath('packages/hub/src/kernel/query/join.ts')
+const JOIN_TS = repoPath('packages/hub/src/kernel/query/relate/join.ts')
 // Any *.ts file under packages/hub/src/kernel/** is scanned by checkViaLayering
 // (`walkTsFiles(kernelDir, ...)`) — planting a throwaway file directly there
 // is the mechanical way to prove the guard still fires, without touching any
@@ -133,7 +133,23 @@ describe('via-layering allowlist ends EMPTY (#650 Task 6, #626 retirement)', () 
     // been importing that exact specifier all along. `checkViaLayering` itself
     // resolves the specifier before testing it, so the SCRIPT was always right;
     // only this mirror of it was blunt.
-    expect(joinSrc).not.toMatch(/from ['"](?:\.\.\/){2,}via\//)
+    //
+    // ⭐ #1458 — RESOLVED, no longer counted. `join.ts` moved into
+    // `kernel/query/relate/` and every specifier gained a `../`, so the
+    // depth-counting form above started matching the PORT it was written to
+    // allow — a mirror of the script that fails when the file moves is a
+    // mirror that will be "fixed" by loosening it. This does what the comment
+    // always said the bar was, and what `checkViaLayering` itself does:
+    // resolve the specifier, then ask which tree it lands in.
+    const featureLayer = repoPath('packages/hub/src/via/')
+    for (const m of joinSrc.matchAll(/from ['"](\.[^'"]+)['"]/g)) {
+      const target = fileURLToPath(new URL(m[1] as string, pathToFileURL(JOIN_TS)))
+      expect(
+        target.startsWith(featureLayer),
+        `join.ts imports the via FEATURE layer directly: ${m[1]} → ${target}. ` +
+          `Route through the Via port (kernel/via/index.ts) instead.`,
+      ).toBe(false)
+    }
   })
 
   it('check-architecture.mjs passes clean at HEAD (via-layering included)', () => {

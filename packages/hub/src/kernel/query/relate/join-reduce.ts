@@ -28,8 +28,8 @@
  *    `present`, `decodeResults` and every other phase. It exists for exactly
  *    one hook.
  */
-import type { NoydbVia } from '../via/index.js'
-import { ViaPipeline } from '../via/pipeline.js'
+import type { NoydbVia } from '../../via/index.js'
+import { ViaPipeline } from '../../via/pipeline.js'
 
 /**
  * The reducer shape this file needs, declared STRUCTURALLY rather than
