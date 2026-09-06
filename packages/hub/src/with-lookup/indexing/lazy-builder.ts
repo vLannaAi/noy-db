@@ -248,6 +248,47 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
    * clause that can scope the scan. Callers interpret null as
    * IndexRequiredError (see `toArray`).
    */
+  /**
+   * #1407 — refuse a NULLISH `==`/`in` operand in lazy mode instead of
+   * answering it with the empty bucket.
+   *
+   * `addToState` skips nullish values outright, so a record whose value IS
+   * nullish is absent from the persisted index. `lookupEqual` then returns the
+   * empty `\0NULL\0` bucket, and `[]` reads as "no rows match" when the truth
+   * is "the matching rows are not visible from here". Measured on an indexed
+   * field: `where('tag','==',null)` returned `[]` from lazy while the eager
+   * scan returned the row.
+   *
+   * ⛔ There is no superset to fall back to, which is what makes this
+   * different from every other unaddressable-operand case in this function.
+   * Enumerating the field's indexed ids returns a set that EXCLUDES every
+   * match — the opposite of a superset — so "enumerate and post-filter", the
+   * move the via-declined, via-`in`, via-RANGE and #1355 prefix branches all
+   * make, is unavailable here.
+   *
+   * ⭐ AN OBJECT OPERAND NEEDS NOTHING, and the first draft of this fix gave it
+   * something. `\0OBJECT\0` holds every object-valued record, only an object
+   * can `===` an object operand, and `toArray()`'s post-filter applies the
+   * exact predicate — so the bucket is already a sound superset, and a TIGHTER
+   * one than `orderedBy` would produce. Routing it through `orderedBy` was a
+   * silent perf regression dressed as a correctness fix. Verified by deleting
+   * the guard entirely: only the nullish cases fail.
+   */
+  private refuseNullishProbe(field: string, probe: unknown): void {
+    if (probe !== null && probe !== undefined) return
+    throw new IndexRequiredError({
+      collection: this.source.collectionName,
+      touchedFields: [field],
+      missingFields: [],
+      reason:
+        `lazy mode cannot answer where("${field}", …, null | undefined) — the persisted ` +
+        'index never stores nullish values, so the records that match are absent from it ' +
+        'and no candidate set can contain them. This is not a missing index: declaring ' +
+        `one on "${field}" would not help. Use collection.scan() and filter, or store an ` +
+        'explicit sentinel value instead of null.',
+    })
+  }
+
   private resolveCandidateIds(): readonly string[] | null {
     const idx = this.source.persistedIndexes
 
@@ -330,6 +371,7 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
         // this NON-via path. `undefined` (no via coverage) falls back to the
         // raw clause value, unchanged from today.
         const probe = this.source.canonicalizeIndexKey?.(clause.field, clause.value) ?? clause.value
+        this.refuseNullishProbe(clause.field, probe)
         const ids = idx.lookupEqual(clause.field, probe)
         if (ids) return [...ids]
       } else if (clause.op === 'in' && Array.isArray(clause.value)) {
@@ -348,6 +390,15 @@ export class LazyQuery<T, S extends keyof T = never, Q extends keyof T & string 
           continue
         }
         const probes = clause.value.map(v => this.source.canonicalizeIndexKey?.(clause.field, v) ?? v)
+        // #1407 — ONE nullish element makes the whole answer incomplete, and a
+        // partial answer is the thing with no symptom. Object elements need
+        // nothing: their bucket is already a sound superset (see
+        // `refuseNullishProbe`).
+        // ⚠️ findINDEX, not find: `find` returns the element, and the element
+        // being looked for can BE `undefined`, so `!== undefined` on the result
+        // reads false exactly when the match was a hit.
+        const nullishAt = probes.findIndex((p) => p === null || p === undefined)
+        if (nullishAt >= 0) this.refuseNullishProbe(clause.field, probes[nullishAt])
         const ids = idx.lookupIn(clause.field, probes)
         if (ids) return [...ids]
       } else if (isRangeOp(clause.op)) {

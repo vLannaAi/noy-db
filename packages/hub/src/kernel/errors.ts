@@ -1750,17 +1750,39 @@ export class IndexRequiredError extends NoydbError {
   readonly touchedFields: readonly string[]
   readonly missingFields: readonly string[]
 
-  constructor(args: { collection: string; touchedFields: readonly string[]; missingFields: readonly string[] }) {
+  /**
+   * Why the index could not serve the query, when it is NOT "a field is
+   * unindexed" (#1407).
+   *
+   * ⚠️ The default message names missing fields, and that sentence is FALSE
+   * for a refusal on an indexed field — a `where(f,'==',null)` in lazy mode is
+   * refused because the persisted index never holds nullish values, not
+   * because `f` lacks an index. Telling that caller to "declare an index on
+   * each field" sends them to fix something that is already correct, which is
+   * the same defect #1430 fixed in `WeakSecretError`: advice describing rules
+   * that do not apply here.
+   */
+  readonly reason: string | undefined
+
+  constructor(args: {
+    collection: string
+    touchedFields: readonly string[]
+    missingFields: readonly string[]
+    reason?: string
+  }) {
     super(
       'INDEX_REQUIRED',
-      `Collection "${args.collection}": query references unindexed fields in lazy mode ` +
-      `(missing: ${args.missingFields.join(', ')}). ` +
-      `Declare an index on each field, or use collection.scan() for non-indexed iteration.`,
+      args.reason !== undefined
+        ? `Collection "${args.collection}": ${args.reason}`
+        : `Collection "${args.collection}": query references unindexed fields in lazy mode ` +
+          `(missing: ${args.missingFields.join(', ')}). ` +
+          `Declare an index on each field, or use collection.scan() for non-indexed iteration.`,
     )
     this.name = 'IndexRequiredError'
     this.collection = args.collection
     this.touchedFields = [...args.touchedFields]
     this.missingFields = [...args.missingFields]
+    this.reason = args.reason
   }
 }
 
