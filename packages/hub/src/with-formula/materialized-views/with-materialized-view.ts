@@ -1,6 +1,7 @@
 import { MaterializedViewConfigError, ValidationError } from '../../kernel/errors.js'
 import type { MaterializedViewSpec, MaterializedViewStrategy } from './types.js'
 import { validateProjectionLegs } from './projection-legs.js' // #1140
+import { describeGroupKey } from '../../kernel/query/reduce/date-trunc.js'
 
 /**
  * Register a materialized view: a declared query whose result is
@@ -91,14 +92,20 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
         + `use groupBy to declare the bucketing keys, or remove aggregate for a pure dedup MV`,
       )
     }
-    // `moneyFields` only has meaning when there's an aggregate to
-    // money-rewrite — it keys reducer outputs, so declaring it without
-    // `aggregate` is a no-op config mistake.
-    if (spec.moneyFields && !spec.aggregate) {
+    // `moneyFields` only has meaning when there's a reducer to money-rewrite —
+    // it keys reducer outputs, so declaring it with neither is a no-op config
+    // mistake.
+    //
+    // ⚠️ #1411 widened this: a WINDOW's reducer slots are money-rewritten by
+    // the same binding, so `moneyFields` is meaningful for a view that
+    // declares a window and no aggregate — which is exactly the pilot's
+    // per-row running total. Before the widening this guard refused that view
+    // with a message about aggregates it was not trying to use.
+    if (spec.moneyFields && !spec.aggregate && !spec.window) {
       throw new MaterializedViewConfigError(
-        `withMaterializedView "${spec.name}": moneyFields requires aggregate — `
+        `withMaterializedView "${spec.name}": moneyFields requires aggregate or window — `
         + `moneyFields rewrites sum/min/max reducers over money output fields, `
-        + `so it is meaningless without an aggregate spec`,
+        + `so it is meaningless without one`,
       )
     }
     // Per-arm joins resolve right-side collections that the union
@@ -122,6 +129,43 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
       )
     }
   }
+  // #1411 — window-form invariants. Shared by UNION and projection, since the
+  // stage runs at both exits from the grouping tail.
+  if (spec.window) {
+    if (spec.query) {
+      throw new MaterializedViewConfigError(
+        `withMaterializedView "${spec.name}": window is not supported on the query() form — `
+        + `the rows come from a Query, which has its own .window(...).select(...). `
+        + `window is for the unionSources / projection forms, whose rows are mapped`,
+      )
+    }
+    if (typeof spec.window.select !== 'object' || spec.window.select === null
+        || Object.keys(spec.window.select).length === 0) {
+      throw new MaterializedViewConfigError(
+        `withMaterializedView "${spec.name}": window.select must declare at least one output — `
+        + `a window that selects nothing computes nothing, so declaring one is `
+        + `more likely a mistake than an intention`,
+      )
+    }
+    // Same rule `derive` has, and the same reason: a group key is the row's
+    // identity and feeds rowKey, so writing one from a later stage would
+    // silently re-home the row.
+    const groupFields = new Set<string>(
+      spec.groupBy === undefined
+        ? []
+        : (Array.isArray(spec.groupBy) ? spec.groupBy : [spec.groupBy]).map(describeGroupKey),
+    )
+    for (const key of Object.keys(spec.window.select)) {
+      if (groupFields.has(key)) {
+        throw new MaterializedViewConfigError(
+          `withMaterializedView "${spec.name}": window.select["${key}"] collides with a groupBy key — `
+          + `a group key is the row's identity and feeds rowKey, so a window output `
+          + `may not overwrite it. Pick another name for the window column`,
+        )
+      }
+    }
+  }
+
   // Projection-form invariants (#810). Shape checks only — the
   // semantic ref() check on collect legs (the `on` field must carry a
   // ref() targeting the projection source) runs at first
@@ -208,11 +252,11 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
         + `use groupBy to declare the bucketing keys, or remove aggregate for a row-per-primary-record MV`,
       )
     }
-    if (spec.moneyFields && !spec.aggregate) {
+    if (spec.moneyFields && !spec.aggregate && !spec.window) {
       throw new MaterializedViewConfigError(
-        `withMaterializedView "${spec.name}": moneyFields requires aggregate — `
+        `withMaterializedView "${spec.name}": moneyFields requires aggregate or window — `
         + `moneyFields rewrites sum/min/max reducers over money output fields, `
-        + `so it is meaningless without an aggregate spec`,
+        + `so it is meaningless without one`,
       )
     }
     if (spec.predicates) {
