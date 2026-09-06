@@ -1226,7 +1226,12 @@ const KERNEL_SURFACE_BUDGET = {
   // the #1418 memo for every MV output in the vault. Rationale lives in
   // `service-bus.ts#GateScope`, which is where it would otherwise be simplified
   // away.
-  'packages/hub/src/kernel/collection.ts': 4384,
+  // Bumped 4384→4386 (2026-09-06): #1447. A two-line `getViaCoverage()` reader
+  // so `dumpSchema()` can report which fields the datastore itself computes.
+  // The capability is `via/pipeline.ts#fieldCoverage`; what is here is the
+  // read, and the "omit when empty" decision — absence must mean "nothing
+  // declared", not "nothing reported".
+  'packages/hub/src/kernel/collection.ts': 4386,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The

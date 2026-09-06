@@ -365,6 +365,8 @@ export function i18nVia(cfg: I18nViaConfig): NoydbVia {
     covers: (field) =>
       (cfg.i18nFields !== undefined && field in cfg.i18nFields)
       || (cfg.dictKeyFields !== undefined && field in cfg.dictKeyFields),
+    // #1447 — both config maps, since either makes the field vault-resolved.
+    coveredFields: [...Object.keys(cfg.i18nFields ?? {}), ...Object.keys(cfg.dictKeyFields ?? {})],
     encodeWrite: async (record, ctx) => runI18nWriteStages(record, ctx, cfg),
     present: async (record, ctx) => runI18nPresent(record, ctx, cfg),
     describeFragment: () => buildI18nDescribeFragment(cfg),

@@ -42,6 +42,7 @@ export function moneyVia(moneyFields: Record<string, MoneyDescriptor>, virtualMo
     presentIsSync: true, // #1416 — decodeMoneyFields / presentVirtualMoneyFields are plain functions
     posture: { encryptedAtRest: 'envelope', queryable: 'ordered', exportable: true, forgettable: true },
     covers: (field) => field in moneyFields,
+    coveredFields: Object.keys(moneyFields), // #1447
     ingest: (r) => canonicalizeIncomingMoney(r, moneyFields) as Record<string, unknown>,
     canonicalizeStored: (r) => canonicalizeStoredMoney(r, moneyFields) as Record<string, unknown>,
     encodeWrite: (r) => quantizeMoneyFields(r, moneyFields),

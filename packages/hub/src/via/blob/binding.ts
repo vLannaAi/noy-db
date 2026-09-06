@@ -130,6 +130,7 @@ export function blobVia(cfg: BlobViaConfig): NoydbVia {
     // vault.forget().
     posture: { encryptedAtRest: 'envelope', queryable: 'none', exportable: true, forgettable: true },
     covers: (field) => field in cfg.fields,
+    coveredFields: Object.keys(cfg.fields), // #1447
     erase: (ctx) => eraseBlobs(ctx, cfg),
     describeFragment: () => buildBlobDescribeFragment(cfg.fields),
   }

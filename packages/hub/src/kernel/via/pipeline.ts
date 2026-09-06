@@ -239,6 +239,40 @@ export class ViaPipeline {
     return this.bindings.some((b) => (b.present !== undefined || b.presentLate !== undefined) && b.presentIsSync !== true)
   }
 
+  /**
+   * #1447 — which bindings cover which fields, for `dumpSchema()`.
+   *
+   * Field name → the brands covering it, sorted. A field can appear under more
+   * than one brand: a money field that is also `computed({ mode:'virtual' })`
+   * is covered by both, and collapsing that to one would misreport what the
+   * datastore does to it.
+   *
+   * ⛔ BRAND AND FIELD ONLY — never a binding's configuration, and the reason
+   * is not payload size. A schema dump travels further than a vault does, and
+   * a report saying "this field is classified, sensitivity pii" is a map of
+   * which columns are worth attacking, in an artefact that by design leaves
+   * the vault. The consumer who asked for this said brand-plus-field is the
+   * whole of their need, so there is no trade being made.
+   *
+   * A binding that declares no {@link NoydbVia.coveredFields} is omitted
+   * rather than reported as covering nothing — absence of a declaration is not
+   * evidence of absence of coverage.
+   */
+  fieldCoverage(): Record<string, readonly string[]> {
+    const byField = new Map<string, Set<string>>()
+    for (const b of this.bindings) {
+      if (b.coveredFields === undefined) continue
+      for (const f of b.coveredFields) {
+        let brands = byField.get(f)
+        if (!brands) { brands = new Set(); byField.set(f, brands) }
+        brands.add(b.brand)
+      }
+    }
+    const out: Record<string, readonly string[]> = {}
+    for (const f of [...byField.keys()].sort()) out[f] = [...byField.get(f)!].sort()
+    return out
+  }
+
   buildClause(field: string, op: string, value: unknown): ViaClause | undefined {
     for (const b of this.bindings) {
       const payload = b.buildClause?.(field, op, value)

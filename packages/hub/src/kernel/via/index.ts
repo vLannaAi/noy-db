@@ -156,6 +156,22 @@ export interface NoydbVia {
    * behaviour. `money` and `computed` set it; `i18n` and `lookup` cannot.
    */
   readonly presentIsSync?: boolean
+  /**
+   * #1447 — the fields this binding covers, ENUMERATED.
+   *
+   * ⛔ `covers()` is a PREDICATE and cannot answer this. Iterating a
+   * collection's declared fields and asking "do you cover this?" misses every
+   * field that exists only in the binding's own config — a
+   * `computed({ mode: 'virtual' })` field is exactly that, and it is the case
+   * that motivated the report: a consumer's rulebook described three vault
+   * -computed fields as app-owned, and a predicate-based check would not have
+   * caught it because it never thinks to ask about them.
+   *
+   * Optional, and absence is honest rather than empty: a binding that has not
+   * declared its set is omitted from the report rather than reported as
+   * covering nothing.
+   */
+  readonly coveredFields?: readonly string[]
   // ── query participation (ALL SYNC — #553) ──
   /** Returns an opaque clause payload when this binding covers `field`, else undefined. */
   // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents

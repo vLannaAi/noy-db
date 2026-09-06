@@ -459,6 +459,7 @@ export function lookupVia(cfg: LookupViaConfig): NoydbVia {
     posture: { encryptedAtRest: 'envelope', queryable: 'full', exportable: true, forgettable: false },
     reservedPrefixes: ['_dict_', '_lookup_'],
     covers: (field) => field in cfg.lookupFields,
+    coveredFields: Object.keys(cfg.lookupFields), // #1447
     ingest: (record) => runLookupIngest(record, cfg),
     enforceWrite: (record) => runLookupEnforceWrite(record, cfg),
     present: async (record, ctx) => runLookupPresent(record, ctx, cfg),
