@@ -26,15 +26,39 @@ import { CollectionNotHydratedError } from '../errors.js'
  *
  * A terminal cannot both throw and be awaitable, so a cold terminal returns a
  * **pending result**: a thenable that hydrates and re-runs the terminal when
- * awaited, and throws {@link CollectionNotHydratedError} on any other use —
- * indexing, iteration, arithmetic, string coercion, property read.
+ * awaited, and throws {@link CollectionNotHydratedError} on every use that
+ * READS it — indexing, `.length`, iteration, spread, `.map()`, `JSON.stringify`,
+ * `String()`, `in`, `Object.keys`, arithmetic, any property read.
  *
- * ⚠️ **The one hole, and it is a hole in JavaScript, not in this design:**
- * `ToBoolean` never calls a trap, so `if (cold.query().exists())` takes the
- * truthy branch without throwing. Every *use of the value* throws; a bare
- * truthiness test is not a use. Do not try to close it with a `valueOf`
- * returning `false` — that would resurrect the confident-wrong-answer this
- * whole module exists to abolish, in the one shape nobody would ever check.
+ * ⛔ **THE EXACT BOUNDARY, enumerated — because "any other use" is what this
+ * doc used to say, and it was not true (#1462).** Two operations answer
+ * without reaching a proxy trap, and NEITHER CAN BE MADE TO THROW:
+ *
+ * | use | result | why it cannot throw |
+ * |---|---|---|
+ * | `typeof rows` | `'object'` | answered from the value's type, no trap |
+ * | `if (rows)` / `Boolean(rows)` — truthiness | `true` | `ToBoolean` never calls a trap |
+ *
+ * Do not try to close either with a `valueOf` returning `false` — that would
+ * resurrect the confident-wrong-answer this whole module exists to abolish, in
+ * the one shape nobody would ever check.
+ *
+ * ⭐ **`Array.isArray` used to be a third row, and it was the dangerous one.**
+ * `toArray()` is declared `T[]`, so `Array.isArray(rows) ? rows : []` is the
+ * ORDINARY defensive shape for the declared type — and it returned `[]` on a
+ * cold collection, restoring the silent empty read this module abolishes,
+ * behind code that looks like it handles the edge case. It is closed: the
+ * proxy's target is `[]`, and `IsArray` unwraps a proxy to its target, so the
+ * check answers `true` and the guard falls through to the throwing path. That
+ * cost one character of target and no change to the design — the report that
+ * found it assumed it needed a real array exotic object.
+ *
+ * ⚠️ **So the rule for anyone extending this: a use that reaches a trap must
+ * throw, and a use that cannot reach one must be IN THE TABLE ABOVE.** The
+ * table is pinned by `__tests__/1462-pending-result-surface.test.ts`, which
+ * also asserts this comment no longer claims a total guarantee — a probe
+ * written against "any other use" passes vacuously, because the phrase names
+ * no specific use for anything to contradict.
  */
 export interface HydrationGate {
   /** `<vault>/<collection>` — names the collection in the error. */
@@ -61,7 +85,12 @@ function pendingResult<V>(gate: HydrationGate, terminal: string, compute: () => 
     throw new CollectionNotHydratedError(gate.collection, terminal, gate.label)
   }
   const proxy = new Proxy(
-    {},
+    // #1462 — the target is `[]`, NOT `{}`, and it is load-bearing: `IsArray`
+    // unwraps a proxy to its target, so this is what makes
+    // `Array.isArray(rows)` answer `true` and send the idiomatic guard into
+    // the throwing path below instead of into a silent `[]`. Every trap still
+    // fires — the target is never read, only classified.
+    [],
     {
       get(_target, prop) {
         if (prop === 'then') {
