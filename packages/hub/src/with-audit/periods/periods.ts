@@ -487,6 +487,15 @@ export interface ClosePeriodOptions {
    * ⚠️ String comparison is lexicographic: keep `endDate` and the field in
    * one ISO-8601 shape (`YYYY-MM-DD` against `YYYY-MM-DD`, or full
    * timestamps against full timestamps).
+   *
+   * ⛔ **Zero-padding is now ENFORCED on both sides (#1459), because that
+   * warning was not enough.** `'2026-6-30'` names a real day and is refused
+   * anyway: as text it sorts BELOW every June date, so the close would seal
+   * nothing and report success — and symmetrically a record dated
+   * `'2026-6-15'` sorted ABOVE `'2026-06-30'` and was written into a sealed
+   * June. Both are `ValidationError` now, at the close and at the write,
+   * rather than a silent pass or a `PeriodClosedError` that fired for a reason
+   * unrelated to dates.
    */
   readonly endDate: string
   /**
@@ -682,6 +691,76 @@ export async function chainAnchor(
 }
 
 /**
+ * #1459 — the business-date strings that ORDER correctly against an `endDate`.
+ *
+ * ⭐ **This is a narrower question than "is this a valid ISO date", and the
+ * difference is the whole point.** A period membership test is
+ * `value <= endDate` on two STRINGS, so the accepted set is exactly the set
+ * whose lexicographic order matches calendar order: zero-padded `YYYY-MM-DD`,
+ * optionally followed by a time. `'2026-6-15'` names a real day and is refused
+ * anyway, because as text it sorts ABOVE `'2026-06-30'` — a June entry waved
+ * through a closed June on one missing zero.
+ *
+ * ⚠️ **Deliberately NOT `civilDateOf()` from `kernel/query/civil-date.ts`.**
+ * That function accepts `\d{1,2}` components on purpose: it resolves a value to
+ * a real day and never compares it as text, so padding is irrelevant there and
+ * load-bearing here. Two functions, two questions.
+ *
+ * ⭐ **A partial date is ACCEPTED — `'2026-01'` and `'2026'` are real business
+ * dates, and refusing them was this fix's first draft.** The suite caught it:
+ * `__tests__/1452-periods-gate-blob-writes.test.ts` seals a billing `cycle`
+ * field carrying `'2026-01'`, which is exactly how a monthly cycle is written.
+ * And it ORDERS correctly, which is the only thing this predicate is entitled
+ * to ask: `'2026-01' <= '2026-01-31'` is true and `'2026-01' > '2025-12-31'`,
+ * so a January cycle is sealed by a January close and by nothing earlier.
+ *
+ * So the rule is **zero-padded components**, not "must name a day" — padding
+ * is what ordering needs; granularity is the caller's business.
+ */
+const ORDERABLE_ISO =
+  /^(\d{4})(?:-(\d{2})(?:-(\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})?)?)?)?$/
+
+/** Days in `m` of `y`, proleptic Gregorian. */
+function daysInPeriodMonth(y: number, m: number): number {
+  if (m === 2) return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28
+  return m === 4 || m === 6 || m === 9 || m === 11 ? 30 : 31
+}
+
+/**
+ * @internal #1459 — is `value` a business date that can be compared against an
+ * `endDate` and give the calendar's answer?
+ */
+export function isOrderableBusinessDate(value: string): boolean {
+  const m = ORDERABLE_ISO.exec(value)
+  if (m === null) return false
+  const year = Number(m[1])
+  // Absent components are not wrong — see the header. Only a component that IS
+  // present has to name something real: `'2026-02-30'` orders fine and means
+  // nothing, and `'2026-13'` is not a month.
+  if (m[2] === undefined) return true
+  const month = Number(m[2])
+  if (month < 1 || month > 12) return false
+  if (m[3] === undefined) return true
+  const day = Number(m[3])
+  return day >= 1 && day <= daysInPeriodMonth(year, month)
+}
+
+/**
+ * @internal #1459 — the refusal, phrased once so the guard and `closePeriod()`
+ * cannot drift on what "malformed" means or on how they say it.
+ */
+export function malformedBusinessDate(where: string, value: string): ValidationError {
+  return new ValidationError(
+    `${where} is not an orderable business date: ${JSON.stringify(value)}. ` +
+      `Period membership compares strings, so a date must be zero-padded ` +
+      `ISO-8601 — "YYYY", "YYYY-MM" or "YYYY-MM-DD", optionally with a time ` +
+      `("2026-06-30T23:59:59Z"). Coarser is fine; unpadded is not. ` +
+      `"2026-6-15" is refused although it names a real day: as text it sorts ` +
+      `above "2026-06-30", so it would slip past a June close.`,
+  )
+}
+
+/**
  * Throw `PeriodClosedError` if the record being touched falls within
  * any closed period.
  *
@@ -746,7 +825,13 @@ export function assertTsWritable(
   const readDate = (p: PeriodRecord, r: Record<string, unknown>, side: 'existing' | 'incoming'): string | null => {
     const v = r[p.dateField!]
     if (v === undefined || v === null) return null
-    if (typeof v === 'string') return v
+    if (typeof v === 'string') {
+      // #1459 — validate the STRING, which #1455 did not. Before this, a
+      // malformed value went straight into the comparison: `'hello'` was
+      // written, and `'2026-6-15'` was written INTO a sealed June.
+      if (!isOrderableBusinessDate(v)) throw malformedBusinessDate(`${side}[${p.dateField}]`, v)
+      return v
+    }
     if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString()
     throw new ValidationError(
       `Period guard cannot evaluate ${side}[${p.dateField}] (${v instanceof Date ? 'invalid Date' : typeof v}) ` +

@@ -24,6 +24,7 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./package.json": "./package.json",
     "./codemods/0.4.0-pre.json": "./codemods/0.4.0-pre.json",
     "./i18n": {
       "types": "./dist/via/i18n/index.d.ts",
