@@ -36,6 +36,8 @@ import {
   type PeriodPartition,
   type PeriodReopenEvent,
   type PeriodReopenRecord,
+  isOrderableBusinessDate,
+  malformedBusinessDate,
 } from './periods.js'
 
 /** Selects one period timeline. Omit — or pass an empty tuple — for the vault-wide one (#1005). */
@@ -144,8 +146,14 @@ export class VaultPeriods {
   async closePeriod(options: ClosePeriodOptions): Promise<PeriodRecord> {
     const existing = await this.loadPeriodsCache()
     this.deps.strategy.validatePeriodName(options.name, existing, options.partition)
-    if (typeof options.endDate !== 'string' || options.endDate.length === 0) {
-      throw new ValidationError('closePeriod: endDate must be a non-empty ISO string.')
+    // #1459 — validated HERE, at the one place a period is created, as well as
+    // in the guard. A malformed `endDate` is the same defect seen from the
+    // other side: `'2026-6-30'` sorts below every June day, so the close would
+    // seal nothing and report success.
+    if (typeof options.endDate !== 'string' || !isOrderableBusinessDate(options.endDate)) {
+      throw typeof options.endDate === 'string'
+        ? malformedBusinessDate('closePeriod: endDate', options.endDate)
+        : new ValidationError('closePeriod: endDate must be a non-empty ISO string.')
     }
     const anchor = await this.deps.strategy.chainAnchor(existing, options.partition)
     const record: PeriodRecord = {
