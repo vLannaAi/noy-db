@@ -39,6 +39,7 @@ export function computedVia(cfg: ComputedViaConfig): NoydbVia {
   const fields = cfg.virtualFields
   return {
     brand: 'computed',
+    presentIsSync: true, // #1416 — `desc.fn(r)` is declared sync by the computed contract
     posture: VIRTUAL_POSTURE,
     covers: (field) => fields.has(field),
     present: (record) => {

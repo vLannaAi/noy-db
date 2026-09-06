@@ -186,6 +186,59 @@ export class ViaPipeline {
     return r
   }
 
+  /**
+   * #1416 — the synchronous half of {@link present}, for the query path.
+   *
+   * `query().toArray()` is SYNCHRONOUS (#1413) and so cannot await `present`,
+   * which is why it ran `decodeResults` instead — money's stored→canonical
+   * decode and nothing else. The visible cost was that a
+   * `computed({ mode:'virtual' })` field read `undefined` on a query row while
+   * `get()` and `list()` returned it, so the same record had two shapes
+   * depending on which read verb produced it, and a caller summing that field
+   * over a query result got `NaN` with no error.
+   *
+   * This folds the SAME order as `present`, skipping any binding that has not
+   * declared {@link ViaBinding.presentIsSync}. `money` and `computed` do, which
+   * is the pair that carries values; `i18n` and `lookup` are genuinely async
+   * and are reported in `skipped` rather than silently dropped — the caller can
+   * then say so instead of leaving a hole.
+   *
+   * ⚠️ Ordering is preserved exactly, including the `presentLate` boundary,
+   * because money's `presentLate` exists to react to computed's virtual output
+   * (#669). Reordering here would corrupt a field that is both money and
+   * virtual.
+   */
+  presentSync(
+    record: Record<string, unknown>,
+    ctx: ViaReadCtx,
+  ): { record: Record<string, unknown>; skipped: readonly string[] } {
+    let r = record
+    const skipped: string[] = []
+    const note = (b: NoydbVia): void => { if (!skipped.includes(b.brand)) skipped.push(b.brand) }
+    const runnable = (b: NoydbVia): boolean => {
+      if (b.presentIsSync === true) return true
+      if (b.present || b.presentLate) note(b)
+      return false
+    }
+    for (let i = 0; i < this._presentLateBoundary; i++) {
+      const b = this._presentOrder[i]!
+      if (b.present && runnable(b)) r = b.present(r, ctx) as Record<string, unknown>
+    }
+    for (const b of this.bindings) {
+      if (b.presentLate && runnable(b)) r = b.presentLate(r, ctx) as Record<string, unknown>
+    }
+    for (let i = this._presentLateBoundary; i < this._presentOrder.length; i++) {
+      const b = this._presentOrder[i]!
+      if (b.present && runnable(b)) r = b.present(r, ctx) as Record<string, unknown>
+    }
+    return { record: r, skipped }
+  }
+
+  /** True iff some binding's presentation can only run on the async path (#1416). */
+  get hasAsyncPresent(): boolean {
+    return this.bindings.some((b) => (b.present !== undefined || b.presentLate !== undefined) && b.presentIsSync !== true)
+  }
+
   buildClause(field: string, op: string, value: unknown): ViaClause | undefined {
     for (const b of this.bindings) {
       const payload = b.buildClause?.(field, op, value)
