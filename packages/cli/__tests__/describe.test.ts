@@ -103,7 +103,7 @@ describe('describeBundle — programmatic API', () => {
       sampleSize: 0,
     })
     const parsed = JSON.parse(out) as Record<string, unknown>
-    expect(parsed._noydb_snapshot).toBe(1)
+    expect(parsed._noydb_snapshot).toBe(2) // #1447 — format 2 adds `reports` 
     expect(parsed._provenance).toMatchObject({
       generatedBy: expect.stringContaining('noydb describe'),
       sourceSha256: expect.stringMatching(/^[0-9a-f]{64}$/),

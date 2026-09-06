@@ -109,7 +109,11 @@ export async function dumpVaultSchema(
   }
 
   const snap: VaultSchemaSnapshot = {
-    _noydb_snapshot: 1,
+    _noydb_snapshot: 2,
+    // #1447 — what this emitter CAN report, not what it found. `via` is listed
+    // unconditionally: a vault declaring no via fields still gets it, because
+    // the consumer's question is "can you answer?", not "did you find any".
+    reports: withStats ? ['via', 'stats'] : ['via'],
     vault: state.name,
     emittedAt: new Date().toISOString(),
     subsystems: state.subsystems,

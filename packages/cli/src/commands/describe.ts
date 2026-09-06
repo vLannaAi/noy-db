@@ -129,7 +129,11 @@ export async function describeBundle(opts: DescribeOptions): Promise<string> {
   const { _noydb_snapshot: _ignore, ...rest } = enriched
   void _ignore
   const withProvenance: SnapshotWithProvenance = {
-    _noydb_snapshot: 1,
+    _noydb_snapshot: 2,
+    // #1447 — carried through from the snapshot rather than restated, so a CLI
+    // dump reports the same emitter capabilities the vault did. Restating it
+    // here would let the two drift, and a reader cannot tell which is right.
+    reports: rest.reports,
     _provenance: {
       generatedBy: `noydb describe v${VERSION}`,
       source: basename(opts.bundlePath),

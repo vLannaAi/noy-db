@@ -49,7 +49,7 @@ describe('vault.dumpSchema() — baseline', () => {
   it('returns _noydb_snapshot version + vault name + emittedAt', async () => {
     const comp = await db.openVault(COMP)
     const snap = await comp.dumpSchema()
-    expect(snap._noydb_snapshot).toBe(1)
+    expect(snap._noydb_snapshot).toBe(2)
     expect(snap.vault).toBe(COMP)
     expect(snap.emittedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
   })
