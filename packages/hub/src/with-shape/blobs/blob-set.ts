@@ -202,6 +202,8 @@ export class BlobSet {
    * a cleared view: see `ownerRecordElevated()`/`ownerTier()`.
    */
   private readonly clearedTier: number | undefined
+  /** #1452 — see `BlobsStrategyOpenArgs.assertOwnerWritable`. */
+  private readonly assertOwnerWritable: (() => Promise<void>) | undefined
 
   constructor(opts: {
     store: NoydbStore
@@ -220,6 +222,7 @@ export class BlobSet {
     keyring?: UnlockedKeyring
     clearedTier?: number
     pinCache?: BlobPinCache
+    assertOwnerWritable?: () => Promise<void>
   }) {
     this.store = opts.store
     this.vault = opts.vault
@@ -237,6 +240,7 @@ export class BlobSet {
     this.keyring = opts.keyring
     this.clearedTier = opts.clearedTier
     this.pinCache = opts.pinCache
+    this.assertOwnerWritable = opts.assertOwnerWritable
   }
 
   /**
@@ -2268,6 +2272,7 @@ export class BlobSet {
   async put(slotName: string, data: Uint8Array, opts?: BlobPutOptions): Promise<void> {
     this.assertKeyPartSafe(this.recordId, 'record id')
     this.assertKeyPartSafe(slotName, 'slot name')
+    await this.assertOwnerWritable?.() // #1452 — a sealed / guarded record seals its attachments
     await this.resolvePendingIntent() // #753 spec §7 C6: resume a pending shred before accepting a new write
 
     // External-projection path: the field is declared `external` and an
@@ -2762,6 +2767,7 @@ export class BlobSet {
       meta?: Record<string, unknown>
     },
   ): Promise<void> {
+    await this.assertOwnerWritable?.() // #1452
     this.assertKeyPartSafe(this.recordId, 'record id')
     this.assertKeyPartSafe(slotName, 'slot name')
     this.assertExternalDeclared(slotName)
@@ -2857,10 +2863,34 @@ export class BlobSet {
   }
 
   /**
-   * Delete the named slot from this record.
-   * Decrements refCount on the blob. Chunks are GC'd by `vault.blobGC()`.
+   * Delete the named slot from this record and decrement the blob's refCount.
+   * At refCount 0 an erasable blob (`perRecordKeys`) is crypto-shredded on the
+   * spot; a legacy blob keeps its chunks until
+   * `vault.compact({ reclaimLegacyBlobs: true })` reclaims them (#1453), or
+   * `blob(id).migrate()` makes it erasable first.
+   *
+   * Gated on the owning record (#1452): refused where an update of the record
+   * would be refused.
    */
   async delete(slotName: string): Promise<void> {
+    await this.assertOwnerWritable?.()
+    return this.releaseSlot(slotName)
+  }
+
+  /**
+   * #1451 — release EVERY slot this record holds. Called by
+   * `Collection.delete()` after the record is gone, so "the record is deleted"
+   * and "its attachments are released" are one operation. Ungated: the record
+   * delete itself already passed the gate bus. Ref-counted like any release —
+   * content another record still holds survives.
+   */
+  async releaseAll(): Promise<void> {
+    const { slots } = await this.loadSlots()
+    for (const name of Object.keys(slots)) await this.releaseSlot(name)
+  }
+
+  /** The body of {@link delete}, minus the owner gate. */
+  private async releaseSlot(slotName: string): Promise<void> {
     await this.resolvePendingIntent() // #753 spec §7 C6: resume a pending shred before accepting a new write
     let eTagToRelease: string | undefined
     let externalKeyToDelete: string | undefined
@@ -3223,6 +3253,7 @@ export class BlobSet {
    * `rehomeForTier`) — no separate tier-scoping needed for the content side.
    */
   async publish(slotName: string, label: string): Promise<void> {
+    await this.assertOwnerWritable?.() // #1452
     this.assertKeyPartSafe(this.recordId, 'record id')
     this.assertKeyPartSafe(slotName, 'slot name')
     this.assertKeyPartSafe(label, 'version label')
@@ -3306,6 +3337,7 @@ export class BlobSet {
    * Delete a published version. Decrements refCount on its blob.
    */
   async deleteVersion(slotName: string, label: string): Promise<void> {
+    await this.assertOwnerWritable?.() // #1452
     await this.resolvePendingIntent() // #753 spec §7 C6: resume a pending shred before accepting a new write
     const record = await this.loadVersionRecord(slotName, label)
     if (!record) return
@@ -3531,3 +3563,4 @@ export class BlobSet {
 async function plainSha256Hex(data: Uint8Array): Promise<string> {
   return sha256Hex(data)
 }
+

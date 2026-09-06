@@ -105,7 +105,9 @@ export function withMaterializedView<TRow extends Record<string, unknown>>(
     // dependency set (built from arm `collection`s alone) does NOT
     // include. The consumer must list those right-side collections in
     // `sources` so writes to them trigger MV refresh.
-    if (spec.unionSources.some(s => s.join && s.join.length > 0) && (!spec.sources || spec.sources.length === 0)) {
+    // #1411 — declared (`on`) legs name their target literally and fold it in
+    // themselves; only ref legs need the consumer to list the right side.
+    if (spec.unionSources.some(s => s.join?.some(leg => !('on' in leg))) && (!spec.sources || spec.sources.length === 0)) {
       throw new MaterializedViewConfigError(
         `withMaterializedView "${spec.name}": a unionSources arm declares join(s) but `
         + `no \`sources\` are listed — declare sources: [...] with the right-side `

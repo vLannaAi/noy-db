@@ -67,6 +67,7 @@ export { detectMimeType, detectMagic, isPreCompressed } from '../../with-shape/b
 export { runCompaction, BLOB_EVICTION_AUDIT_COLLECTION } from '../../with-shape/blobs/blob-compaction.js'
 export { reportOrphanBlobChunks } from '../../with-shape/blobs/orphan-report.js' // #1133
 export type { OrphanChunkReport } from '../../with-shape/blobs/orphan-report.js'
+export type { UnreferencedLegacyBlobReport } from '../../with-shape/blobs/legacy-sweep.js' // #1453
 // `reportOrphanBlobChunks` takes the store directly, so this subpath must make
 // the type reachable — same re-export `./pod` and `./store` already carry
 // (`check:types`, which is not part of build/test/lint).

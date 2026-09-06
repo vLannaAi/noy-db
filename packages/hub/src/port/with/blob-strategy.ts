@@ -61,6 +61,15 @@ export interface BlobsStrategyOpenArgs {
    */
   readonly erasableBlobs?: boolean
   /**
+   * #1452 — refuse a content-changing blob verb (`put`/`delete`/`publish`/
+   * `deleteVersion`/`adoptExternal`) when the OWNING RECORD is not writable:
+   * the collection runs its `beforePut` gate bus (closed periods, record
+   * guards) with `incoming = existing`, so an attachment change is gated
+   * exactly as an update of the record would be. Absent → ungated (direct
+   * `BlobSet` construction in tests).
+   */
+  readonly assertOwnerWritable?: () => Promise<void>
+  /**
    * Collection has `tiers` active (#724 I1 completion). Combined with
    * `erasableBlobs` false, a content write is refused —
    * `UnsupportedTierCompositionError` — since a legacy blob has no

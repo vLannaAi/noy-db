@@ -932,8 +932,22 @@ export class PeriodClosedError extends NoydbError {
   readonly periodName: string
   readonly endDate: string
   readonly recordTs: string
+  /**
+   * #1455 — the business-date field the guard compared, when the period
+   * declares one. Absent on the envelope-`_ts` (no `dateField`) path.
+   * Structured so a consumer can render the refusal without parsing
+   * `recordTs`'s composed `"incoming[cycle]=2026-06"` form.
+   */
+  readonly dateField: string | undefined
+  /** #1455 — which side of the write tripped the seal. */
+  readonly side: 'existing' | 'incoming' | undefined
 
-  constructor(periodName: string, endDate: string, recordTs: string) {
+  constructor(
+    periodName: string,
+    endDate: string,
+    recordTs: string,
+    detail?: { dateField?: string; side?: 'existing' | 'incoming' },
+  ) {
     super(
       'PERIOD_CLOSED',
       `Cannot modify record (last written ${recordTs}) — sealed by closed period ` +
@@ -944,6 +958,36 @@ export class PeriodClosedError extends NoydbError {
     this.periodName = periodName
     this.endDate = endDate
     this.recordTs = recordTs
+    this.dateField = detail?.dateField
+    this.side = detail?.side
+  }
+}
+
+/**
+ * Thrown when the `_periods` hash chain does not verify on load (#1454): a
+ * period record's `priorPeriodHash` / `priorPeriodName` no longer resolve to
+ * the stored predecessor in its timeline — an interior close was rewritten or
+ * deleted under the engine. The write guard refuses to evaluate against a set
+ * it cannot trust, so every period-governed write fails with this until the
+ * store is repaired from a trusted copy.
+ *
+ * The chain cannot see a rewrite of the NEWEST record in a timeline (nothing
+ * hashes it yet); the public-API refusal in `vault.collection()` is what closes
+ * that path.
+ */
+export class PeriodChainError extends NoydbError {
+  readonly periodName: string
+  readonly partition: readonly (string | number)[] | undefined
+  constructor(periodName: string, why: string, partition?: readonly (string | number)[]) {
+    super(
+      'PERIOD_CHAIN_BROKEN',
+      `Period "${periodName}"${partition && partition.length ? ` (partition ${JSON.stringify(partition)})` : ''} ` +
+        `does not verify against its predecessor: ${why}. The _periods record set has been ` +
+        `altered outside the period engine; refusing to trust it.`,
+    )
+    this.name = 'PeriodChainError'
+    this.periodName = periodName
+    this.partition = partition
   }
 }
 

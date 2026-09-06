@@ -1231,7 +1231,13 @@ const KERNEL_SURFACE_BUDGET = {
   // The capability is `via/pipeline.ts#fieldCoverage`; what is here is the
   // read, and the "omit when empty" decision — absence must mean "nothing
   // declared", not "nothing reported".
-  'packages/hub/src/kernel/collection.ts': 4386,
+  // Bumped 4386→4414 (2026-09-06): #1451 + #1452. Six lines in `_commitDelete`
+  // release a deleted record's blob references (the record and its attachments
+  // are one delete), and `_assertRecordMutable` (21 lines) runs the `beforePut`
+  // gate bus with `incoming = existing` so a blob verb is gated exactly as an
+  // update of its owning record. Both are the kernel's own delete/gate seams;
+  // the blob machinery they reach stays in `with-shape/blobs`.
+  'packages/hub/src/kernel/collection.ts': 4414,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
@@ -1544,7 +1550,10 @@ const KERNEL_SURFACE_BUDGET = {
   // delegator plus its doc — the sync superset test that lets a caller rule the
   // period gate out for a row carrying none of the closed periods' date fields.
   // The logic is in `with-audit/periods/vault-facade.ts#couldGovern`.
-  'packages/hub/src/kernel/vault.ts': 3750,
+  // Bumped 3750→3756 (2026-09-06): #1454. The collection() door refuses the
+  // periods family (`_periods`, `_period_reopens`, …) — one predicate call and
+  // its four-line reason. The set lives in `with-audit/periods/reserved-collections.ts`.
+  'packages/hub/src/kernel/vault.ts': 3756,
   // Bumped 3960→3962 (#822 period-summary push symmetry, 2026-07-26): two lines wiring
   // the vault's existing `onDirty` into VaultPeriods so `closePeriod` marks the `_periods`
   // summary dirty and push carries it. The decision (which reserved collections push and
@@ -2379,6 +2388,10 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     // door rejects the reserved `_manifest` collection; sibling of the
     // grandfathered reserved-secret-collections.js guard above.
     '../with-shape/manifest/reserved-collections.js',
+    // #1454 — the periods family joins the same door for INTEGRITY, not
+    // secrecy: `_periods`/`_period_reopens` served by the generic handle let
+    // one put() rewrite a close and erase its audit log. Constants only.
+    '../with-audit/periods/reserved-collections.js',
     // classified-fields stage 1 — ③ schema feature, joins the #553 lazy-import debt like money/dictKey/computed
     '../via/classified/resolve.js',
     '../with-shape/introspection/field-meta.js',

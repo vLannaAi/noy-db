@@ -153,7 +153,10 @@ async function materializeUnionResult<TRow extends Record<string, unknown>>(
     let q: any = coll.query()
     if (arm.join?.length) {
       for (const leg of arm.join) {
-        q = q.join(leg.field, { as: leg.as, maxRows: leg.maxRows, strategy: leg.strategy })
+        // #1411 — a declared leg is `Query.joinOn()`; a ref leg is `Query.join()`.
+        q = 'on' in leg
+          ? q.joinOn(leg.target, { as: leg.as, on: leg.on, mode: leg.mode, maxRows: leg.maxRows })
+          : q.join(leg.field, { as: leg.as, maxRows: leg.maxRows, strategy: leg.strategy })
       }
     }
     const sourceRows = q.toArray() as ReadonlyArray<Record<string, unknown>>

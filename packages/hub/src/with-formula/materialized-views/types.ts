@@ -4,6 +4,7 @@ import type { Collection } from '../../kernel/collection.js'
 import type { ReduceSpec, Reduction } from '../../with-lookup/reduce/reduction.js'
 import type { GroupedReduction } from '../../with-lookup/reduce/groupby.js'
 import type { JoinStrategy } from '../../kernel/query/join.js'
+import type { JoinOnSpec } from '../../kernel/query/join-on.js'
 import type { MoneyDescriptor } from '../../via/money/descriptor.js'
 import type { ExactMath } from '../../via/money/exact.js'
 import type { I18nTextDescriptor } from '../../via/i18n/core.js'
@@ -95,25 +96,34 @@ export interface UnionSource<TRow extends Record<string, unknown>> {
    */
   readonly map: (sourceRow: Record<string, unknown>) => TRow | null | undefined
   /**
-   * Optional FK joins to apply to this arm's rows before {@link map}.
-   * Each leg resolves a `ref()`-declared foreign key on the arm's
-   * source collection into an attached right-side record under
-   * `as` — the same machinery as the query-form `Query.join()`.
+   * Optional joins to apply to this arm's rows before {@link map}, in two
+   * shapes (a leg is one or the other):
    *
-   * The right-side collections must be listed in the strategy's
-   * {@link MaterializedViewSpec.sources} so writes to them trigger
-   * MV refresh — registration throws `MaterializedViewConfigError`
-   * otherwise (the union dependency set comes from arm `collection`s
-   * alone, which would not include join targets).
+   *  - {@link UnionArmRefJoin} `{ field, as }` — resolves a `ref()`-declared
+   *    foreign key on the arm's source collection into an attached right-side
+   *    record under `as`; the same machinery as the query-form `Query.join()`.
+   *    Its right-side collections must be listed in the strategy's
+   *    {@link MaterializedViewSpec.sources} so writes to them trigger MV
+   *    refresh — registration throws `MaterializedViewConfigError` otherwise
+   *    (a ref's target is not known until the ref is declared, after
+   *    `openVault()`).
+   *  - {@link UnionArmDeclaredJoin} `{ target, as, on }` (#1411) — the
+   *    query-form `Query.joinOn()`: composite equality or a range, with the
+   *    predicate as DATA. No `ref()` needed, and `target` is a literal
+   *    collection name, so it joins the dependency set on its own and the
+   *    predicate folds into `queryHash`.
    */
   readonly join?: ReadonlyArray<UnionArmJoin>
 }
+
+/** One join leg on a UNION arm — a ref join or a declared join (#1411). */
+export type UnionArmJoin = UnionArmRefJoin | UnionArmDeclaredJoin
 
 /**
  * One FK join leg on a UNION arm. Mirrors the option shape of the
  * query-form `Query.join(field, { as, maxRows?, strategy? })`.
  */
-export interface UnionArmJoin {
+export interface UnionArmRefJoin {
   /** FK field on the arm's source collection (must have a `ref()` declared). */
   readonly field: string
   /** Alias under which the resolved right-side record attaches on the source row. */
@@ -122,6 +132,26 @@ export interface UnionArmJoin {
   readonly maxRows?: number
   /** Planner strategy override. `undefined` → auto-select. */
   readonly strategy?: JoinStrategy
+}
+
+/**
+ * One DECLARED join leg on a UNION arm (#1411) — `Query.joinOn(target, { as,
+ * on, mode?, maxRows? })` in declaration form. The `on` is plain JSON: a
+ * composite-equality pair list or a `{ left, op, right }` range. A left row
+ * matching nothing gets `null` under `as` (left outer); `mode: 'inner'` drops
+ * it. ⚠️ A declared join EXPANDS rows — one output row per match.
+ */
+export interface UnionArmDeclaredJoin {
+  /** Right-side collection name. Joins the MV's dependency set automatically. */
+  readonly target: string
+  /** Alias under which each matching right-side record attaches on the source row. */
+  readonly as: string
+  /** The predicate — see `JoinOnSpec`. Normalised and validated at registration. */
+  readonly on: JoinOnSpec
+  /** `'inner'` drops left rows with no match; omit for left-outer (`null` under `as`). */
+  readonly mode?: 'inner'
+  /** Per-side / output row ceiling override. `undefined` → the join default. */
+  readonly maxRows?: number
 }
 
 /**

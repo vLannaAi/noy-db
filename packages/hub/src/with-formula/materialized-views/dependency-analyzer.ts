@@ -2,6 +2,7 @@ import { describeGroupKey, type GroupKey } from '../../kernel/query/date-trunc.j
 import type { Query, QueryPlan } from '../../kernel/query/builder.js'
 import type { JoinContext, JoinLeg } from '../../kernel/query/join.js'
 import type { MaterializedViewSpec } from './types.js'
+import { normalizeJoinOn } from '../../kernel/query/join-on.js'
 
 /**
  * Walks a `Query<T>` plan and returns the set of source collection
@@ -259,8 +260,14 @@ function summarizeUnionArms<T extends Record<string, unknown>>(
       // reordering joins (which changes the materialized rows) bumps
       // queryHash. Leg order is declaration-significant (legs chain), so
       // it is NOT sorted — same rationale as arm declaration order.
+      // #1411 — a declared leg folds its NORMALISED predicate in (the normal
+      // form is what makes two logically identical `on`s hash identically, and
+      // `normalizeJoinOn` throwing here is what makes a malformed leg fail at
+      // registration rather than at the first refresh).
       const joins = s.join?.length
-        ? `[${s.join.map(j => `${j.field}→${j.as}`).join(';')}]`
+        ? `[${s.join.map(j => 'on' in j
+            ? `${j.target}?${JSON.stringify(normalizeJoinOn(j.on, j.target))}${j.mode === 'inner' ? '!' : ''}→${j.as}`
+            : `${j.field}→${j.as}`).join(';')}]`
         : ''
       return `${s.collection}${joins}`
     })

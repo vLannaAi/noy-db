@@ -2646,6 +2646,12 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       this.markerIds.add(id) // #606: this id now carries a marker — the #589 continuity gate should consult it on re-create
     } else if (persist) await this.adapter.delete(this.vault, this.name, id)
 
+    // #1451 — the record is gone; release its blob references with it. Ref-
+    // counted, so content another record still holds survives; a record with
+    // no slot map costs one `store.get`. Runs on the tx path too (`persist:
+    // false`), since that path lands the same delete.
+    if (this.strategies.blobs !== NO_BLOBS) await this.blob(id).releaseAll()
+
     // Ledger append — same after-write timing as put(). The recorded
     // version is the version that WAS deleted (existing?.version), not
     // a successor. A delete of a missing record still appends an
@@ -3869,8 +3875,30 @@ export class Collection<T, S extends keyof T = never, Q extends keyof T & string
       userId: this.keyring.userId,
       erasableBlobs: this.perRecordCek, tiersActive: this.tiers !== null, keyring: this.keyring,
       debugPlaintext: this.keyring.debugPlaintext === true,
+      assertOwnerWritable: () => this._assertRecordMutable(id), // #1452
       ...(this.objectStore !== undefined ? { objectStore: this.objectStore } : {}),
       ...(this.blobFields !== undefined ? { blobFields: this.blobFields } : {}),
+    })
+  }
+
+  /**
+   * #1452 — would an update of record `id` pass the `beforePut` gate bus right
+   * now? Runs the bus with `incoming = existing`, so closed periods and record
+   * guards refuse an attachment change exactly as they would refuse the
+   * record's own update. A record with no stored body (never written, marker,
+   * elevated tier) is not gated — attaching before the first `put()` was
+   * always allowed. @internal
+   */
+  async _assertRecordMutable(id: string): Promise<void> {
+    if (!this.subsystemBus?.hasGateHandlers('beforePut')) return
+    const { env, record } = await this.resolveGatePrior('beforePut', id)
+    if (!env || record === null || record === undefined) return
+    const existing = this.via ? this.via.canonicalizeStored(record as Record<string, unknown>) : record
+    await this.subsystemBus.dispatchGate('beforePut', {
+      op: 'update', vault: this.vault, collection: this.name, docId: id,
+      incoming: existing, existing, existingVersion: env._v, existingTs: env._ts,
+      userId: this.keyring.userId, role: this.keyring.role,
+      ...(this.computed !== undefined ? { computedFieldNames: new Set(Object.keys(this.computed)) } : {}),
     })
   }
 

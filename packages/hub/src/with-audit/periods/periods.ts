@@ -149,7 +149,7 @@ import type { NoydbStore, EncryptedEnvelope } from '../../kernel/types.js'
 import type { LedgerStore } from '../../with-commit/history/ledger/index.js'
 import { sha256Hex, canonicalJson } from '../../with-commit/history/ledger/index.js'
 import { isDeleteMarker } from '../../kernel/enclave/index.js'
-import { PeriodClosedError, ValidationError } from '../../kernel/errors.js'
+import { PeriodChainError, PeriodClosedError, ValidationError } from '../../kernel/errors.js'
 
 // The reserved collection names + `periodExclusiveUpperBound` moved to the
 // dependency-light `window.ts` so the sync engine's period-scoped pull (#807)
@@ -477,9 +477,16 @@ export interface ClosePeriodOptions {
   /** Human-readable name. Must not collide with an existing period. */
   readonly name: string
   /**
-   * Inclusive upper cutoff. A record is sealed when its
-   * `record[dateField]` (or, if absent, the envelope `_ts`) is at or
-   * before this ISO timestamp.
+   * Inclusive upper cutoff. With a `dateField`, a record is sealed when its
+   * `record[dateField]` is at or before this ISO timestamp; a record with
+   * NO value there (absent / `null`) carries no business date and belongs
+   * to no period, and a value that is neither an ISO string nor a `Date`
+   * is refused (#1455). Without a `dateField`, the envelope `_ts` of the
+   * stored record is compared instead.
+   *
+   * ⚠️ String comparison is lexicographic: keep `endDate` and the field in
+   * one ISO-8601 shape (`YYYY-MM-DD` against `YYYY-MM-DD`, or full
+   * timestamps against full timestamps).
    */
   readonly endDate: string
   /**
@@ -599,7 +606,57 @@ export async function loadPeriods(
   }
   // Stable order by closedAt so chain verification is reproducible.
   records.sort((a, b) => a.closedAt.localeCompare(b.closedAt))
+  await verifyPeriodChain(records)
   return records
+}
+
+/**
+ * The fields merged onto a {@link PeriodRecord} on READ and never written into
+ * the stored `_periods/<key>` record. Stripped before hashing so an anchor
+ * computed off a merged cache equals the one a cold loader recomputes off the
+ * stored bytes (#1454 — `chainAnchor` used to hash the cache as it stood, so a
+ * close following a reopen was anchored to a hash nothing could verify).
+ */
+const RETURN_ONLY_FIELDS: readonly string[] = [
+  'frozenAt', 'frozenBy', 'purgedMarkerCount',
+  'archivedAt', 'archivedBy', 'archivedRecordCount',
+  'targetsPurgedAt', 'targetsPurgedBy', 'targetsPurged',
+  'reopenedAt', 'reopenedBy', 'reopenedUntil', 'reopenReason', 'reclosedAt', 'reopenCount',
+]
+
+/** sha256(canonicalJson(record)) over the STORED shape of a period record. @internal */
+export async function hashStoredPeriod(period: PeriodRecord): Promise<string> {
+  const stored: Record<string, unknown> = { ...(period as unknown as Record<string, unknown>) }
+  for (const f of RETURN_ONLY_FIELDS) delete stored[f]
+  return sha256Hex(canonicalJson(stored))
+}
+
+/**
+ * #1454 — every record's `priorPeriodName` / `priorPeriodHash` must resolve to
+ * a stored predecessor in ITS timeline whose hash matches. Followed by name,
+ * not by sort position: two closes within one millisecond sort arbitrarily,
+ * and a deleted predecessor must read as a break, not as a new root.
+ *
+ * @internal
+ */
+export async function verifyPeriodChain(records: readonly PeriodRecord[]): Promise<void> {
+  const byKey = new Map<string, PeriodRecord>()
+  for (const r of records) byKey.set(resolvePeriodKey(r.name, r.partition), r)
+  for (const r of records) {
+    if (r.priorPeriodName === undefined) {
+      if (r.priorPeriodHash !== '') {
+        throw new PeriodChainError(r.name, 'it names no predecessor but carries a non-empty priorPeriodHash', r.partition)
+      }
+      continue
+    }
+    const prior = byKey.get(resolvePeriodKey(r.priorPeriodName, r.partition))
+    if (!prior) {
+      throw new PeriodChainError(r.name, `its predecessor "${r.priorPeriodName}" is missing from the store`, r.partition)
+    }
+    if ((await hashStoredPeriod(prior)) !== r.priorPeriodHash) {
+      throw new PeriodChainError(r.name, `its predecessor "${r.priorPeriodName}" no longer hashes to the recorded priorPeriodHash`, r.partition)
+    }
+  }
 }
 
 /**
@@ -620,7 +677,7 @@ export async function chainAnchor(
   const inTimeline = records.filter((p) => samePartition(p.partition, partition))
   const last = inTimeline[inTimeline.length - 1]
   if (!last) return { priorPeriodHash: '' }
-  const hash = await sha256Hex(canonicalJson(last as unknown as Record<string, unknown>))
+  const hash = await hashStoredPeriod(last)
   return { priorPeriodName: last.name, priorPeriodHash: hash }
 }
 
@@ -628,17 +685,27 @@ export async function chainAnchor(
  * Throw `PeriodClosedError` if the record being touched falls within
  * any closed period.
  *
- * Three signals, evaluated per period:
+ * Per period, per side (existing record / incoming record):
  *
  *  1. If the period declares a `dateField`, the guard reads
  *     `record[dateField]` on BOTH the existing (prior) record AND the
- *     incoming (new) record. Either comparing `<= endDate` triggers
- *     the error — callers cannot slide a record into a closed period
- *     by editing its date field.
+ *     incoming (new) record, each under its OWN partition. Either comparing
+ *     `<= endDate` triggers the error — callers cannot slide a record into a
+ *     closed period by editing its date field.
+ *     #1455 — value shapes: a string is compared as-is (ISO-8601 assumed —
+ *     the comparison is lexicographic); a `Date` is compared as the ISO string
+ *     it will be stored as; `undefined` / `null` means the record carries no
+ *     business date and belongs to NO period; anything else is REFUSED with
+ *     `ValidationError` — a date the gate cannot evaluate is not a permission.
  *  2. If the period has no `dateField`, the guard falls back to the
  *     envelope `_ts` of the existing record. Fresh inserts (no
  *     existing envelope) pass.
  *  3. For a delete, only the existing side is checked.
+ *
+ * #1456 — a value is OWNED by the closed period in its timeline with the
+ * smallest `endDate` at or after it. When that owner is effectively reopened,
+ * no later close vetoes the value: reopening January frees January-dated
+ * rows even with February and March closed, and February's rows stay sealed.
  *
  * @internal
  */
@@ -659,12 +726,36 @@ export function assertTsWritable(
   const existingRecord = existing?.record ?? null
   const existingPartition = partitionOf(existingRecord)
   const incomingPartition = partitionOf(incomingRecord)
+  const existingTs = existing?.ts ?? null
   // One instant for the whole check, so a bounded reopen window cannot expire
   // between two periods in the same loop and seal a write half-way.
   const now = new Date().toISOString()
+  const closed = closedPeriods.filter((p) => p.kind === 'closed')
 
-  for (const p of closedPeriods) {
-    if (p.kind !== 'closed') continue
+  // #1456 — is the period that OWNS `value` (in `partition`'s timeline) reopened?
+  const ownerReopened = (value: string, partition: PeriodPartition | undefined): boolean => {
+    let owner: PeriodRecord | undefined
+    for (const p of closed) {
+      if (!samePartition(p.partition, partition)) continue
+      if (value <= p.endDate && (owner === undefined || p.endDate < owner.endDate)) owner = p
+    }
+    return owner !== undefined && isEffectivelyReopened(owner, now)
+  }
+
+  // #1455 — one reading of a side's business date. `null` = no business date.
+  const readDate = (p: PeriodRecord, r: Record<string, unknown>, side: 'existing' | 'incoming'): string | null => {
+    const v = r[p.dateField!]
+    if (v === undefined || v === null) return null
+    if (typeof v === 'string') return v
+    if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString()
+    throw new ValidationError(
+      `Period guard cannot evaluate ${side}[${p.dateField}] (${v instanceof Date ? 'invalid Date' : typeof v}) ` +
+        `against closed period "${p.name}" — a business date must be an ISO-8601 string or a Date. ` +
+        `Refusing rather than admitting the record into a sealed timeline.`,
+    )
+  }
+
+  for (const p of closed) {
     // #1022 — a reopened period is writable again. This is the ONLY thing a
     // reopen does: it withdraws the period's veto. It cannot grant a write that
     // some other gate forbids, because the guard bus ANDs every handler and
@@ -672,7 +763,7 @@ export function assertTsWritable(
     if (isEffectivelyReopened(p, now)) continue
     if (p.dateField) {
       const checkRecord = (
-        label: string,
+        side: 'existing' | 'incoming',
         r: Record<string, unknown> | null,
         recordPartition: PeriodPartition | undefined,
       ): void => {
@@ -681,9 +772,9 @@ export function assertTsWritable(
         // a write from sliding a record either INTO or OUT OF a sealed
         // timeline by rewriting the fields the subject mapping reads.
         if (!samePartition(recordPartition, p.partition)) return
-        const v = r[p.dateField!]
-        if (typeof v === 'string' && v <= p.endDate) {
-          throw new PeriodClosedError(p.name, p.endDate, `${label}[${p.dateField}]=${v}`)
+        const v = readDate(p, r, side)
+        if (v !== null && v <= p.endDate && !ownerReopened(v, recordPartition)) {
+          throw new PeriodClosedError(p.name, p.endDate, `${side}[${p.dateField}]=${v}`, { dateField: p.dateField!, side })
         }
       }
       checkRecord('existing', existingRecord, existingPartition)
@@ -694,9 +785,8 @@ export function assertTsWritable(
     // record's partition — `_ts` belongs to the stored envelope, so the
     // incoming side has no write-time of its own to compare.
     if (!samePartition(existingPartition, p.partition)) continue
-    const existingTs = existing?.ts ?? null
-    if (existingTs !== null && existingTs <= p.endDate) {
-      throw new PeriodClosedError(p.name, p.endDate, existingTs)
+    if (existingTs !== null && existingTs <= p.endDate && !ownerReopened(existingTs, existingPartition)) {
+      throw new PeriodClosedError(p.name, p.endDate, existingTs, { side: 'existing' })
     }
   }
 }

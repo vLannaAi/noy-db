@@ -646,7 +646,10 @@ export class VaultPeriods {
     for (const p of this.periodCache) {
       if (p.kind !== 'closed' || isEffectivelyReopened(p, now)) continue
       if (!p.dateField || record === undefined) return true
-      if (typeof record[p.dateField] === 'string') return true
+      // #1455 — any present value can now fire the gate (a Date is compared,
+      // anything else non-string is refused); only absent / null is outside
+      // every period.
+      if (record[p.dateField] !== undefined && record[p.dateField] !== null) return true
     }
     return false
   }
