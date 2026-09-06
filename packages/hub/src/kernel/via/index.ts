@@ -140,6 +140,22 @@ export interface NoydbVia {
    * the already-dressed value.
    */
   presentLate?(record: Record<string, unknown>, ctx: ViaReadCtx): Awaitable<Record<string, unknown>>
+  /**
+   * #1416 — declare that BOTH `present` and `presentLate` return synchronously,
+   * so `ViaPipeline.presentSync` may fold this binding.
+   *
+   * ⛔ DECLARED, NOT SNIFFED, and that is the whole point. A plain function
+   * returning a promise is indistinguishable at runtime from one that does not
+   * (`constructor.name === 'AsyncFunction'` catches `async () =>` and nothing
+   * else), so detecting it would silently mis-classify the one binding that
+   * matters. Calling an async hook and discarding its promise is worse still:
+   * side effects run and a rejection surfaces unhandled.
+   *
+   * Defaults to `false` — a binding that has not thought about it is skipped by
+   * the sync path and dressed only on the async one, which is today's
+   * behaviour. `money` and `computed` set it; `i18n` and `lookup` cannot.
+   */
+  readonly presentIsSync?: boolean
   // ── query participation (ALL SYNC — #553) ──
   /** Returns an opaque clause payload when this binding covers `field`, else undefined. */
   // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents

@@ -1314,8 +1314,12 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
       // (right-side aliased fields belong to other collections and are out
       // of this source's Via scope).
       const pagePlan = innerDrops ? { ...this.plan, offset: 0, limit: undefined } : this.plan
+      // Safe to present at the caller's locale here: `executePlanWithSource`
+      // has already filtered, ordered and paged, so no predicate or comparator
+      // can see a formatted value (#1416).
       const base = this.decodeVia(
         executePlanWithSource(this.source, pagePlan, this.joinContext, opts?.locale, this.aliasVia()),
+        opts?.locale,
       )
       if (this.plan.joins.length === 0) return this.dressAliases(base) as T[]
       const joined = applyJoins(base, this.plan.joins, this.requireJoinContext('toArray'), opts?.locale)
@@ -1336,19 +1340,27 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
     // narrow a set the alias does not exist in yet — and a loud ceiling error
     // beats today's silent empty result.
     const joinContext = this.requireJoinContext('toArray')
-    const narrowed = this.decodeVia(
-      executePlanWithSource(
-        this.source,
-        { ...this.plan, clauses: preJoin, orderBy: [], limit: undefined, offset: 0 },
-        joinContext,
-        opts?.locale,
-      ),
+    // ⛔ #1416 — PRESENT LAST ON THIS PATH TOO. This used to present BEFORE the
+    // post-join filter, which had two consequences. The one that blocks the
+    // locale is that a formatted money value would reach a `where()` predicate;
+    // the one that was already wrong is that money's `evaluateClause` expects
+    // the RAW STORED value (see `candidateRecords`' #1415 note), and the
+    // ordinary non-join path filters and sorts on raw — so this path alone
+    // compared and ordered against decoded values. Presenting after the plan
+    // finishes fixes both and matches `dressAliases`' stated rule.
+    //
+    // Callback clauses are unaffected: `fnViewDecoder` builds their decoded
+    // view separately and always did.
+    const narrowed = executePlanWithSource(
+      this.source,
+      { ...this.plan, clauses: preJoin, orderBy: [], limit: undefined, offset: 0 },
+      joinContext,
+      opts?.locale,
     )
     const joined = applyJoins(narrowed, this.plan.joins, joinContext, opts?.locale)
     const filtered = filterRecords(joined, postJoin, fnViewDecoder(this.source))
-    return this.dressAliases(
-      applyOrderAndPage(filtered, this.plan, this.source, joinContext, opts?.locale, this.aliasVia()),
-    ) as T[]
+    const paged = applyOrderAndPage(filtered, this.plan, this.source, joinContext, opts?.locale, this.aliasVia())
+    return this.dressAliases(this.decodeVia(paged, opts?.locale)) as T[]
   }
 
   /**
@@ -1516,23 +1528,59 @@ export class Query<T, S extends keyof T = never, Q extends keyof T & string = ne
   }
 
   /**
-   * Decode this source's Via-covered fields on read (e.g. money: stored
-   * scaled-int → canonical decimal), so `query().toArray()` agrees with
-   * `get()`/`sum()` on the value. No-op when the source's Via pipeline
-   * declares no result decode.
+   * Present this source's Via-covered fields on read, so `query().toArray()`
+   * agrees with `get()`/`list()` about what a record contains (#1416).
    *
-   * The query layer carries no locale context, so money decodes with
-   * `'raw'` — canonical decimal, WITHOUT fabricating locale-formatted
-   * `<field>Formatted` / `<field>Number` virtuals. Producing a
-   * guessed-locale string here would reintroduce a "two read paths
-   * disagree" failure on the virtual field (e.g. it-IT via `get()` vs
-   * en-US here). Consumers who need formatted money read through
-   * `get()`/`list()` with a locale.
+   * ⛔ THIS USED TO RUN `decodeResults`, WHICH IS NOT THE SAME QUESTION. That
+   * hook is money's stored→canonical decode and nothing else, so a
+   * `computed({ mode: 'virtual' })` field read `undefined` on a query row while
+   * `get()` returned it — the same record with two shapes depending on which
+   * verb produced it, and a caller summing that field over a query result got
+   * `NaN` with no error. Reported at `receiptAmount get=84715.00 query=undefined`.
+   *
+   * The old doc comment defended the omission of money's `<field>Formatted` /
+   * `<field>Number` virtuals on the grounds that "the query layer carries no
+   * locale context", and that reasoning was right: fabricating a guessed-locale
+   * string here would make it-IT via `get()` disagree with en-US here. ⚠️ But
+   * the premise had gone stale — `toArray({ locale })` exists and threads its
+   * locale into `executePlanWithSource`, `applyJoins` and `applyOrderAndPage`.
+   * This was the one call site that never received it, which is also why joined
+   * ALIASES were dressed while the base row was not.
+   *
+   * So this presents at `'raw'`: values — money's canonical decode and every
+   * virtual computed field — while money's binding gates the locale-formatted
+   * virtuals on `locale !== 'raw'`, so nothing is guessed.
+   *
+   * ⛔ HONOURING `toArray({ locale })` HERE IS A SEPARATE CHANGE, and the
+   * obvious implementation is measurably wrong. Presenting twice — once raw for
+   * the plan, once at the locale for output — silently yields the RAW result:
+   *
+   *     presentSync(stored, raw)              -> { amount: "84715.00" }
+   *     presentSync(that,   'en-US')          -> { amount: "84715.00" }   <-- no siblings
+   *     presentSync(stored, 'en-US')          -> { amount: "84715.00",
+   *                                                amountFormatted: "THB 84,715.00", ... }
+   *
+   * because the second pass sees an already-decoded value and re-emits no
+   * siblings. So formatting has to happen in ONE pass at the final locale —
+   * and one of this method's call sites runs BEFORE the post-join filter,
+   * where a formatted value would change what a `where()` predicate compares
+   * against. That is the same rule `dressAliases` states: dressing is
+   * presentation and belongs after the plan has finished. Deciding it needs
+   * its own change; leaving `toArray({ locale })` inert for base rows is the
+   * status quo, not a new hole.
+   *
+   * ⚠️ SYNCHRONOUS, so it folds only the bindings that declared
+   * `presentIsSync` — money and computed. A collection also using i18n or
+   * lookup keeps those fields undressed here, exactly as today; `presentSync`
+   * reports them and `explain()` says so rather than leaving a silent hole.
+   * Making this complete would mean making `toArray()` async, which is the
+   * contract #1413 deliberately established.
    */
-  private decodeVia(records: readonly unknown[]): unknown[] {
+  private decodeVia(records: readonly unknown[], locale?: string): unknown[] {
     const via = this.source.via
-    if (!via || !via.hasResultDecode) return records as unknown[]
-    return records.map(r => via.decodeResults(r))
+    if (!via) return records as unknown[]
+    const ctx = { locale: locale ?? 'raw', layer: 'read' as const }
+    return records.map(r => via.presentSync(r as Record<string, unknown>, ctx).record)
   }
 
   /**
