@@ -21,6 +21,11 @@ import type { NoydbStore, EncryptedEnvelope, ChangeEvent, VaultSnapshot } from '
 import type { StandardSchemaV1 } from '../src/kernel/schema.js'
 import { joinedPut, pairDelete } from '../src/with-shape/satellites/fanout.js'
 import type { FanoutDeps } from '../src/with-shape/satellites/fanout.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/live/index.js'
 
 const SECRET = 'satellite-fanout-test-1234'
 

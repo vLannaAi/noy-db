@@ -59,8 +59,8 @@
  * and a hang.
  */
 
-import { readPath } from './predicate.js'
-import { compareKeys, toSortKey, type SortKey } from './sort-key.js'
+import { readPath } from '../predicate.js'
+import { compareKeys, toSortKey, type SortKey } from '../sort-key.js'
 
 /** Comparison operators a declared range join understands. */
 export type JoinOnOp = '<' | '<=' | '>' | '>=' | 'between'

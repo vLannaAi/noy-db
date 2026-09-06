@@ -20,7 +20,7 @@ import type {
   ReductionUpstream,
 } from './reduction.js'
 import type { GroupedQuery, GroupedQueryN } from './groupby.js'
-import type { GroupMaintenanceSource } from '../../kernel/query/incremental.js'
+import type { GroupMaintenanceSource } from '../../kernel/query/live/incremental.js'
 import type { WindowFactory, WindowSpec, WindowedQuery } from './window.js'
 /**
  * Re-exported so `kernel/query/builder.ts` can name `.window()`'s spec and

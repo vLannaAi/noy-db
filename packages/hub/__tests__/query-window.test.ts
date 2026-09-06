@@ -30,7 +30,7 @@ import {
   runningMoneySum,
   count,
 } from '../src/with-lookup/reduce/index.js'
-import { dateTrunc } from '../src/kernel/query/date-trunc.js'
+import { dateTrunc } from '../src/kernel/query/reduce/date-trunc.js'
 import { createNoydb } from '../src/index.js'
 import { money } from '../src/via/money/descriptor.js'
 import type { NoydbStore, EncryptedEnvelope } from '../src/kernel/types.js'

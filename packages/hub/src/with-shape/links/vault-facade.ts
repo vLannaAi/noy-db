@@ -25,7 +25,7 @@ import {
 // Type-only -- the LinkSet storage engine loads via dynamic import in the
 // Vault's lazy links() handle (#553); this facade only needs its shape.
 import type { LinkSet } from './link-set.js'
-import type { JoinableSource } from '../../kernel/query/index.js'
+import type { JoinableSource } from '../../kernel/query/relate/join.js'
 import type { Collection } from '../../kernel/collection.js'
 import type { NoydbStore } from '../../kernel/types.js'
 import type { TxContext } from '../../with-commit/tx/transaction.js'

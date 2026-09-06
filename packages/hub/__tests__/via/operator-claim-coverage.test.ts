@@ -77,6 +77,11 @@ import { classified } from '../../src/via/classified/presets.js'
 import type { ClassifiedGuardCtx } from '../../src/via/classified/guards.js'
 import type { I18nStrategy } from '../../src/port/with/i18n-strategy.js'
 import type { ComputedDescriptor } from '../../src/port/with/computed-strategy.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../../src/kernel/query/relate/index.js'
 
 /**
  * The whole `Operator` union, as VALUES. `satisfies` is the mechanical

@@ -23,7 +23,7 @@ import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView } from '../src/index.js'
 import { memoryStore } from '../src/kernel/memory-store.js'
 import { sum, withReduce } from '../src/with-lookup/reduce/index.js'
-import type { JoinOnSpec } from '../src/kernel/query/join-on.js'
+import type { JoinOnSpec } from '../src/kernel/query/relate/join-on.js'
 
 interface Disbursement extends Record<string, unknown> { id: string; entityId: string; amount: number; date: string }
 interface Entity extends Record<string, unknown> { id: string; entityId: string; clientId: string }

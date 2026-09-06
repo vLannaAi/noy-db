@@ -598,6 +598,22 @@ function checkEveryServiceGated() {
 //   entry. Read the comment on a line before concluding an entry is stale.
 const NOT_SERVICE_SUBPATHS = new Set([
   'cargo', 'to', 'pod', 'satellites', 'util', 'share-link', 'query',
+  // #1458 — QUERY TIERS, a fourth category: a subpath imported for its SIDE
+  // EFFECT, not for a factory. `import '@noy-db/hub/query/relate'` patches the
+  // Relate methods onto `Query.prototype` and merges their types; there is
+  // deliberately no `withRelate(Query)` to call, because an installer call was
+  // considered and rejected (it is the same mechanism plus one line the user
+  // did not want — see the issue).
+  //
+  // ⚠️ Do not read the absence of a `with*()` as "not opted into". These three
+  // ARE the opt-in; the gate is the import statement itself, and the
+  // `sideEffects` array in package.json is what keeps a bundler from
+  // discarding it.
+  'query/live', 'query/reduce', 'query/relate',
+  // `query/all` is the same category once removed: Find plus all three groups,
+  // for a consumer who wants the pre-#1458 surface from the subpath in one
+  // import. No factory, and none wanted.
+  'query/all',
   // FAMILY PORT, like `to`: the contract an `at-*` sealing-key provider
   // implements, not a capability a vault opts into. Re-introduced in the
   // 0.7 line (it shipped in 0.3.0 and was removed in 0.4.0 for "zero
@@ -1148,7 +1164,7 @@ const KERNEL_SURFACE_BUDGET = {
   // `decodeResults` — Via dressing keys by BARE FIELD NAME, so a record served under an
   // alias is invisible to the top-level decode and served RAW money (#1335). Neither can
   // move onto the ServiceBus: both are views of `this.cache` / `this.via`, which only the
-  // kernel holds. All the join LOGIC is in kernel/query/{join,builder}.ts; only the two
+  // kernel holds. All the join LOGIC is in kernel/query/{relate/join,builder}.ts; only the two
   // accessors it reads through are here.
   // Bumped 4322->4345 (2026-09-04). TWO independent bumps landed in the same batch and
   // this value is the MEASURED count after both, not either branch's figure — #1362 raised
@@ -1237,7 +1253,12 @@ const KERNEL_SURFACE_BUDGET = {
   // gate bus with `incoming = existing` so a blob verb is gated exactly as an
   // update of its owning record. Both are the kernel's own delete/gate seams;
   // the blob machinery they reach stays in `with-shape/blobs`.
-  'packages/hub/src/kernel/collection.ts': 4414,
+  // 4414 → 4418 (#1458 query tiers): the single type import of `JoinContext`,
+  // `JoinableSource` and `SourceChange` from `./query/index.js` became three —
+  // one per group barrel — plus the two-line note saying why a kernel file may
+  // name Relate at all (it is type-only, so erased). No capability was added;
+  // ratchet it back if the barrels ever re-merge.
+  'packages/hub/src/kernel/collection.ts': 4418,
   // Lowered 4549→4548 (#826/#798/#812 deprecation cut, 2026-07-26): removed the #799 cover delegators + option key, the dead auth/autoSync/syncInterval options, and the /bundle retirement fallout. Ratchets the #799 bumps back down as their comments promised.
   // Bumped 3640→3700 (2026-06-08): deferred-numbering wiring — `sequence()`
   // routing + `runNumberingPass` + the cache-coherent `stamp` closure. The
@@ -2443,11 +2464,43 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../with-shape/schema-update/types.js',
   ]],
   ['packages/hub/src/kernel/query/builder.ts', [
-    '../../with-lookup/reduce/reduction.js',
-    '../../with-lookup/reduce/groupby.js',
-    '../../with-lookup/reduce/reducers.js',
+    // #1458 — the list SHRANK here, and the shrink is the point. `reduction`,
+    // `groupby` and `reducers` left with `aggregate()`/`groupBy()`; what is
+    // left is the null-object strategy seam and the index store Find's fast
+    // path needs. Do not re-add the other three: the query-tiers closure check
+    // would fail, and it would fail for the right reason.
     '../../with-lookup/reduce/strategy.js',
     '../../with-lookup/indexing/eager-indexes.js',
+  ]],
+  // #1458 — the three extension groups. These are NOT the kernel spine any
+  // more: `kernel/query/{live,reduce,relate}/` ship from their own subpaths and
+  // a consumer reaches them only by importing one. Reduce genuinely IS the
+  // aggregate service's call-site, so a dynamic import here would buy nothing
+  // and cost the chain its synchronous terminal.
+  ['packages/hub/src/kernel/query/reduce/methods.ts', [
+    '../../../with-lookup/reduce/reduction.js',
+    '../../../with-lookup/reduce/groupby.js',
+    '../../../with-lookup/reduce/reducers.js',
+    '../../../with-lookup/reduce/strategy.js',
+  ]],
+  ['packages/hub/src/kernel/query/reduce/scan-methods.ts', [
+    '../../../with-lookup/reduce/reduction.js',
+    '../../../with-lookup/reduce/reducers.js',
+  ]],
+  ['packages/hub/src/kernel/query/relate/methods.ts', [
+    '../../../with-lookup/reduce/strategy.js',
+  ]],
+  ['packages/hub/src/kernel/query/live/methods.ts', [
+    '../../../with-lookup/reduce/strategy.js',
+  ]],
+  // The two shared internals. Both name `ReduceStrategy` only to type the
+  // field the mixins read; `maintenance.ts` additionally names the maintainer
+  // Live and Reduce share.
+  ['packages/hub/src/kernel/query/internal/core.ts', [
+    '../../../with-lookup/reduce/strategy.js',
+  ]],
+  ['packages/hub/src/kernel/query/internal/maintenance.ts', [
+    '../../../with-lookup/reduce/strategy.js',
   ]],
   ['packages/hub/src/kernel/query/index.ts', [
     '../../with-lookup/reduce/reduction.js',
@@ -2456,8 +2509,9 @@ const PRE_EXISTING_SPINE_SERVICE_IMPORTS = new Map([
     '../../with-lookup/indexing/eager-indexes.js',
   ]],
   ['packages/hub/src/kernel/query/scan-builder.ts', [
+    // #1458 — `reducers.js` left with `scan().aggregate()`; the remaining
+    // reference is the RESULT TYPE the (now-stubbed) terminal publishes.
     '../../with-lookup/reduce/reduction.js',
-    '../../with-lookup/reduce/reducers.js',
   ]],
   ['packages/hub/src/kernel/enclave/record-keys/record-codec.ts', [
     '../../../with-commit/crdt/crdt.js',
@@ -3231,6 +3285,186 @@ function checkPeerMetaDeclared() {
     }
   }
 }
+
+
+// ─── Check 18: query-tiers — Find's RUNTIME closure carries no extension ───
+//
+// #1458 split the query DSL into four groups: Find, always present at
+// `@noy-db/hub/query`, and Live / Reduce / Relate as side-effect subpaths that
+// patch `Query.prototype` on load. The whole point is a byte one, so the
+// invariant has to be about bytes: **nothing reachable from the Find entry by
+// a RUNTIME import may live under `kernel/query/{live,reduce,relate}/` or in
+// the reduce engine.**
+//
+// ⭐ **A CLOSURE check, not a path check, and the difference is the whole
+// value.** A rule saying "no file in `kernel/query/` may import `./relate/`"
+// is satisfiable while `predicate.ts` imports a helper that imports one — the
+// bytes arrive, the rule passes. Walking the graph from the published entry
+// asks the question a bundler asks. It also needs no allow-list of file names
+// to keep in step with the directory.
+//
+// ⚠️ TYPE-ONLY imports are excluded, because they are erased and cost nothing.
+// `builder.ts` naming `JoinLeg` is not a violation — Find must be able to
+// EXECUTE a plan carrying legs; it must not be able to BUILD one. That
+// distinction is the design, so the walker below draws the line at
+// `import type`, exactly where `tsc` does.
+//
+// The one allowed reduce file is the null-object seam — see its own header.
+// It is what makes the aggregate SERVICE opt-in, and it predates this split.
+
+const QUERY_TIER_ENTRY = join(PACKAGES_DIR, 'hub/src/kernel/query/index.ts')
+
+const QUERY_TIER_FORBIDDEN = [
+  'src/kernel/query/live/',
+  'src/kernel/query/reduce/',
+  'src/kernel/query/relate/',
+  'src/with-lookup/reduce/',
+]
+
+// `with-lookup/reduce/strategy.ts` only: the NO_REDUCE null object plus its
+// types. Do NOT widen this to the directory — `reducers.ts` alone is 6.2 kB
+// minified, and it arriving in the Find bundle is exactly what #1458 measured.
+const QUERY_TIER_ALLOWED = ['src/with-lookup/reduce/strategy.ts']
+
+/**
+ * Runtime import specifiers in a TS source, type-only imports excluded.
+ *
+ * Deliberately regex rather than a parser: this file has no build step and no
+ * dependencies, and the shapes it must recognise are the four the codebase
+ * actually writes. A specifier it fails to see would UNDER-report, so the
+ * `mutation` self-test below exists to prove it still sees one.
+ */
+function runtimeImportSpecifiers(source) {
+  const out = []
+  // `import ... from 'x'` and bare `import 'x'`, but never `import type ... from 'x'`.
+  const re = /(?:^|\n)\s*import\s+(?!type\s)(?:[^'"]*?\sfrom\s*)?['"]([^'"]+)['"]/g
+  let m
+  while ((m = re.exec(source)) !== null) out.push(m[1])
+  // `export ... from 'x'` re-exports a runtime binding too; `export type` does not.
+  const re2 = /(?:^|\n)\s*export\s+(?!type\s)(?:\*|\{[^}]*\})\s*(?:as\s+\w+\s*)?from\s*['"]([^'"]+)['"]/g
+  while ((m = re2.exec(source)) !== null) out.push(m[1])
+  return out
+}
+
+/** Every file reachable from `entry` by a runtime import, as repo-relative paths. */
+function runtimeClosure(entry) {
+  const seen = new Set()
+  const stack = [entry]
+  while (stack.length > 0) {
+    const file = stack.pop()
+    if (seen.has(file) || !existsSync(file)) continue
+    seen.add(file)
+    for (const spec of runtimeImportSpecifiers(readFileSync(file, 'utf8'))) {
+      if (!spec.startsWith('.')) continue
+      const resolved = resolve(dirname(file), spec.replace(/\.js$/, '.ts'))
+      stack.push(resolved)
+    }
+  }
+  return seen
+}
+
+function checkQueryTiers() {
+  if (!existsSync(QUERY_TIER_ENTRY)) {
+    fail('query-tiers', 'kernel/query/index.ts not found — did the Find entry move? Update QUERY_TIER_ENTRY.', QUERY_TIER_ENTRY)
+    return
+  }
+  const closure = runtimeClosure(QUERY_TIER_ENTRY)
+  for (const file of closure) {
+    const rel = relative(join(PACKAGES_DIR, 'hub'), file)
+    if (QUERY_TIER_ALLOWED.includes(rel)) continue
+    const hit = QUERY_TIER_FORBIDDEN.find(p => rel.startsWith(p))
+    if (hit === undefined) continue
+    fail(
+      'query-tiers',
+      `${rel} is reachable from @noy-db/hub/query by a RUNTIME import, but it belongs to an ` +
+      `extension group (${hit}). Find must ship without Live, Reduce or Relate — that is the ` +
+      `whole of #1458. If Find genuinely needs this value at runtime, it needs a hook in ` +
+      `kernel/query/internal/hooks.ts, not an import; if it only needs the TYPE, make it ` +
+      `\`import type\`.`,
+      file,
+    )
+  }
+
+  // ⭐ MUTATION SELF-TEST. The check above is a regex walker over a graph, and
+  // a walker that silently stopped early would pass forever while the property
+  // it names quietly rotted. So: plant a violation in a copy of the entry's
+  // source and require the walker to see it. This runs in-memory and touches
+  // no file on disk.
+  const probe = readFileSync(QUERY_TIER_ENTRY, 'utf8') + `\nimport { applyJoins } from './relate/join.js'\n`
+  const specs = runtimeImportSpecifiers(probe)
+  if (!specs.includes('./relate/join.js')) {
+    fail(
+      'query-tiers',
+      `the query-tiers walker no longer detects a planted \`import { applyJoins } from ` +
+      `'./relate/join.js'\` in the Find entry. The check is passing vacuously — fix ` +
+      `runtimeImportSpecifiers() before trusting any green run of it.`,
+      QUERY_TIER_ENTRY,
+    )
+  }
+  // …and the same for the type-only exclusion, in the other direction: a
+  // walker that stopped excluding `import type` would fail the check on
+  // builder.ts's `JoinLeg` and send the next reader to delete a correct import.
+  if (runtimeImportSpecifiers(`import type { JoinLeg } from './relate/join.js'\n`).length !== 0) {
+    fail(
+      'query-tiers',
+      `the query-tiers walker now counts \`import type\` as a runtime import. It is erased by ` +
+      `tsc and costs no bytes; counting it would fail builder.ts for naming the plan shape it ` +
+      `has to execute.`,
+      QUERY_TIER_ENTRY,
+    )
+  }
+}
+
+checkQueryTiers()
+
+// ─── Check 18b: query-tier barrels are imported only by consumers ─────────
+//
+// ⛔ A `declare module` augmentation is PROGRAM-WIDE, not import-gated. Each
+// group barrel carries one, so ANY file that imports it — including a
+// `import type` that costs zero bytes — makes `join` / `aggregate` /
+// `subscribe` exist on `Query` for every program that reaches that file.
+//
+// ⭐ **That silently disables the compile error, which is the primary signal
+// of the whole design.** Measured while #1458 was being built:
+// `kernel/collection.ts` type-imported `JoinContext` from
+// `./query/relate/index.js`, and the negative type-test fixture compiled
+// `.join()` cleanly with no Relate import anywhere. Nothing was wrong at
+// runtime and nothing failed; the guarantee had simply stopped existing.
+//
+// So: inside hub, only the root barrel may import a group barrel. Everything
+// else names the concrete module (`./relate/join.js`), which carries the type
+// without the augmentation.
+
+const QUERY_TIER_BARRELS = /['"](?:\.\.?\/)+(?:kernel\/)?query\/(live|reduce|relate)\/index\.js['"]/
+
+const QUERY_TIER_BARREL_IMPORTERS_ALLOWED = new Set([
+  // The root barrel — this is where the split is deliberately undone, so a
+  // consumer of `@noy-db/hub` sees every method exactly as before.
+  'packages/hub/src/index.ts',
+])
+
+function checkQueryTierBarrelImports() {
+  walkTsFiles(join(PACKAGES_DIR, 'hub/src'), (file, source) => {
+    const rel = relative(ROOT, file)
+    if (QUERY_TIER_BARREL_IMPORTERS_ALLOWED.has(rel)) return
+    // A group's own files may import their own barrel.
+    if (/\/kernel\/query\/(live|reduce|relate)\//.test(file)) return
+    const m = QUERY_TIER_BARRELS.exec(source)
+    if (m === null) return
+    fail(
+      'query-tiers',
+      `${rel} imports the ${m[1]} group's BARREL (query/${m[1]}/index.js). That barrel carries a ` +
+      `\`declare module\` augmentation, and a TypeScript augmentation is program-wide — importing ` +
+      `it here makes the ${m[1]} methods typecheck for every consumer who reaches this file, ` +
+      `including one who never imported the group. Import the concrete module instead ` +
+      `(e.g. 'query/${m[1]}/join.js'), which carries the type and no augmentation. Only ` +
+      `src/index.ts may import a group barrel, because undoing the split is what it is for.`,
+      file,
+    )
+  })
+}
+
+checkQueryTierBarrelImports()
 
 checkPeerMetaDeclared()
 

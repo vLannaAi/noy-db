@@ -19,6 +19,11 @@ import type { NoydbStore, EncryptedEnvelope, VaultSnapshot, ListPageResult } fro
 import { ConflictError } from '../src/kernel/errors.js'
 import { ScanBuilder, type ScanPageProvider } from '../src/kernel/query/index.js'
 import { count, sum, avg, min, max } from '../src/with-lookup/reduce/index.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/reduce/index.js'
 
 /** Inline memory adapter — same pattern as the other integration tests. */
 function toMemory(): NoydbStore {

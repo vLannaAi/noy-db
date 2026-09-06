@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import { createNoydb, withMaterializedView } from '../../src/index.js'
 import { sum, withReduce } from '../../src/with-lookup/reduce/index.js'
-import { dateTrunc } from '../../src/kernel/query/index.js'
+import { dateTrunc } from '../../src/kernel/query/reduce/index.js'
 import type { NoydbStore, EncryptedEnvelope } from '../../src/kernel/types.js'
 
 function toMemory(): NoydbStore {

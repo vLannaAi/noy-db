@@ -1,53 +1,73 @@
 {
   "scenarios": {
     "floor": {
-      "minifiedBytes": 1764,
-      "gzippedBytes": 554
+      "minifiedBytes": 1792,
+      "gzippedBytes": 561
+    },
+    "query-find": {
+      "minifiedBytes": 28822,
+      "gzippedBytes": 9711
+    },
+    "query-find-relate": {
+      "minifiedBytes": 61296,
+      "gzippedBytes": 19519
+    },
+    "query-find-reduce": {
+      "minifiedBytes": 57577,
+      "gzippedBytes": 18785
+    },
+    "query-root-barrel": {
+      "minifiedBytes": 33179,
+      "gzippedBytes": 11367
+    },
+    "query-find-live": {
+      "minifiedBytes": 38258,
+      "gzippedBytes": 12710
     },
     "lazy": {
-      "minifiedBytes": 1852,
-      "gzippedBytes": 628
+      "minifiedBytes": 1880,
+      "gzippedBytes": 634
     },
     "team": {
-      "minifiedBytes": 2121,
-      "gzippedBytes": 730
+      "minifiedBytes": 2149,
+      "gzippedBytes": 737
     },
     "broker": {
-      "minifiedBytes": 2848,
-      "gzippedBytes": 1171
+      "minifiedBytes": 2876,
+      "gzippedBytes": 1179
     },
     "history": {
-      "minifiedBytes": 5460,
-      "gzippedBytes": 2023
+      "minifiedBytes": 5488,
+      "gzippedBytes": 2032
     },
     "classified": {
-      "minifiedBytes": 3114,
-      "gzippedBytes": 1112
+      "minifiedBytes": 3142,
+      "gzippedBytes": 1118
     },
     "blobs": {
-      "minifiedBytes": 1935,
-      "gzippedBytes": 691
+      "minifiedBytes": 1963,
+      "gzippedBytes": 696
     },
     "analytics": {
-      "minifiedBytes": 2973,
-      "gzippedBytes": 1154
+      "minifiedBytes": 3005,
+      "gzippedBytes": 1157
     },
     "search": {
-      "minifiedBytes": 1806,
-      "gzippedBytes": 590
+      "minifiedBytes": 1834,
+      "gzippedBytes": 594
     },
     "search-ann": {
-      "minifiedBytes": 1835,
-      "gzippedBytes": 611
+      "minifiedBytes": 1863,
+      "gzippedBytes": 618
     },
     "coverage": {
-      "minifiedBytes": 6567,
-      "gzippedBytes": 2786
+      "minifiedBytes": 6595,
+      "gzippedBytes": 2792
     },
     "all-on": {
-      "minifiedBytes": 69264,
-      "gzippedBytes": 22346
+      "minifiedBytes": 69306,
+      "gzippedBytes": 22380
     }
   },
-  "updatedAt": "2026-09-04T05:31:07.112Z"
+  "updatedAt": "2026-09-06T12:09:02.251Z"
 }

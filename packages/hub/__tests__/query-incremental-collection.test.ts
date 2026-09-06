@@ -15,6 +15,12 @@ import { withReduce, sum, count, avg, min, max } from '../src/with-lookup/reduce
 import { withIndexing } from '../src/with-lookup/indexing/index.js'
 import type { Query } from '../src/kernel/query/builder.js'
 import type { Collection } from '../src/kernel/collection.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/live/index.js'
+import '../src/kernel/query/reduce/index.js'
 
 interface Item {
   id: string

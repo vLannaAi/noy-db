@@ -49,6 +49,11 @@ import type { Operator } from '../../src/kernel/query/predicate.js'
 import type { Noydb } from '../../src/kernel/noydb.js'
 import type { Collection } from '../../src/kernel/collection.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../../src/kernel/types.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../../src/kernel/query/relate/index.js'
 
 function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

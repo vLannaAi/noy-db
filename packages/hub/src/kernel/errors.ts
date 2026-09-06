@@ -1968,6 +1968,48 @@ export class PersistedIndexCompensationError extends NoydbError {
  * Payload:
  * - `field` — the refused field name
  */
+/**
+ * #1458 — a query-tier extension method was called without its subpath.
+ *
+ * The DSL ships in four groups. `@noy-db/hub/query` carries **Find** and is
+ * always present; **Live**, **Reduce** and **Relate** arrive by side-effect
+ * import (`import '@noy-db/hub/query/relate'`), which patches the missing
+ * methods onto `Query.prototype` and — through the `declare module` block
+ * that ships with each subpath — onto the `Query` TYPE.
+ *
+ * ⭐ **The compile error is the primary signal; this is the backstop.** With
+ * the types wired that way, calling `.join()` without the import does not
+ * typecheck, which is where a TypeScript consumer meets the problem. This
+ * error is what a JavaScript consumer, or a call that reached the method
+ * through a cast, gets instead of `TypeError: q.join is not a function` —
+ * a message that names neither what is missing nor how to get it.
+ *
+ * ⚠️ It is deliberately NOT a lazy loader. Fetching the chunk here would
+ * defer the cost rather than remove it, and a first `.join()` offline would
+ * fail on a network fetch — the opposite of what an offline-first store
+ * promises. The one line of import is the price of the byte saving.
+ */
+export class QueryExtensionMissingError extends NoydbError {
+  /** The method that was called, e.g. `'join'`. */
+  readonly method: string
+  /** The subpath whose import supplies it, e.g. `'@noy-db/hub/query/relate'`. */
+  readonly subpath: string
+
+  constructor(method: string, subpath: string) {
+    super(
+      'QUERY_EXTENSION_MISSING',
+      `Query.${method}() is not loaded. It ships in ${subpath}; add ` +
+        `\`import '${subpath}'\` once, anywhere in your app's entry, and the ` +
+        `method (and its types) attach to every Query. The Find group — ` +
+        `where/or/and/filter/orderBy/limit/offset/page/after/first/toArray/` +
+        `count/exists/ids/toPlan — needs no import.`,
+    )
+    this.name = 'QueryExtensionMissingError'
+    this.method = method
+    this.subpath = subpath
+  }
+}
+
 export class FieldNotQueryableError extends NoydbError {
   readonly field: string
 

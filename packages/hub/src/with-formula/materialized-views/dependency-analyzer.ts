@@ -1,8 +1,8 @@
-import { describeGroupKey, type GroupKey } from '../../kernel/query/date-trunc.js'
+import { describeGroupKey, type GroupKey } from '../../kernel/query/reduce/date-trunc.js'
 import type { Query, QueryPlan } from '../../kernel/query/builder.js'
-import type { JoinContext, JoinLeg } from '../../kernel/query/join.js'
+import type { JoinContext, JoinLeg } from '../../kernel/query/relate/join.js'
 import type { MaterializedViewSpec } from './types.js'
-import { normalizeJoinOn } from '../../kernel/query/join-on.js'
+import { normalizeJoinOn } from '../../kernel/query/relate/join-on.js'
 
 /**
  * Walks a `Query<T>` plan and returns the set of source collection

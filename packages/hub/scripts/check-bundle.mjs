@@ -187,6 +187,122 @@ const SCENARIOS = [
       'BlobSet',
     ],
   },
+  // ─── #1458 query tiers ────────────────────────────────────────────────
+  //
+  // The four scenarios below are the SIZE MEASUREMENT AS A TEST that the issue
+  // asks for. `query-find` is the one that matters: a consumer who only finds
+  // records must not carry the joins, the reducers or the live maintainer, and
+  // the canaries name each of those by the symbol that proves it arrived.
+  //
+  // ⭐ **The three `query-find-*` scenarios are the CONTROL.** Without them a
+  // green `query-find` proves only that the symbols are absent — it could not
+  // distinguish "correctly tree-shaken" from "the extension never worked".
+  // Each of these asserts the very symbol its sibling forbids, so the pair
+  // says: gone when unasked-for, present when asked for.
+  //
+  // ⚠️ These measure the `/query` subpath, NOT the root barrel. The root
+  // barrel imports all three groups on purpose (behaviour-identical for
+  // today's consumers), so the `floor` scenario above is unaffected by the
+  // split and must stay that way.
+  {
+    name: 'query-find',
+    description: '#1458 — @noy-db/hub/query alone: Find, no extension group',
+    code: `
+      import { Query } from '@noy-db/hub/query'
+      export function run(source) {
+        return new Query(source).where('status', '==', 'paid').orderBy('date', 'desc').limit(20).toArray()
+      }
+    `,
+    leakCanaries: [],
+    // Reachability, not entry-presence: under `splitting: true` a definition
+    // lives in a shared chunk, so the question is whether this consumer's
+    // graph reaches it at all.
+    reachableCanaries: [
+      // Relate.
+      // ⚠️ NOT `function applyJoins` — Find publishes a three-line SHIM of that
+      // exact name (`builder.ts`, the join-conditional wrapper), so the obvious
+      // canary matches Find's own code and fails green-for-the-wrong-reason.
+      // Measured: it did, on the first run of this scenario. Name something
+      // only the real implementation has.
+      'function applyOneJoin',
+      'function attachJoin',
+      'function explainPlan',
+      'function runTraversal',
+      'function normalizeJoinOn',
+      // Reduce
+      // ⚠️ `reducerBuilder` is a `const` object, not a function — a
+      // `function reducerBuilder` canary never matches and the scenario passes
+      // for a reason that has nothing to do with the bundle. Name the shape
+      // the source actually has.
+      'reducerBuilder = {',
+      'function truncateDate',
+      // Live
+      'function buildLiveQuery',
+      'class LiveMaintainer',
+    ],
+  },
+  {
+    name: 'query-find-relate',
+    description: '#1458 — Find + the Relate side-effect import',
+    code: `
+      import { Query } from '@noy-db/hub/query'
+      import '@noy-db/hub/query/relate'
+      export function run(source) {
+        return new Query(source).where('status', '==', 'paid').toArray()
+      }
+    `,
+    leakCanaries: [],
+    requiredReachable: ['function applyOneJoin'],
+  },
+  {
+    name: 'query-find-reduce',
+    description: '#1458 — Find + the Reduce side-effect import',
+    code: `
+      import { Query } from '@noy-db/hub/query'
+      import '@noy-db/hub/query/reduce'
+      export function run(source) {
+        return new Query(source).where('status', '==', 'paid').toArray()
+      }
+    `,
+    leakCanaries: [],
+    requiredReachable: ['reducerBuilder = {'],
+  },
+  {
+    name: 'query-root-barrel',
+    description: '#1458 — a root-barrel consumer still gets every group, unasked',
+    code: `
+      import { createNoydb, Query } from '@noy-db/hub'
+      export function run(source) {
+        return new Query(source).join('clientId', { as: 'client' }).toArray()
+      }
+      export { createNoydb }
+    `,
+    leakCanaries: [],
+    // ⭐ THE PROMISE OF #1458, ASSERTED. "The root barrel imports all three, so
+    // today's consumers see no change" is the sentence the whole split rests
+    // on, and the way it breaks is silent: a bundler drops a side-effect import
+    // it believes is pure, and `collection.query().join()` throws
+    // QueryExtensionMissingError in production from code that typechecked.
+    //
+    // ⚠️ Read together with `floor` above, which must STAY at ~550 bytes. The
+    // two are in tension — the naive way to guarantee this one is to install
+    // eagerly from src/index.ts, and that measured 11,330 gzipped bytes on a
+    // consumer who never writes a query. Both numbers, or neither.
+    requiredReachable: ['function applyOneJoin', 'reducerBuilder = {', 'function buildLiveQuery'],
+  },
+  {
+    name: 'query-find-live',
+    description: '#1458 — Find + the Live side-effect import',
+    code: `
+      import { Query } from '@noy-db/hub/query'
+      import '@noy-db/hub/query/live'
+      export function run(source) {
+        return new Query(source).where('status', '==', 'paid').toArray()
+      }
+    `,
+    leakCanaries: [],
+    requiredReachable: ['function buildLiveQuery'],
+  },
   {
     name: 'lazy',
     description: 'createNoydb + withLazy (#267 lazy service)',
@@ -663,6 +779,39 @@ async function buildScenario(scenario) {
     for (const canary of reachableCanaries) {
       const hit = sources.find(([, text]) => text.includes(canary))
       if (hit !== undefined) leaks.push(`reachable:${canary} (in ${hit[0]})`)
+    }
+  }
+
+  // ⭐ #1458 — THE INVERSE ASSERTION, and the reason the query-tier scenarios
+  // come in pairs. `reachableCanaries` can only say a symbol is ABSENT, and
+  // absence has two causes: the tree-shake worked, or the feature was never
+  // wired at all. A scenario that imports `@noy-db/hub/query/relate` and STILL
+  // does not reach `applyJoins` is a broken side-effect import — silently, and
+  // in exactly the shape a `sideEffects` mistake produces.
+  //
+  // So a control scenario names what it MUST reach, and its absence is a
+  // failure reported through the same channel. This is not a size check; it is
+  // what stops the size check passing for the wrong reason.
+  const requiredReachable = scenario.requiredReachable ?? []
+  if (requiredReachable.length > 0) {
+    const seen = new Set()
+    const queue = ['entry.js']
+    const sources = []
+    while (queue.length > 0) {
+      const file = queue.shift()
+      if (seen.has(file)) continue
+      seen.add(file)
+      let text
+      try { text = readFileSync(join(probeDir, file), 'utf8') } catch { continue }
+      sources.push([file, text])
+      for (const m of text.matchAll(/(?:from\s*|import\s*\(\s*)["'](\.\/[^"']+\.js)["']/g)) {
+        queue.push(m[1].slice(2))
+      }
+    }
+    for (const required of requiredReachable) {
+      if (!sources.some(([, text]) => text.includes(required))) {
+        leaks.push(`MISSING:${required} — the side-effect import did not bring it`)
+      }
     }
   }
 

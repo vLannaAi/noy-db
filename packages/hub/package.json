@@ -14,7 +14,11 @@
     "url": "https://github.com/vLannaAi/noy-db/issues"
   },
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/query/live/index.js",
+    "./dist/query/reduce/index.js",
+    "./dist/query/relate/index.js"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -56,6 +60,22 @@
     "./query": {
       "types": "./dist/kernel/query/index.d.ts",
       "default": "./dist/query/index.js"
+    },
+    "./query/live": {
+      "types": "./dist/kernel/query/live/index.d.ts",
+      "default": "./dist/query/live/index.js"
+    },
+    "./query/reduce": {
+      "types": "./dist/kernel/query/reduce/index.d.ts",
+      "default": "./dist/query/reduce/index.js"
+    },
+    "./query/relate": {
+      "types": "./dist/kernel/query/relate/index.d.ts",
+      "default": "./dist/query/relate/index.js"
+    },
+    "./query/all": {
+      "types": "./dist/kernel/query/all.d.ts",
+      "default": "./dist/query/all/index.js"
     },
     "./debug": {
       "types": "./dist/kernel/debug.d.ts",
@@ -222,7 +242,8 @@
       "default": "./dist/reduce/index.js"
     },
     "./codemods/0.6.0-pre.json": "./codemods/0.6.0-pre.json",
-    "./codemods/0.7.0-pre.json": "./codemods/0.7.0-pre.json"
+    "./codemods/0.7.0-pre.json": "./codemods/0.7.0-pre.json",
+    "./codemods/0.8.0-pre.json": "./codemods/0.8.0-pre.json"
   },
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

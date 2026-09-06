@@ -17,7 +17,7 @@
  * signature can't be exposed via a method without breaking `Collection<T>`
  * assignability to `Collection<unknown>`).
  */
-import { groupKeySourceField, type GroupKey } from './query/date-trunc.js'
+import { groupKeySourceField, type GroupKey } from './query/reduce/date-trunc.js'
 import type { StrategyBag } from '../port/with/strategies.js'
 import type { NoydbStore, ConflictPolicy, CollectionConflictResolver, HistoryConfig, TierMode, CrossTierAccessEvent, VdigFieldPolicy } from './types.js'
 import type { EnclaveKey } from './enclave/index.js'
@@ -61,7 +61,7 @@ import type { FieldRef, Grain } from './via/graph.js'
 import type { FieldMeta } from '../with-shape/introspection/field-meta.js'
 import type { CollectionMeta } from '../with-shape/introspection/meta.js'
 import type { RefDescriptor } from './refs.js'
-import type { JoinableSource } from './query/index.js'
+import type { JoinableSource } from './query/relate/join.js'
 import { VectorSet, type EmbeddingDescriptor } from '../with-lookup/embeddings/index.js'
 import { Lru } from './cache/index.js'
 import type { ReadOnlyVaultFacade } from '../with-audit/guards/types.js'

@@ -34,9 +34,9 @@
  * pushed to the store, which holds ciphertext and never runs a query.
  */
 
-import { readPath } from './predicate.js'
+import { readPath } from '../predicate.js'
 import { bucketByRefKey, coerceRefKey } from './join.js'
-import { TraversalCycleError } from '../errors.js'
+import { TraversalCycleError } from '../../errors.js'
 
 /** Which way a traversal walks the declared self-ref. */
 export type TraverseDirection = 'up' | 'down'

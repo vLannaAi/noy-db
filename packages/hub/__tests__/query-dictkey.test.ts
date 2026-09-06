@@ -14,6 +14,12 @@ import { withI18n } from '../src/via/i18n/index.js'
 import { withReduce } from '../src/with-lookup/reduce/index.js'
 import { dictKey } from '../src/via/i18n/dictionary.js'
 import { sum, count } from '../src/with-lookup/reduce/index.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/reduce/index.js'
+import '../src/kernel/query/relate/index.js'
 
 function toMemory(): NoydbStore {
   const store = new Map<string, Map<string, Map<string, EncryptedEnvelope>>>()

@@ -1,7 +1,7 @@
 /**
  * The sync lookup snapshot + join/locale seam (#650 Task 6, spec §5 — "the
  * snapshot+locale seam"). Retires the #626 kernel→via grandfather:
- * `kernel/query/join.ts` no longer imports `via/i18n/core.js` directly
+ * `kernel/query/relate/join.ts` no longer imports `via/i18n/core.js` directly
  * — it calls the `presentForJoin` hook this file's `buildPresentForJoin`
  * builds instead (seam map Part 2 item 4, the #626 reviewer-spec'd shape:
  * a sync `presentI18nForJoin`-class hook on `JoinableSource`).
@@ -16,7 +16,7 @@
  * Serves (reserved AND matrix tier since #650 Task 7 — `registry.ts`'s
  * `buildLookupSnapshotRows` routes both; static tier is read straight off
  * `descriptor.table` by every consumer below, never through this cache):
- *   - join dressing (`presentForJoin`, consumed by `kernel/query/join.ts`
+ *   - join dressing (`presentForJoin`, consumed by `kernel/query/relate/join.ts`
  *     via `JoinableSource.presentForJoin`)
  *   - dimension sort (`compareForOrder`, consumed by
  *     `via/lookup/binding.ts`'s `NoydbVia.compareForOrder` closure)
@@ -134,7 +134,7 @@ function presentLookupForJoin(
  * `Collection` attaches to the `JoinableSource` it exposes
  * (`querySourceForJoin()`) — the i18n-text half (`presentI18nForJoin`, the
  * exact `applyI18nLocale(..., 'join')` partial application
- * `kernel/query/join.ts` used to call directly, #626) composed with the
+ * `kernel/query/relate/join.ts` used to call directly, #626) composed with the
  * lookup-label half above. `undefined` when the collection declares
  * neither — `JoinableSource.presentForJoin` then stays unset, matching
  * today's `i18nFields`-absent behavior exactly (#626 parity lock).

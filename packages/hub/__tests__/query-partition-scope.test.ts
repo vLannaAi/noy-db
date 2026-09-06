@@ -32,7 +32,7 @@
  *
  * ⭐ **SCOPING LANDED (#1342, 2026-09-04) AND THIS FIELD IS STILL `'all'`.**
  * ADR 0007 ruled partition-as-collection, so the scope is derived in the
- * EXECUTOR by `kernel/query/partition.ts`'s `resolvePartitionScope()` from
+ * EXECUTOR by `kernel/query/relate/partition.ts`'s `resolvePartitionScope()` from
  * the plan's top-level clause list — nothing writes it onto a leg. So these
  * tests did NOT need editing: they still pin the dormancy, and the reason
  * they pass is the reason the design is right rather than an accident.
@@ -43,12 +43,17 @@ import { createNoydb, type Noydb } from '../src/kernel/noydb.js'
 import type { NoydbStore, EncryptedEnvelope, VaultSnapshot } from '../src/kernel/types.js'
 import { ConflictError } from '../src/kernel/errors.js'
 import { ref } from '../src/kernel/refs.js'
-import type { JoinLeg } from '../src/kernel/query/join.js'
+import type { JoinLeg } from '../src/kernel/query/relate/join.js'
 import {
   canonicalizeQueryPlan,
   computeQueryHash,
 } from '../src/with-formula/materialized-views/query-hash.js'
 import { summarizeQueryPlan } from '../src/with-formula/materialized-views/dependency-analyzer.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/relate/index.js'
 
 /** Inline memory adapter — same shape as `query-join.test.ts`. */
 function toMemory(): NoydbStore {

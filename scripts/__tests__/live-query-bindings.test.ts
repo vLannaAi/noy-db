@@ -1,5 +1,5 @@
 /**
- * `kernel/query/live.ts` names the framework bindings that wrap a `LiveQuery`.
+ * `kernel/query/live/live.ts` names the framework bindings that wrap a `LiveQuery`.
  * That claim must stay true, and nothing compiles a doc comment (#1131).
  *
  * The comment previously said "the Vue layer wraps a `LiveQuery` … React/Solid/
@@ -68,7 +68,7 @@ describe('live() framework bindings', () => {
 
   it('live.ts names each documented wrapper', () => {
     const doc = readFileSync(
-      join(REPO_ROOT, 'packages/hub/src/kernel/query/live.ts'),
+      join(REPO_ROOT, 'packages/hub/src/kernel/query/live/live.ts'),
       'utf8',
     )
     for (const pkg of DOCUMENTED_WRAPPERS) {

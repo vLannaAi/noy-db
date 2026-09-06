@@ -37,21 +37,21 @@
  * report a scan for two paths that never touch a record.
  */
 
-import type { Clause } from './predicate.js'
-import type { QueryPlan } from './builder.js'
+import type { Clause } from '../predicate.js'
+import type { QueryPlan } from '../builder.js'
+import { DEFAULT_CROSS_JOIN_MAX_ROWS } from './join.js'
 import {
-  DEFAULT_CROSS_JOIN_MAX_ROWS,
   indexableClauses,
   isRangeOperator,
   pickCompound,
   pickCompoundOrder,
   viaOrdersField,
-} from './builder.js'
+} from '../builder.js'
 import type { JoinContext, JoinLeg } from './join.js'
 import { DEFAULT_JOIN_MAX_ROWS, joinsDropLeftRows, orderReferencesJoinAlias, splitAroundJoins } from './join.js'
 import { describeJoinOn, joinOnDispatch } from './join-on.js'
-import type { ViaPipeline } from '../via/pipeline.js'
-import { isViaPrefixProbe } from '../via/index.js'
+import type { ViaPipeline } from '../../via/pipeline.js'
+import { isViaPrefixProbe } from '../../via/index.js'
 
 /**
  * How a node is executed. An OPEN label set on purpose — a consumer reads

@@ -57,7 +57,11 @@ import type { LedgerStore } from '../with-commit/history/ledger/index.js'
 import type { DiffEntry } from '../with-commit/history/diff.js'
 import { NO_HISTORY } from '../with-commit/history/strategy.js'
 import { Query, ScanBuilder } from './query/index.js'
-import type { QuerySource, JoinContext, JoinableSource, SourceChange } from './query/index.js'
+import type { QuerySource } from './query/index.js'
+// #1458 — type-only, so erased: naming Relate's and Live's plan shapes costs a
+// consumer nothing and does not put either group in this file's bundle.
+import type { JoinContext, JoinableSource } from './query/relate/join.js'
+import type { SourceChange } from './query/live/incremental.js'
 import { normalizeIndexDefs, type CollectionIndexes } from '../with-lookup/indexing/eager-indexes.js'
 import { decodeIdxId } from '../with-lookup/indexing/persisted-indexes.js'
 import type { PersistedCollectionIndex } from '../with-lookup/indexing/persisted-indexes.js'

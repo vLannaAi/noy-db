@@ -15,7 +15,8 @@
  */
 import { describe, it, expectTypeOf } from 'vitest'
 import { Query } from '../src/kernel/query/index.js'
-import type { QuerySource, JoinContext } from '../src/kernel/query/index.js'
+import type { QuerySource } from '../src/kernel/query/index.js'
+import type { JoinContext } from '../src/kernel/query/relate/index.js'
 
 interface Bill { id: string; entityId: string }
 interface Client { id: string; entityId: string; name: string }

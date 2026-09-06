@@ -1110,6 +1110,11 @@ export { TierNotGrantedError, TierDemoteDeniedError, DelegationTargetMissingErro
 export { IndexRequiredError, IndexWriteFailureError } from './kernel/errors.js'
 // Via posture-refusal error (#629 Task 8 — queryable: 'none' fields)
 export { FieldNotQueryableError } from './kernel/errors.js'
+// #1458 — additive. A root-barrel consumer holds all four query groups, so
+// this is not an error they can reach through `collection.query()`; it is
+// exported so a consumer who ALSO builds a bare `new Query(source, plan)` with
+// pre-populated join legs can name what they caught.
+export { QueryExtensionMissingError } from './kernel/errors.js'
 export { UnsafePatternError } from './kernel/errors.js'
 // Hybrid-retrieval rank fusion (also the klum federation primitive)
 export { fuseRetrieval, type FuseOptions } from './with-lookup/search/fuse.js'
@@ -1222,23 +1227,40 @@ export {
 } from './kernel/validation.js'
 export type { EchoSecretPolicy } from './kernel/validation.js'
 
-// Query DSL
-export {
-  Query,
-  executePlan,
-  evaluateClause,
-  evaluateFieldClause,
-  readPath,
-  CollectionIndexes,
-  applyJoins,
-  DEFAULT_JOIN_MAX_ROWS,
-  DEFAULT_CROSS_JOIN_MAX_ROWS,
-  buildLiveQuery,
-  explainPlan,
-  ScanBuilder,
-  ALL_PARTITIONS,
-  resolvePartitionScope,
-} from './kernel/query/index.js'
+// ─── Query DSL (#1458) ──────────────────────────────────────────────────
+//
+// The DSL ships in four groups. `./kernel/query/index.js` is **Find**, always
+// present; Live, Reduce and Relate are side-effect subpaths that patch
+// `Query.prototype` and the `Query` type on load.
+//
+// ⭐ **The root barrel imports all three, so a consumer on `@noy-db/hub` sees
+// no change from the split** — every method is on the Query it receives from
+// `collection.query()`, exactly as before. The size win #1458 is after belongs
+// to consumers who import `@noy-db/hub/query` directly and take only the
+// groups they use.
+//
+// ⚠️ These three re-export lines are also the side-effect imports. Do not
+// "tidy" them into `export type` — a type-only re-export is erased, the
+// prototype patch never runs, and `collection.query().join()` starts throwing
+// QueryExtensionMissingError for every root-barrel consumer.
+// `Query` and `ScanBuilder` come from `./kernel/query/all.js`, which attaches
+// the three extension groups as a side effect of being reachable — see that
+// file. Everything else is Find's own barrel.
+export { Query, executePlan, ScanBuilder } from './kernel/query/all.js'
+export { evaluateClause, evaluateFieldClause, readPath, CollectionIndexes } from './kernel/query/index.js'
+// ⛔ These re-exports name the group's CONCRETE MODULES, never its `index.js`,
+// and the installs below are function calls rather than a bare side-effect
+// import. Both are the same measured constraint (see
+// `kernel/query/relate/install.ts`): a group barrel reachable from two build
+// entries has its module body moved into a shared chunk, and the bare import
+// that was supposed to run the install gets dropped as side-effect-free. Only
+// TYPE re-exports may name a group barrel — a type import is erased, so it
+// cannot make the barrel a shared runtime module, and it is how the root barrel
+// picks up the `declare module` augmentations.
+export { applyJoins, DEFAULT_JOIN_MAX_ROWS, DEFAULT_CROSS_JOIN_MAX_ROWS } from './kernel/query/relate/join.js'
+export { explainPlan } from './kernel/query/relate/explain.js'
+export { ALL_PARTITIONS, resolvePartitionScope } from './kernel/query/relate/partition.js'
+export { buildLiveQuery } from './kernel/query/live/live.js'
 export type {
   QueryPlan,
   QuerySource,
@@ -1250,6 +1272,9 @@ export type {
   GroupClause,
   IndexDef,
   HashIndex,
+  ScanPageProvider,
+} from './kernel/query/index.js'
+export type {
   JoinLeg,
   JoinContext,
   JoinableSource,
@@ -1267,12 +1292,18 @@ export type {
   ExplainCap,
   ExplainDispatch,
   ExplainSource,
-  LiveQuery,
-  LiveUpstream,
-  LiveBuildOptions,
-  ScanPageProvider,
   PartitionScope,
-} from './kernel/query/index.js'
+} from './kernel/query/relate/index.js'
+export type { LiveQuery, LiveUpstream, LiveBuildOptions } from './kernel/query/live/index.js'
+// ⚠️ VALUE side deliberately absent, and it was absent before #1458 too:
+// `dateTrunc` / `truncateDate` / `isDateTruncKey` have never been root-barrel
+// exports — `@noy-db/hub/query` published them, and they moved with Reduce to
+// `@noy-db/hub/query/reduce`. Adding them here would be a new API surface
+// smuggled in on a refactor, which the golden-surface test correctly refused.
+//
+// The reduce barrel is still imported for its SIDE EFFECT above (through the
+// type-only line below being insufficient), so the import is explicit:
+export type { DateTruncKey, DateTruncUnit, DateTruncOptions, WeekStart, GroupKey } from './kernel/query/reduce/index.js'
 
 // Partitioned collections (#1342, ADR 0007 "partitioning is collection-shaped").
 // A partition IS a collection, so pruning costs no `@noy-db/hub/to` change:

@@ -52,7 +52,7 @@
  * boundaries.
  */
 
-import type { Clause } from './predicate.js'
+import type { Clause } from '../predicate.js'
 
 /**
  * "Read every declared partition." The sound fallback, and the value every

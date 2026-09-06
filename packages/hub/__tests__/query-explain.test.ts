@@ -7,15 +7,20 @@
  */
 import { describe, it, expect } from 'vitest'
 import { Query, type QuerySource } from '../src/kernel/query/index.js'
-import type { ExplainNode, QueryExplanation } from '../src/kernel/query/explain.js'
+import type { ExplainNode, QueryExplanation } from '../src/kernel/query/relate/explain.js'
 import { CollectionIndexes } from '../src/with-lookup/indexing/eager-indexes.js'
-import type { JoinContext, JoinableSource } from '../src/kernel/query/join.js'
+import type { JoinContext, JoinableSource } from '../src/kernel/query/relate/join.js'
 import { ViaPipeline } from '../src/kernel/via/pipeline.js'
 import { moneyVia } from '../src/via/money/binding.js'
 import { money } from '../src/via/money/descriptor.js'
 import { geoVia } from '../src/via/geo/binding.js'
 import { geo } from '../src/via/geo/descriptor.js'
 import type { GeoPoint } from '../src/via/geo/geohash.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/relate/index.js'
 
 interface Invoice {
   id: string

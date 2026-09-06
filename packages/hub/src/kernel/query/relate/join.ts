@@ -44,12 +44,12 @@
  * including joined reads.
  */
 
-import type { RefDescriptor, RefMode } from '../refs.js'
-import type { Clause } from './predicate.js'
-import type { ViaPipeline } from '../via/pipeline.js'
-import { readPath } from './predicate.js'
+import type { RefDescriptor, RefMode } from '../../refs.js'
+import type { Clause } from '../predicate.js'
+import type { ViaPipeline } from '../../via/pipeline.js'
+import { readPath } from '../predicate.js'
 import { matchDeclaredJoin, type JoinOnPlan } from './join-on.js'
-import { JoinTooLargeError, DanglingReferenceError } from '../errors.js'
+import { JoinTooLargeError, DanglingReferenceError } from '../../errors.js'
 
 /** Planner strategy for a single join leg. Auto-selected unless overridden. */
 export type JoinStrategy = 'hash' | 'nested'
@@ -72,6 +72,16 @@ export type JoinDirection = 'left' | 'right' | 'full'
 
 /** Default per-side row ceiling before `.join()` throws `JoinTooLargeError`. */
 export const DEFAULT_JOIN_MAX_ROWS = 50_000
+
+/**
+ * Default row ceiling for cross-join expansion. Matches JoinTooLargeError's ceiling.
+ *
+ * ⭐ #1458 — moved here from `kernel/query/builder.ts`. Find carries no
+ * cross-join concept, and a constant is the cheapest thing to leave behind by
+ * accident: it would have kept `builder.ts` as the const's home while every
+ * reader of it lived in `relate/`.
+ */
+export const DEFAULT_CROSS_JOIN_MAX_ROWS = 50_000
 
 /**
  * Fraction of the row ceiling at which a one-shot warning is emitted.
@@ -146,7 +156,7 @@ export interface JoinLeg {
    *    fetched because it is never asked for.
    *
    * ⭐ **THE SCOPE IS NOW DERIVED, IN THE EXECUTOR, AND THIS FIELD IS STILL
-   * DORMANT.** `kernel/query/partition.ts`'s `resolvePartitionScope()` is the
+   * DORMANT.** `kernel/query/relate/partition.ts`'s `resolvePartitionScope()` is the
    * one decision function — `with-store/partitioned/` and `explain()` both
    * call it — and it takes the plan's top-level clause list, never a stored
    * leg. It is sound in one direction only: narrow ONLY on a whitelist of

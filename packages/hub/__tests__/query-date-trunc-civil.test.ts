@@ -17,7 +17,12 @@
  * differently in different zones near a day boundary.
  */
 import { describe, it, expect } from 'vitest'
-import { dateTrunc, truncateDate, describeGroupKey } from '../src/kernel/query/date-trunc.js'
+import { dateTrunc, truncateDate, describeGroupKey } from '../src/kernel/query/reduce/date-trunc.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/reduce/index.js'
 
 /** −10 through +14, so any zone-dependence shows up as a wrong bucket. */
 const ZONES = [

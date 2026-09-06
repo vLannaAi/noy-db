@@ -186,6 +186,16 @@ invoices.query().groupBy('clientId').aggregate({ total: sum('amount') }).run()
 for await (const r of invoices.scan()) { /* backpressure-friendly */ }
 ```
 
+**The DSL ships in four groups, and only the first is always loaded.** `@noy-db/hub` — the import every example here uses — attaches all four, so nothing above changes. If you import `@noy-db/hub/query` directly to keep your bundle small, you get **Find** (`where`, `or`, `and`, `filter`, `orderBy`, `limit`, `offset`, `page`, `after`, `first`, `toArray`, `count`, `exists`, `ids`, `toPlan`) and add the rest a line at a time, once, anywhere in your app's entry:
+
+```ts
+import '@noy-db/hub/query/live'     // subscribe, live
+import '@noy-db/hub/query/reduce'   // aggregate, groupBy, window, distinct, dateTrunc
+import '@noy-db/hub/query/relate'   // joins, traverse, ancestorsOf, descendantsOf, explain
+```
+
+The methods and their types arrive together, so a call to a group you have not imported does not compile — and `@noy-db/hub/query/all` is the one-line way to take the lot. Measured on the Find-only path: 28.8 kB minified against 80.7 kB before the split.
+
 **The query terminals are synchronous.** `toArray()`, `ids()`, `page()`, `first()`, `count()` and `exists()` return their value directly — `T[]`, `number`, `boolean` — not a promise of it. `Query` runs over an already-decrypted in-memory cache, so by the time a plan executes there is nothing to await; the `await` in the example above is harmless (awaiting an array yields the array) and is what you should write, because on a collection that has not been loaded yet the terminal returns a *pending result* that hydrates when awaited and refuses any synchronous use — an unloaded collection is not an empty one. What does **not** work is `.catch()`: `query().toArray().catch(fn)` fails with *"catch is not a function"* on a loaded collection. Wrap the call in `try` / `catch` instead.
 
 Two same-named methods elsewhere *are* async, and legitimately so, because they genuinely fetch: `PartitionedQuery.toArray()` (across partition legs) and the lazy-mode builder's `collection.lazyQuery().toArray()` (through the persisted index side-car). Both return `Promise<T[]>`.

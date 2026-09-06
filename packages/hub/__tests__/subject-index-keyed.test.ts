@@ -20,6 +20,11 @@ import {
   removeSubjectRef,
   lookupSubject,
 } from '../src/with-audit/forget/subject-index.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../src/kernel/query/relate/index.js'
 
 async function sha256HexUtf8(input: string): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))

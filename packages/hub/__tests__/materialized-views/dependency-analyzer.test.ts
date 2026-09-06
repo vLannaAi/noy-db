@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { Query } from '../../src/kernel/query/builder.js'
 import type { QuerySource } from '../../src/kernel/query/builder.js'
-import type { JoinContext } from '../../src/kernel/query/join.js'
+import type { JoinContext } from '../../src/kernel/query/relate/join.js'
+// #1458 — the query DSL ships in four groups; these side-effect imports
+// attach the extension methods this file exercises. A consumer on the root
+// barrel needs none of them (it imports all three); this file builds its
+// Query from `kernel/query` directly, so it takes what it uses.
+import '../../src/kernel/query/relate/index.js'
 
 function emptySource<T>(): QuerySource<T> {
   return { snapshot: () => [] as readonly T[] }

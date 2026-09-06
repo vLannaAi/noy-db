@@ -23,7 +23,7 @@ import type {
 import type { Noydb } from './noydb.js'
 import type { IssueDelegationOptions, DelegationToken } from '../with-party/team/delegation.js'
 import { Collection } from './collection.js'
-import type { JoinableSource } from './query/index.js'
+import type { JoinableSource } from './query/relate/join.js'
 import type { OnDirtyCallback } from './collection.js'
 import type { UnlockedKeyring, PodRecipient } from '../with-party/team/keyring.js'
 import type { MaterializedViewRegistry } from '../with-formula/materialized-views/registry.js'

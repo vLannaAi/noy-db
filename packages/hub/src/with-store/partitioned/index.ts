@@ -67,8 +67,8 @@ import type { Vault } from '../../kernel/vault.js'
 import type { Clause, Operator } from '../../kernel/query/predicate.js'
 import type { OrderBy, QueryPlan } from '../../kernel/query/builder.js'
 import { sortRecords } from '../../kernel/query/builder.js'
-import type { ExplainNode, QueryExplanation } from '../../kernel/query/explain.js'
-import { renderExplainText } from '../../kernel/query/explain.js'
+import type { ExplainNode, QueryExplanation } from '../../kernel/query/relate/explain.js'
+import { renderExplainText } from '../../kernel/query/relate/explain.js'
 import { ScanBuilder } from '../../kernel/query/scan-builder.js'
 import type { ScanPageProvider } from '../../kernel/query/scan-builder.js'
 import type { ReduceResult, ReduceSpec } from '../../with-lookup/reduce/reduction.js'
@@ -78,8 +78,8 @@ import {
   describePartitionScope,
   partitionsInScope,
   resolvePartitionScope,
-} from '../../kernel/query/partition.js'
-import type { PartitionScope } from '../../kernel/query/partition.js'
+} from '../../kernel/query/relate/partition.js'
+import type { PartitionScope } from '../../kernel/query/relate/partition.js'
 
 /**
  * The collection holding one registry record per partitioned logical

@@ -1,0 +1,61 @@
+{
+  "$comment": "Machine-readable migration map for noy-db#1458 — the QUERY TIERS split. The query DSL was one class in one subpath; it is now four groups. `@noy-db/hub/query` keeps Find (where/or/and/filter/wherePredicate/orderBy/limit/offset/page/after/first/toArray/count/exists/ids/toPlan) and is unchanged for consumers who only find records. Live, Reduce and Relate moved to `@noy-db/hub/query/{live,reduce,relate}`, which are SIDE-EFFECT imports: one line at the app's entry patches the methods onto Query.prototype and merges their types, so no call site changes. ⭐ WHO IS AFFECTED, precisely: only consumers who import from `@noy-db/hub/query` directly. A consumer on the root barrel `@noy-db/hub` needs NO row here — the root barrel imports all three groups, so every method and every re-export is exactly where it was. That is why the rows below are `import-move` rather than `subpath`: the SUBPATH `@noy-db/hub/query` still resolves and still exports Find; what moved is a set of symbols within it. ⚠️ THE COVERAGE CHECKER CANNOT SEE THIS BREAK. `scripts/check-codemod-coverage.mjs` measures the package's whole reachable surface as a union across subpaths, and every symbol below is still reachable — from a different subpath. It reports zero losses for this change, correctly by its own definition and uselessly for this one. These rows are hand-written for that reason; do not read the green checker as evidence the map is unnecessary.",
+  "version": "0.8.0-pre",
+  "renames": [
+    {
+      "from": "@noy-db/hub/query:applyJoins",
+      "to": "@noy-db/hub/query/relate:applyJoins",
+      "kind": "import-move",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": false,
+      "section": "query-tiers",
+      "note": "Relate's free functions moved with the group. `safeGlobalReplace: false` throughout this map: the symbol name is unchanged, so a global find-and-replace on the NAME is meaningless — the edit is to the import SPECIFIER, and only in files that import from '@noy-db/hub/query'."
+    },
+    { "from": "@noy-db/hub/query:DEFAULT_JOIN_MAX_ROWS", "to": "@noy-db/hub/query/relate:DEFAULT_JOIN_MAX_ROWS", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:DEFAULT_CROSS_JOIN_MAX_ROWS", "to": "@noy-db/hub/query/relate:DEFAULT_CROSS_JOIN_MAX_ROWS", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:resetJoinWarnings", "to": "@noy-db/hub/query/relate:resetJoinWarnings", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:runTraversal", "to": "@noy-db/hub/query/relate:runTraversal", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:explainPlan", "to": "@noy-db/hub/query/relate:explainPlan", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:renderExplainText", "to": "@noy-db/hub/query/relate:renderExplainText", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:ALL_PARTITIONS", "to": "@noy-db/hub/query/relate:ALL_PARTITIONS", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:describePartitionScope", "to": "@noy-db/hub/query/relate:describePartitionScope", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:partitionsInScope", "to": "@noy-db/hub/query/relate:partitionsInScope", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:resolvePartitionScope", "to": "@noy-db/hub/query/relate:resolvePartitionScope", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    {
+      "from": "@noy-db/hub/query:JoinTooLargeError",
+      "to": "@noy-db/hub/query/relate:JoinTooLargeError",
+      "kind": "import-move",
+      "package": "@noy-db/hub",
+      "safeGlobalReplace": false,
+      "section": "query-tiers",
+      "note": "⚠️ An `instanceof` check, not just an import. The class is the same object — it comes from the same `kernel/errors.ts` and hub builds with code-splitting so cross-subpath identity holds — so a consumer who catches it from the ROOT barrel is unaffected. Only the import specifier in a `/query`-importing file changes. Same for the four errors below."
+    },
+    { "from": "@noy-db/hub/query:DanglingReferenceError", "to": "@noy-db/hub/query/relate:DanglingReferenceError", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:TraversalCycleError", "to": "@noy-db/hub/query/relate:TraversalCycleError", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:CrossJoinTooLargeError", "to": "@noy-db/hub/query/relate:CrossJoinTooLargeError", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:CrossJoinSourceUnknownError", "to": "@noy-db/hub/query/relate:CrossJoinSourceUnknownError", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:buildLiveQuery", "to": "@noy-db/hub/query/live:buildLiveQuery", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:dateTrunc", "to": "@noy-db/hub/query/reduce:dateTrunc", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:isDateTruncKey", "to": "@noy-db/hub/query/reduce:isDateTruncKey", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:truncateDate", "to": "@noy-db/hub/query/reduce:truncateDate", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" },
+    { "from": "@noy-db/hub/query:GroupCardinalityError", "to": "@noy-db/hub/query/reduce:GroupCardinalityError", "kind": "import-move", "package": "@noy-db/hub", "safeGlobalReplace": false, "section": "query-tiers" }
+  ],
+  "sideEffectImports": [
+    {
+      "subpath": "@noy-db/hub/query/live",
+      "methods": ["subscribe", "live"],
+      "note": "Add `import '@noy-db/hub/query/live'` once, anywhere in the app's entry, if any file calls these on a Query obtained through `@noy-db/hub/query`."
+    },
+    {
+      "subpath": "@noy-db/hub/query/reduce",
+      "methods": ["aggregate", "groupBy", "window", "distinct", "scan().aggregate", "scan().groupBy"],
+      "note": "The METHODS, not the aggregate SERVICE. `withReduce()` from `@noy-db/hub/reduce` is still what makes them compute; these are two different opt-ins and both are still required."
+    },
+    {
+      "subpath": "@noy-db/hub/query/relate",
+      "methods": ["join", "joinOn", "rightJoin", "fullOuterJoin", "crossJoin", "crossJoinWith", "traverse", "ancestorsOf", "descendantsOf", "explain", "scan().join"],
+      "note": "Also fills the executor's join hooks, so a plan carrying legs built elsewhere can run."
+    }
+  ],
+  "$sideEffectComment": "Not `renames`, because nothing is renamed: this field lists the imports a consumer must ADD. Omitting one is caught by `tsc` — the method's type ships with its subpath, so the call does not compile — and at runtime by QueryExtensionMissingError, which names the method and the subpath. A consumer on the root barrel adds nothing."
+}

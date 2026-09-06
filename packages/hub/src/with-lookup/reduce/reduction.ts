@@ -10,7 +10,7 @@
  *   - `.live(): LiveReduction<R>` — reactive primitive that
  *     re-runs the reduction whenever the query's source notifies of
  *     a change. Since #1341 the RECORD SET it reduces is maintained
- *     incrementally upstream (see `kernel/query/incremental.ts`), so a
+ *     incrementally upstream (see `kernel/query/live/incremental.ts`), so a
  *     change costs one predicate evaluation instead of a full scan — but
  *     the reducers themselves still run a complete `init → step* →
  *     finalize` fold over that set. Driving `remove()` per delta (the
@@ -37,7 +37,7 @@
  */
 
 import type { Reducer } from './reducers.js'
-import type { SourceChange } from '../../kernel/query/incremental.js'
+import type { SourceChange } from '../../kernel/query/live/incremental.js'
 import { gateTerminal } from '../../kernel/query/hydration.js'
 import type { HydrationGate } from '../../kernel/query/hydration.js'
 
