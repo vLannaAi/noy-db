@@ -95,6 +95,57 @@ describe('#1447 — dumpSchema reports via coverage', () => {
   })
 })
 
+describe('#1447 — `reports` says what the emitter CAN answer, not what it found', () => {
+  /**
+   * ⛔ The hazard this closes, found by a consumer attempting the adoption:
+   * their documentation gate runs against a hub whose `dumpSchema()` has no
+   * `via` key at all. Switching from source-parsing to the live report there
+   * finds nothing, reads it as "no via fields declared", and PASSES VACUOUSLY
+   * — the exact failure the gate exists to prevent, reintroduced by adopting
+   * the better instrument on an emitter that cannot answer.
+   *
+   * Absence was doing double duty: "nothing declared" AND "this hub does not
+   * report". Only the second is a lie about the collection, and only
+   * `reports` can tell them apart.
+   */
+  it('lists via even when NOT ONE collection declares any', async () => {
+    // The decisive case. A content-based list would omit `via` here and
+    // reproduce the ambiguity exactly: a consumer could not distinguish this
+    // vault from one whose hub cannot report.
+    const db = await createNoydb({ store: memoryStore(), user: 'o', secret: SECRET })
+    const vault = await db.openVault('V')
+    vault.collection<{ id: string; n: number }>('plain')
+    const snap = await vault.dumpSchema()
+
+    expect(snap.reports).toContain('via')
+    expect(snap.collections['plain']?.via).toBeUndefined()
+    // Read together, those two say: "this emitter reports via, and this
+    // collection declares none" — which is the sentence a gate needs.
+  })
+
+  it('lists via when a collection does declare some', async () => {
+    const vault = await vaultWith({ moneyFields: { amount: money({ currency: 'THB', scale: 2 }) } })
+    const snap = await vault.dumpSchema()
+    expect(snap.reports).toContain('via')
+    expect(snap.collections['rows']?.via).toEqual({ amount: ['money'] })
+  })
+
+  it('adds stats only when it was actually asked for', async () => {
+    const vault = await vaultWith({ moneyFields: { amount: money({ currency: 'THB', scale: 2 }) } })
+    expect((await vault.dumpSchema()).reports).toEqual(['via'])
+    expect((await vault.dumpSchema({ withStats: true })).reports).toEqual(['via', 'stats'])
+  })
+
+  it('is required, so `undefined` can never mean "old emitter"', async () => {
+    // An optional field would move the same ambiguity one level up.
+    const vault = await vaultWith({})
+    const snap = await vault.dumpSchema()
+    expect(snap.reports).toBeDefined()
+    expect(Array.isArray(snap.reports)).toBe(true)
+    expect(snap._noydb_snapshot).toBe(2)
+  })
+})
+
 describe('#1447 — the report carries no configuration', () => {
   it('names the field and the brand, and nothing else', async () => {
     const vault = await vaultWith({

@@ -148,8 +148,38 @@ export interface InternalCollectionStats {
   readonly bytes: number
 }
 
+/**
+ * A report section `dumpSchema()` is capable of emitting (#1447).
+ *
+ * ⛔ CAPABILITY OF THE EMITTER, NEVER CONTENT OF THIS DUMP. `reports` lists
+ * what this hub *would* have reported, not what it found — a vault that
+ * genuinely declares no via fields still lists `'via'`.
+ *
+ * That distinction is the entire point. A content-based list reintroduces the
+ * ambiguity it exists to remove: a consumer could not tell "no via fields
+ * here" from "this hub cannot report them", which is exactly how a
+ * documentation gate switching to the live report passes VACUOUSLY on a hub
+ * too old to answer. Measured by a consumer attempting that adoption.
+ */
+export type SnapshotReport = 'via' | 'stats'
+
 export interface VaultSchemaSnapshot {
-  readonly _noydb_snapshot: 1
+  readonly _noydb_snapshot: 2
+  /**
+   * Which report sections this snapshot's emitter can produce (#1447).
+   *
+   * Check this before concluding anything from an ABSENT section:
+   *
+   * ```ts
+   * if (!snap.reports.includes('via')) throw new Error('hub cannot report via')
+   * // only now is a missing `via` key evidence that a collection declares none
+   * ```
+   *
+   * Required, and required deliberately: an optional field would leave
+   * `undefined` meaning "old emitter", which is the same ambiguity one level up.
+   * Every snapshot states what it can say.
+   */
+  readonly reports: readonly SnapshotReport[]
   readonly vault: string
   readonly emittedAt: string
   readonly subsystems: Record<string, boolean>
