@@ -33,6 +33,7 @@ import type { NoydbStore, EncryptedEnvelope, SlotInfo } from '../../kernel/types
 import { ValidationError } from '../../kernel/errors.js'
 import { buildRecordAad, buildRecordEnvelope, encrypt, type EnclaveKey } from '../../kernel/enclave/index.js'
 import { reportOrphanBlobChunks, type OrphanChunkReport } from './orphan-report.js'
+import { sweepUnreferencedLegacyBlobs, type UnreferencedLegacyBlobReport } from './legacy-sweep.js'
 
 // ─── Config types ───────────────────────────────────────────────────────
 
@@ -168,6 +169,15 @@ export interface CompactionResult {
    * is the expected reading everywhere else.
    */
   readonly orphanBlobChunks: OrphanChunkReport
+  /**
+   * #1453 — legacy (no `_cek`) blobs at `refCount <= 0`: released by every
+   * reference-drop path but never reclaimed, because a legacy chunk has no
+   * eager shred. Counted on every run; deleted only with
+   * `reclaimLegacyBlobs: true`. Not an orphan in the `orphanBlobChunks`
+   * sense — these rows keep their index entry, which is exactly why that
+   * report could not see them.
+   */
+  readonly unreferencedLegacyBlobs: UnreferencedLegacyBlobReport
 }
 
 // ─── Core ──────────────────────────────────────────────────────────────
@@ -200,6 +210,12 @@ export interface CompactRunOptions {
    * `lastAccessAt` stamp, falling back to `uploadedAt`.
    */
   readonly cacheBudget?: { readonly maxBytes: number }
+  /**
+   * #1453 — reclaim unreferenced legacy blobs (chunks first, then the index
+   * row). Off by default: reclaiming is irreversible and the default posture
+   * for a maintenance pass is to report. Ignored under `dryRun`.
+   */
+  readonly reclaimLegacyBlobs?: boolean
 }
 
 export interface CompactionContext {
@@ -244,6 +260,8 @@ export async function runCompaction(
   const now = options.now ?? new Date()
   const maxEvictions = options.maxEvictions ?? Infinity
   const dryRun = options.dryRun === true
+  // #1453 — always counted, reclaimed only on request and never under dryRun.
+  const unreferencedLegacyBlobs = await sweepUnreferencedLegacyBlobs(ctx, options.reclaimLegacyBlobs === true && !dryRun)
   if (options.cacheBudget !== undefined
     && (!Number.isFinite(options.cacheBudget.maxBytes) || options.cacheBudget.maxBytes < 0)) {
     throw new ValidationError('compact(): cacheBudget.maxBytes must be a non-negative finite number (#808)')
@@ -346,6 +364,7 @@ export async function runCompaction(
     budgetBytesFreed,
     byCollection,
     orphanBlobChunks,
+    unreferencedLegacyBlobs,
   }
 }
 

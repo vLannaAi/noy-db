@@ -21,6 +21,7 @@ import { createNoydb } from '../src/kernel/noydb.js'
 import { NoydbEventEmitter } from '../src/kernel/events.js'
 import { withSync } from '../src/with-sync/index.js'
 import { withPeriods } from '../src/with-audit/periods/index.js'
+import { hashStoredPeriod, type PeriodRecord } from '../src/with-audit/periods/periods.js'
 import { SyncEngine } from '../src/with-sync/engine.js'
 
 // ─── Inline memory adapter (mirrors sync-partial.test.ts harness) ──────────
@@ -61,12 +62,16 @@ const env = (data: object, ts: string, v = 1): EncryptedEnvelope =>
 const marker = (ts: string, v: number): EncryptedEnvelope =>
   ({ _noydb: 1, _v: v, _ts: ts, _iv: '', _data: '', _del: true })
 
-/** A closed `_periods/<name>` record, as `closePeriod()` persists it. */
-const closedPeriod = (name: string, endDate: string, closedAt: string, priorPeriodName?: string): EncryptedEnvelope =>
-  env({
-    name, kind: 'closed', endDate, closedAt, closedBy: 'server', priorPeriodHash: '',
-    ...(priorPeriodName !== undefined ? { priorPeriodName } : {}),
-  }, closedAt)
+/**
+ * A closed `_periods/<name>` record, as `closePeriod()` persists it — INCLUDING
+ * a real `priorPeriodHash`: since #1454 the loader verifies the chain, so a
+ * fixture with an empty hash and a named predecessor reads as tampering.
+ */
+const periodRecord = (name: string, endDate: string, closedAt: string, prior?: { name: string; hash: string }): PeriodRecord => ({
+  name, kind: 'closed', endDate, closedAt, closedBy: 'server', priorPeriodHash: prior?.hash ?? '',
+  ...(prior !== undefined ? { priorPeriodName: prior.name } : {}),
+})
+const closedPeriod = (rec: PeriodRecord): EncryptedEnvelope => env(rec as unknown as Record<string, unknown>, rec.closedAt)
 
 interface Invoice { amount: number; label?: string }
 
@@ -79,13 +84,14 @@ const CUR_TS = '2026-07-10T00:00:00.000Z'
 
 /** Remote seeded with two closed periods + one invoice per window. */
 function seedRemote(remote: NoydbStore): Promise<unknown> {
-  return Promise.all([
-    remote.put(COMP, '_periods', 'Q1', closedPeriod('Q1', '2026-03-31', '2026-04-01T00:00:00.000Z')),
-    remote.put(COMP, '_periods', 'Q2', closedPeriod('Q2', '2026-06-30', '2026-07-01T00:00:00.000Z', 'Q1')),
+  const q1 = periodRecord('Q1', '2026-03-31', '2026-04-01T00:00:00.000Z')
+  return hashStoredPeriod(q1).then((q1Hash) => Promise.all([
+    remote.put(COMP, '_periods', 'Q1', closedPeriod(q1)),
+    remote.put(COMP, '_periods', 'Q2', closedPeriod(periodRecord('Q2', '2026-06-30', '2026-07-01T00:00:00.000Z', { name: 'Q1', hash: q1Hash }))),
     remote.put(COMP, 'invoices', 'inv-q1', env({ amount: 1 }, Q1_TS)),
     remote.put(COMP, 'invoices', 'inv-q2', env({ amount: 2 }, Q2_TS)),
     remote.put(COMP, 'invoices', 'inv-cur', env({ amount: 3 }, CUR_TS)),
-  ])
+  ]))
 }
 
 async function thinClient(local: NoydbStore, remote: NoydbStore) {
@@ -417,7 +423,8 @@ describe('period-scoped pull (#807)', () => {
       await seedRemote(remote)
       await remote.put(COMP, '_periods', 'Q3-open', env({
         name: 'Q3-open', kind: 'opened', startDate: '2026-07-01', endDate: '2026-06-30',
-        closedAt: '2026-07-01T00:00:01.000Z', closedBy: 'server', priorPeriodHash: '', priorPeriodName: 'Q2',
+        // A chain root of its own (#1454 verifies anchors): this test is about `kind`.
+        closedAt: '2026-07-01T00:00:01.000Z', closedBy: 'server', priorPeriodHash: '',
       }, '2026-07-01T00:00:01.000Z'))
       const db = await thinClient(local, remote)
       await db.openVault(COMP)

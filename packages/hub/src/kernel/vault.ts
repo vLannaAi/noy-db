@@ -36,6 +36,7 @@ import { buildRecipientKeyringFile } from '../with-party/team/keyring.js'
 import { ensureCollectionDEK, hasAccess } from '../with-party/team/keyring.js'
 import { isSecretBearingReservedCollection } from '../with-party/team/reserved-secret-collections.js'
 import { isManifestReservedCollection } from '../with-shape/manifest/reserved-collections.js'
+import { isPeriodsReservedCollection } from '../with-audit/periods/reserved-collections.js'
 import {
   assertCanExport as assertCanExportCapability,
   assertCanImport as assertCanImportCapability,
@@ -704,6 +705,11 @@ export class Vault {
     // privileged/strict-CAS/ledger-audited and served only by the manifest
     // engine's dedicated API, never the generic collection handle.
     if (isSecretBearingReservedCollection(collectionName) || isManifestReservedCollection(collectionName)) throw new ReservedCollectionNameError(collectionName)
+    // #1454 — the periods family joins it for INTEGRITY rather than secrecy:
+    // `_periods` / `_period_reopens` served here let one `put()` rewrite a
+    // close and erase its append-only reopen log, undetected on the next cold
+    // open. The period engine writes them through its own path.
+    if (isPeriodsReservedCollection(collectionName)) throw new ReservedCollectionNameError(collectionName)
 
     if (this.satelliteRegistry?.byJoined(collectionName)) { // #591: joined handle — not a directly reachable collection
       throw new SatelliteConfigError(`"${collectionName}" is a joined handle — use vault.joined('${collectionName}'), not vault.collection().`)

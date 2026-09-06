@@ -12,6 +12,8 @@ export type {
   MaterializedFromMeta,
   UnionSource,
   UnionArmJoin,
+  UnionArmRefJoin,
+  UnionArmDeclaredJoin,
   ProjectionSpec,
   ProjectionJoinLeg,
 } from './types.js'

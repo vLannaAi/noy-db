@@ -161,6 +161,10 @@ export class MaterializedViewRegistry {
       // fold them into the dependency set so a write to a join-target
       // collection triggers MV refresh (and contributes a cycle edge).
       if (spec.sources) for (const s of spec.sources) dependencies.add(s)
+      // #1411 — a declared join names its target literally, so it needs no
+      // `sources` entry to be a dependency (a ref join's target is only known
+      // once the ref is declared, which is why THOSE must be listed).
+      for (const arm of spec.unionSources) for (const leg of arm.join ?? []) if ('on' in leg) dependencies.add(leg.target)
       queryPlanSummary = summarizeUnionPlan(spec)
     } else if (spec.projection) {
       // Projection-form (#810): dependencies are all AUTO — the primary

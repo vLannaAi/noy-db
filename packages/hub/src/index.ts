@@ -861,6 +861,8 @@ export type {
   MaterializedFromMeta,
   UnionSource,
   UnionArmJoin,
+  UnionArmRefJoin,
+  UnionArmDeclaredJoin,
   ProjectionSpec,
   ProjectionJoinLeg,
 } from './with-formula/materialized-views/index.js'
@@ -893,7 +895,7 @@ export type {
   ClosePeriodOptions,
   OpenPeriodOptions,
 } from './with-audit/periods/index.js'
-export { PeriodClosedError } from './kernel/errors.js'
+export { PeriodClosedError, PeriodChainError } from './kernel/errors.js'
 
 // Cache module — LRU + byte budget parsing
 export { Lru, parseBytes, estimateRecordBytes } from './kernel/cache/index.js'
