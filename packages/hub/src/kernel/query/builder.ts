@@ -324,7 +324,12 @@ export interface DeclaredPredicate {
  * snapshot is empty by ABSENCE, not by content. Rather than return a confident
  * `[]` / `0` / `false`, it returns a **pending result** — a thenable that
  * hydrates and re-runs the terminal when awaited, and throws
- * {@link CollectionNotHydratedError} on any other use. It is deliberately NOT a
+ * {@link CollectionNotHydratedError} on every use that READS it — `.length`,
+ * indexing, iteration, spread, `JSON.stringify`, any property access.
+ * `Array.isArray` answers `true`, so the ordinary defensive guard for a `T[]`
+ * reaches that throw rather than silently substituting `[]` (#1462); `typeof`
+ * and truthiness are the two uses that cannot throw, and
+ * `query/hydration.ts` enumerates why. It is deliberately NOT a
  * promise-shaped array: the moment the collection is hydrated the very same
  * call returns the plain synchronous value again. Write
  * `await collection.query().toArray()` — correct in both states — or
