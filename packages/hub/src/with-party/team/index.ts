@@ -55,6 +55,7 @@ export type {
 export {
   enrollAuthenticator,
   removeAuthenticator,
+  revokeAuthenticator, // #1445 — the three-step revocation; removeAuthenticator alone only hides
   updateAuthenticator,
   findAuthenticator,
 } from './authenticators.js'
@@ -63,6 +64,7 @@ export type {
   EnrollAuthenticatorWrappingKEKOptions,
   EnrollAuthenticatorWrappingDEKsOptions,
   UpdateAuthenticatorOptions,
+  RevokeAuthenticatorOptions,
 } from './authenticators.js'
 
 // ─── Tier-1 change flows ─────────────────────────────────
